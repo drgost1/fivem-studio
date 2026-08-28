@@ -13,7 +13,6 @@ release/
 *.config.local.json
 
 # Local-only prototype material that is not part of this product.
-agent_bridge/
 build_plan.md
 .mcp.json
 

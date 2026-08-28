@@ -76,7 +76,11 @@ export default function App() {
       .then((saved) => {
         setConfig(saved);
         setConfigLoaded(true);
-        void connect();
+        if (saved.txDataPath && saved.selectedProfile) {
+          void connect();
+        } else {
+          setSettingsOpen(true);
+        }
       })
       .catch((err) => {
         setConfigLoaded(true);
@@ -87,7 +91,7 @@ export default function App() {
   // The server is often started after Studio, so a failed connect can't be
   // terminal — keep retrying quietly in the background until it comes up.
   useEffect(() => {
-    if (!configLoaded || connected) return;
+    if (!configLoaded || connected || !config.txDataPath || !config.selectedProfile) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const retry = async () => {
@@ -100,7 +104,7 @@ export default function App() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [configLoaded, connected, connect]);
+  }, [configLoaded, config.txDataPath, config.selectedProfile, connected, connect]);
 
   // If the transport drops (server stopped), flip back to disconnected — which
   // re-arms the retry loop above.
@@ -199,7 +203,14 @@ export default function App() {
       setCenterTab("viewport");
     }
     setTreeRefreshKey((k) => k + 1);
-    await connect();
+    if (saved.txDataPath && saved.selectedProfile) {
+      await connect();
+    } else {
+      setConnected(false);
+      setRuntimeIdentity(null);
+      setWorkspaceMatch(null);
+      setConnectError(null);
+    }
   }
 
   async function openFile(path: string) {
@@ -312,6 +323,14 @@ export default function App() {
         fivemExePath={config.fivemExePath}
       />
 
+      {configLoaded && (!config.txDataPath || !config.selectedProfile) && (
+        <div className="warning-banner setup-banner" role="alert">
+          Choose a local txData root and server-data workspace before coding.
+          <button className="btn small" onClick={() => setSettingsOpen(true)}>
+            Open Settings
+          </button>
+        </div>
+      )}
       {!connected && connectError && (
         <div className="warning-banner">
           Local coding runtime unavailable: {connectError} — retrying automatically.

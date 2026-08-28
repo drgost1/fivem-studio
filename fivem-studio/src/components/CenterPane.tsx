@@ -230,7 +230,8 @@ function ConsoleTab({ connected, available }: { connected: boolean; available: b
       </div>
       {connected && available === false && (
         <div className="operations-empty" role="status">
-          Console tailing becomes available after txAdmin attaches this server-data workspace to one unambiguous control profile.
+          Console tailing requires exactly one txAdmin control profile whose <code>config.json</code> {" "}
+          <code>server.dataPath</code> points to this workspace. Start FXServer, then open Settings and Save again to rescan.
         </div>
       )}
       {error && <div className="error-text" style={{ padding: "0 8px" }}>{error}</div>}
@@ -311,7 +312,8 @@ function ResourcesSection({
       </div>
       {connected && resourceLifecycleAvailable === false && (
         <div className="operations-empty" role="status">
-          Add a local <code>rcon_password</code> in <code>server.cfg</code> or its workspace-local secrets include, then reconnect to enable resource listing and refresh controls. This does not indicate whether FXServer is running.
+          Add a local <code>rcon_password</code> in <code>server.cfg</code> or its workspace-local secrets include,
+          restart FXServer, then open Settings and Save again. This status does not indicate whether FXServer is running.
         </div>
       )}
       {error && <div className="error-text" role="alert">{error}</div>}

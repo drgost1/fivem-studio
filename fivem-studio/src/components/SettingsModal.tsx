@@ -154,7 +154,9 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
       setProfiles(found);
       setProfilesError(null);
       setDraft((d) => ({ ...d, selectedProfile: created.name }));
-      setWorkspaceMessage(`Created and selected ${created.name}. Save Settings to open it.`);
+      setWorkspaceMessage(
+        `Created and selected ${created.name}. Save Settings, add secrets.cfg, attach this .base folder in txAdmin as Existing Server Data, start FXServer, then save Settings again to rescan.`,
+      );
       setWorkspaceName("");
     } catch (err) {
       setSaveError((err as Error).message || "Could not create the local workspace.");
@@ -206,6 +208,10 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         </div>
 
         <label className="field-label">Server-data workspace</label>
+        <div className="field-hint">
+          Select the editable folder that contains <code>server.cfg</code> and <code>resources/</code>, usually a
+          <code>*.base</code> folder—not txAdmin's control-profile folder.
+        </div>
         <div style={{ marginBottom: 10 }}>
           {!draft.txDataPath ? (
             <div className="field-hint">Pick a txData folder above first.</div>
@@ -228,9 +234,20 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         </div>
 
         <div className="settings-divider">Local workspace</div>
-        <div className="field-hint" style={{ marginBottom: 6 }}>
-          Creates a local server-data folder only: <code>server.cfg</code>, <code>resources/[local]</code>, a gitignore,
-          and a secrets example. Attach and start it through txAdmin's normal setup flow. {" "}
+        <div className="setup-guide" role="note">
+          <strong>Required setup for local server tools</strong>
+          <ol>
+            <li>Create or select a server-data workspace below this txData root.</li>
+            <li>
+              Use numeric <code>127.0.0.1</code> endpoints and add your license key plus a local {" "}
+              <code>rcon_password</code> through <code>secrets.cfg</code>.
+            </li>
+            <li>
+              In txAdmin choose <strong>Existing Server Data</strong>, attach this exact workspace, and start FXServer.
+            </li>
+            <li>Save Settings again after changing server.cfg or attaching txAdmin so Workbench rescans both.</li>
+          </ol>
+          <strong>No server resource or separate MCP process is required.</strong> {" "}
           <a
             href="https://docs.fivem.net/docs/server-manual/setting-up-a-server-txadmin/"
             onClick={(e) => {
@@ -238,9 +255,13 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
               void window.api.shell.openExternal("https://docs.fivem.net/docs/server-manual/setting-up-a-server-txadmin/");
             }}
           >
-            Open the official txAdmin setup guide
+            Official txAdmin setup guide
           </a>
           .
+        </div>
+        <div className="field-hint" style={{ marginBottom: 6 }}>
+          Create writes only <code>server.cfg</code>, <code>resources/[local]</code>, a gitignore, and a secrets example.
+          txAdmin continues to own its separate control profile.
         </div>
         <div className="field-row" style={{ marginBottom: 6 }}>
           <input

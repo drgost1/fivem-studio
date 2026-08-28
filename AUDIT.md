@@ -22,6 +22,9 @@ add player or gameplay controls.
 - Corrected the txAdmin model: a `*.base` server-data workspace is distinct
   from txAdmin's version-owned control profile. Creation is atomic and writes
   only `server.cfg`, `resources/[local]`, `.gitignore`, and a secrets example.
+- Removed the obsolete in-server bridge entirely. First-run documentation and
+  Settings now explain the loopback endpoints, secrets include, RCON, txAdmin
+  attachment, server start, and rescan steps; no server resource is required.
 - Discover txAdmin attachment through the control profile's `server.dataPath`;
   fresh workspaces no longer masquerade as control profiles, and console
   capability stays off until an unambiguous attachment exists.

@@ -33,7 +33,12 @@ normal setup flow.
 Early releases are unsigned, so Windows may show an “Unknown publisher” or
 SmartScreen warning. Download only from the `GhzGarage/GhzWorkbench` release
 page, compare the published SHA-256 checksum, and verify the GitHub build
-attestation with `gh attestation verify <installer> -R GhzGarage/GhzWorkbench`.
+attestation:
+
+```powershell
+gh attestation verify <installer> -R GhzGarage/GhzWorkbench --signer-workflow GhzGarage/GhzWorkbench/.github/workflows/release.yml
+```
+
 Authenticode signing is on the pre-public-launch roadmap.
 
 ## Build from source

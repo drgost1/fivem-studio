@@ -35,7 +35,12 @@ jobs:
       - run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Attest installer and SBOM
+      - name: Attest installer provenance
+        if: ${{ hashFiles('release/Ghz-Workbench-Setup-*.exe') != '' }}
+        uses: actions/attest@v4
+        with:
+          subject-path: release/Ghz-Workbench-Setup-*.exe
+      - name: Attest installer SBOM
         if: ${{ hashFiles('release/Ghz-Workbench-Setup-*.exe') != '' && hashFiles('release/bom.cdx.json') != '' }}
         uses: actions/attest@v4
         with:

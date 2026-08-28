@@ -1,0 +1,92 @@
+{
+  "name": "ghz-workbench",
+  "version": "0.0.0-development",
+  "description": "A localhost-only Windows workbench for Cfx.re server-resource coding.",
+  "author": "GhzGarage",
+  "license": "MIT",
+  "repository": "https://github.com/GhzGarage/GhzWorkbench",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:vite": "vite",
+    "predev:electron": "npm run build:runtime",
+    "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:5173 electron .",
+    "build:runtime": "npm run bundle -w @ghzgarage/workbench-runtime",
+    "build:vite": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "prebuild": "npm run build:runtime",
+    "build": "npm run build:vite && npm run build:electron",
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/localUrl.test.js dist-electron/toolApproval.test.js dist-electron/fsTree.test.js dist-electron/managedRuntime.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js",
+    "start": "electron .",
+    "predist": "npm run build:runtime",
+    "dist": "electron-builder --win nsis --x64 --publish never"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "koffi": "^3.1.6",
+    "openai": "^7.8.0"
+  },
+  "devDependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "monaco-editor": "^0.50.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-resizable-panels": "^2.1.7",
+    "typescript": "^5.5.0",
+    "vite": "^6.4.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "build": {
+    "appId": "com.ghzgarage.workbench",
+    "productName": "Ghz Workbench",
+    "asar": true,
+    "directories": {
+      "output": "../release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/koffi/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../fivem-mcp-server/bundle/runtime.cjs",
+        "to": "runtime/runtime.cjs"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Ghz-Workbench-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ghz Workbench"
+    }
+  }
+}

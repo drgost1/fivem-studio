@@ -1,0 +1,45 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const version = process.argv[2];
+if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+  throw new Error("package-release.mjs requires a semantic version argument.");
+}
+
+for (const relative of ["package.json", "fivem-studio/package.json", "fivem-mcp-server/package.json"]) {
+  const target = path.join(root, relative);
+  const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
+  parsed.version = version;
+  fs.writeFileSync(target, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
+function run(executable, args) {
+  const isWindowsCommandShim = process.platform === "win32" && /\.cmd$/i.test(executable);
+  const command = isWindowsCommandShim ? (process.env.ComSpec || "cmd.exe") : executable;
+  const commandArgs = isWindowsCommandShim ? ["/d", "/s", "/c", executable, ...args] : args;
+  const result = spawnSync(command, commandArgs, { cwd: root, stdio: "inherit", shell: false });
+  if (result.error) throw new Error(`Could not run ${executable}: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`${executable} ${args.join(" ")} failed with exit code ${result.status}`);
+}
+
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+run(npm, ["install", "--package-lock-only", "--ignore-scripts"]);
+run(npm, ["run", "dist"]);
+// Verify the exact versioned package built by semantic-release. CI's earlier
+// package check covers a different build and cannot protect the release asset.
+run(npm, ["run", "verify:package"]);
+const cyclonedx = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "cyclonedx-npm.cmd" : "cyclonedx-npm");
+run(cyclonedx, ["--omit", "dev", "--output-file", "release/bom.cdx.json"]);
+
+const releaseDir = path.join(root, "release");
+const installers = fs.readdirSync(releaseDir).filter((name) => /^Ghz-Workbench-Setup-.*\.exe$/i.test(name)).sort();
+if (installers.length !== 1) throw new Error(`Expected exactly one installer, found ${installers.length}.`);
+const sums = installers.map((name) => {
+  const digest = createHash("sha256").update(fs.readFileSync(path.join(releaseDir, name))).digest("hex");
+  return `${digest}  ${name}`;
+});
+fs.writeFileSync(path.join(releaseDir, "SHA256SUMS.txt"), `${sums.join("\n")}\n`, "utf8");

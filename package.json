@@ -1,0 +1,35 @@
+{
+  "name": "ghz-workbench-monorepo",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Build and release workspace for Ghz Workbench.",
+  "author": "GhzGarage",
+  "license": "MIT",
+  "repository": "https://github.com/GhzGarage/GhzWorkbench",
+  "workspaces": [
+    "fivem-studio",
+    "fivem-mcp-server"
+  ],
+  "scripts": {
+    "build:runtime": "npm run bundle -w @ghzgarage/workbench-runtime",
+    "build:app": "npm run build -w ghz-workbench",
+    "build": "npm run build:app",
+    "typecheck": "npm run typecheck -w @ghzgarage/workbench-runtime && npm run typecheck -w ghz-workbench",
+    "test": "npm run test -w @ghzgarage/workbench-runtime && npm run test -w ghz-workbench",
+    "dist": "npm run dist -w ghz-workbench",
+    "verify:package": "node scripts/verify-package.mjs",
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "^6.0.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "semantic-release": "^25.0.9"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

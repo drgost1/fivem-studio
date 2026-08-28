@@ -1,0 +1,22 @@
+node_modules/
+*/node_modules/
+dist/
+*/dist/
+dist-electron/
+*/dist-electron/
+bundle/
+*/bundle/
+release/
+.smoke-userdata/
+*.log
+.env
+*.config.local.json
+
+# Local-only prototype material that is not part of this product.
+agent_bridge/
+build_plan.md
+.mcp.json
+
+# The monorepo owns the only lockfile.
+fivem-studio/package-lock.json
+fivem-mcp-server/package-lock.json

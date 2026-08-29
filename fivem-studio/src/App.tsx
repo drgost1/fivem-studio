@@ -37,6 +37,7 @@ const DEFAULT_CONFIG: StudioConfig = {
     minimap: false,
     stickyScroll: true,
     formatOnSave: false,
+    luaIntelligence: "balanced",
   },
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -323,15 +324,21 @@ export default function App() {
     setConfig(saved);
   }
 
-  async function openFile(path: string) {
-    setActivePath(path);
-    setCenterTab("editor");
-    if (openFiles.some((f) => f.path === path)) return;
+  async function openFile(path: string): Promise<boolean> {
+    if (openFiles.some((f) => f.path === path)) {
+      setActivePath(path);
+      setCenterTab("editor");
+      return true;
+    }
     try {
       const snapshot = await window.api.fs.readFile(path);
       setOpenFiles((files) => [...files, { path, ...snapshot, dirty: false }]);
+      setActivePath(path);
+      setCenterTab("editor");
+      return true;
     } catch (err) {
       alert((err as Error).message);
+      return false;
     }
   }
 
@@ -343,19 +350,33 @@ export default function App() {
         delete next[path];
         return next;
       }
+      const previous = current[path];
+      if (
+        previous?.length === problems.length &&
+        previous.every((problem, index) => {
+          const next = problems[index];
+          return problem.severity === next.severity && problem.message === next.message &&
+            problem.line === next.line && problem.column === next.column &&
+            problem.endLine === next.endLine && problem.endColumn === next.endColumn &&
+            problem.source === next.source && problem.code === next.code;
+        })
+      ) return current;
       return { ...current, [path]: problems };
     });
   }
 
-  function revealEditorProblem(problem: EditorProblem) {
-    setActivePath(problem.path);
-    setCenterTab("editor");
+  async function openEditorLocation(path: string, line: number, column: number) {
+    if (!await openFile(path)) return;
     setEditorReveal((current) => ({
-      path: problem.path,
-      line: problem.line,
-      column: problem.column,
+      path,
+      line,
+      column,
       nonce: (current?.nonce ?? 0) + 1,
     }));
+  }
+
+  function revealEditorProblem(problem: EditorProblem) {
+    void openEditorLocation(problem.path, problem.line, problem.column);
   }
 
   function closeTab(path: string) {
@@ -658,6 +679,7 @@ export default function App() {
               }
               onProblemsChange={handleEditorProblems}
               onRevealProblem={revealEditorProblem}
+              onOpenEditorLocation={(path, line, column) => void openEditorLocation(path, line, column)}
             />
           </Panel>
 

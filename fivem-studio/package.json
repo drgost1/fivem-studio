@@ -10,17 +10,18 @@
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"npm:dev:vite\" \"npm:dev:electron\"",
     "dev:vite": "vite",
-    "predev:electron": "npm run build:runtime",
+    "predev:electron": "npm run prepare:luals && npm run build:runtime",
     "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:5173 electron .",
     "build:runtime": "npm run bundle -w @qbcore-framework/qb-studio-runtime",
     "build:vite": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "prepare:luals": "node ../scripts/prepare-luals.mjs",
     "prebuild": "npm run build:runtime",
     "build": "npm run build:vite && npm run build:electron",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/localUrl.test.js dist-electron/toolApproval.test.js dist-electron/fsTree.test.js dist-electron/githubClient.test.js dist-electron/managedRuntime.test.js dist-electron/operationLock.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js dist-electron/configStore.test.js",
+    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/localUrl.test.js dist-electron/toolApproval.test.js dist-electron/fsTree.test.js dist-electron/githubClient.test.js dist-electron/managedRuntime.test.js dist-electron/operationLock.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js dist-electron/configStore.test.js dist-electron/luaLanguageServer.test.js",
     "start": "electron .",
-    "predist": "npm run build",
+    "predist": "npm run prepare:luals && npm run build",
     "dist": "electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
@@ -75,6 +76,14 @@
       {
         "from": "../fivem-mcp-server/bundle/runtime.cjs",
         "to": "runtime/runtime.cjs"
+      },
+      {
+        "from": "../vendor/lua-language-server",
+        "to": "lua-language-server"
+      },
+      {
+        "from": "resources/lua-library",
+        "to": "lua-library"
       }
     ],
     "win": {

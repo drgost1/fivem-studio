@@ -25,6 +25,7 @@ export interface EditorPreferences {
   minimap: boolean;
   stickyScroll: boolean;
   formatOnSave: boolean;
+  luaIntelligence: "off" | "balanced" | "full";
 }
 
 export interface EditorProblem {
@@ -274,6 +275,22 @@ declare global {
       };
       app: {
         setDirtyCount(count: number): Promise<void>;
+      };
+      lua: {
+        start(): Promise<
+          | {
+              ok: true;
+              mode: "balanced" | "full";
+              workspaceRoot: string;
+              libraryRoot: string;
+              version: string;
+            }
+          | { ok: false; mode: "off" | "balanced" | "full"; error: string }
+        >;
+        stop(): Promise<void>;
+        send(message: unknown): void;
+        onMessage(callback: (message: unknown) => void): () => void;
+        onStatus(callback: (status: { state: "stopped" | "error"; message?: string }) => void): () => void;
       };
       agent: {
         setApiKey(key: string): Promise<void>;

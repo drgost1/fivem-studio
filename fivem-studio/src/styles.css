@@ -536,6 +536,15 @@ button.tree-node {
 .editor-statusbar button.has-problems {
   color: var(--text);
 }
+.lua-service-status.ready {
+  color: #8bd49c;
+}
+.lua-service-status.starting {
+  color: var(--yellow);
+}
+.lua-service-status.error {
+  color: var(--red);
+}
 
 /* --- Live operations --- */
 .operations-view {

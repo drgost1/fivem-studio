@@ -540,6 +540,25 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
         <div className="settings-divider">Code editor</div>
 
+        <label className="field-label">Lua intelligence</label>
+        <select
+          value={draft.editor.luaIntelligence}
+          onChange={(e) => setDraft((d) => ({
+            ...d,
+            editor: {
+              ...d.editor,
+              luaIntelligence: e.target.value as StudioConfig["editor"]["luaIntelligence"],
+            },
+          }))}
+        >
+          <option value="balanced">Balanced — recommended</option>
+          <option value="full">Full workspace</option>
+          <option value="off">Off — syntax highlighting only</option>
+        </select>
+        <div className="field-hint">
+          Balanced limits background indexing and diagnoses open files at full speed. The service runs only while a Lua tab is open; Full raises the file limits for unusually large frameworks.
+        </div>
+
         <label className="field-label">Font size</label>
         <select
           value={draft.editor.fontSize}

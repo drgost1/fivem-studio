@@ -16,6 +16,7 @@
     "build": "npm run build:app",
     "typecheck": "npm run typecheck -w @qbcore-framework/qb-studio-runtime && npm run typecheck -w qb-studio",
     "test": "npm run test -w @qbcore-framework/qb-studio-runtime && npm run test -w qb-studio",
+    "prepare:luals": "node scripts/prepare-luals.mjs",
     "dist": "npm run dist -w qb-studio",
     "verify:package": "node scripts/verify-package.mjs",
     "release": "semantic-release"

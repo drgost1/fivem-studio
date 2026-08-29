@@ -36,6 +36,7 @@ import { createLocalWorkspace } from "./workspaceCreator";
 import { discoverTxAdminControlProfile, ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
 import { parseProviderUrl } from "./localUrl";
 import { OperationLock } from "./operationLock";
+import { LuaLanguageServerProcess, type JsonRpcMessage } from "./luaLanguageServer";
 import {
   checkArtifactUpdate,
   findRunningServerPids,
@@ -63,6 +64,7 @@ const pendingClientExePaths: Record<CfxTarget, string | null> = { legacy: null, 
 const pendingFxServerExePaths: Record<CfxTarget, string | null> = { legacy: null, enhanced: null, redm: null };
 let artifactRecoveryNotice: string | null = null;
 const serverOperation = new OperationLock();
+const luaLanguageServer = new LuaLanguageServerProcess();
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -82,6 +84,15 @@ function requireString(value: unknown, label: string, maxLength = 32767): string
 function requireFiniteNumber(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} must be a finite number.`);
   return value;
+}
+
+function requireJsonRpcMessage(value: unknown): JsonRpcMessage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("LuaLS message must be an object.");
+  const message = value as Record<string, unknown>;
+  if (message.jsonrpc !== "2.0") throw new Error("LuaLS message must use JSON-RPC 2.0.");
+  if (typeof message.method === "string" && message.method.length > 256) throw new Error("LuaLS method name is too long.");
+  if (Buffer.byteLength(JSON.stringify(message)) > 8 * 1024 * 1024) throw new Error("LuaLS message is too large.");
+  return message;
 }
 
 function activeProfileRoot(): string {
@@ -329,6 +340,7 @@ app.on("window-all-closed", () => {
   stopWatching();
   windowEmbed.detach();
   stopManagedRuntime();
+  luaLanguageServer.stop();
   if (process.platform !== "darwin") app.quit();
 });
 
@@ -346,6 +358,7 @@ function registerIpcHandlers() {
         agent.resetConversation();
         await mcpDisconnect();
         stopManagedRuntime();
+        luaLanguageServer.stop();
       }
       if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
       if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
@@ -571,6 +584,56 @@ function registerIpcHandlers() {
   ipcMain.handle("app:setDirtyCount", (_e, count: unknown) => {
     const valid = requireFiniteNumber(count, "Dirty file count");
     dirtyFileCount = Math.max(0, Math.min(10000, Math.floor(valid)));
+  });
+
+  // --- on-demand Lua language intelligence ---
+  // The executable is part of the verified application bundle. The renderer
+  // only exchanges JSON-RPC messages with this one child process and cannot
+  // choose an executable, workspace, environment, or command-line argument.
+  ipcMain.handle("lua:start", () => {
+    const config = loadConfig();
+    const mode = config.editor.luaIntelligence;
+    if (mode === "off") {
+      luaLanguageServer.stop();
+      return { ok: false as const, mode, error: "Lua intelligence is disabled in Settings." };
+    }
+    const workspaceRoot = activeProfileRoot();
+    const runtimeRoot = app.isPackaged
+      ? path.join(process.resourcesPath, "lua-language-server")
+      : path.join(app.getAppPath(), "..", "vendor", "lua-language-server");
+    const libraryRoot = app.isPackaged
+      ? path.join(process.resourcesPath, "lua-library")
+      : path.join(app.getAppPath(), "resources", "lua-library");
+    const executable = path.join(runtimeRoot, "bin", "lua-language-server.exe");
+    if (!fs.existsSync(executable)) {
+      return { ok: false as const, mode, error: "The bundled Lua language server is missing. Reinstall QB Studio." };
+    }
+    if (!fs.existsSync(libraryRoot)) {
+      return { ok: false as const, mode, error: "The bundled QBCore/Cfx definitions are missing. Reinstall QB Studio." };
+    }
+    const logPath = path.join(app.getPath("logs"), "lua-language-server");
+    fs.mkdirSync(logPath, { recursive: true });
+    luaLanguageServer.start(
+      executable,
+      workspaceRoot,
+      logPath,
+      (message) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("lua:message", message);
+      },
+      (status) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("lua:status", status);
+      },
+    );
+    return { ok: true as const, mode, workspaceRoot, libraryRoot, version: "3.19.1" };
+  });
+  ipcMain.handle("lua:stop", () => luaLanguageServer.stop());
+  ipcMain.on("lua:send", (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return;
+    try {
+      luaLanguageServer.send(requireJsonRpcMessage(value));
+    } catch (error) {
+      mainWindow.webContents.send("lua:status", { state: "error", message: (error as Error).message });
+    }
   });
 
   // --- agent chat ---

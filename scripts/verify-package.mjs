@@ -24,6 +24,22 @@ if (!fs.existsSync(runtime) || fs.statSync(runtime).size < 100_000) {
   throw new Error("The packaged loopback runtime is missing or incomplete.");
 }
 
+const luaLanguageServer = path.join(
+  releaseDir,
+  "win-unpacked",
+  "resources",
+  "lua-language-server",
+  "bin",
+  "lua-language-server.exe",
+);
+if (!fs.existsSync(luaLanguageServer) || fs.statSync(luaLanguageServer).size < 500_000) {
+  throw new Error("The packaged Lua language server is missing or incomplete.");
+}
+const luaLibrary = path.join(releaseDir, "win-unpacked", "resources", "lua-library", "qb-studio-cfx.lua");
+if (!fs.existsSync(luaLibrary) || fs.statSync(luaLibrary).size < 1_000) {
+  throw new Error("The packaged QBCore/Cfx Lua definitions are missing or incomplete.");
+}
+
 const packagedExe = path.join(releaseDir, "win-unpacked", "QB Studio.exe");
 if (!fs.existsSync(packagedExe)) throw new Error("The unpacked QB Studio executable is missing.");
 

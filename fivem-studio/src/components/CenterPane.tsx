@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OpenFile } from "../App";
 import type { EditorPreferences, EditorProblem, WindowCandidate } from "../global";
+import type { LuaServiceStatus } from "../luaLanguageService";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
@@ -81,6 +82,7 @@ interface CenterPaneProps {
   onSelectionChange: (selectedText: string, startLine: number, endLine: number) => void;
   onProblemsChange: (path: string, problems: EditorProblem[]) => void;
   onRevealProblem: (problem: EditorProblem) => void;
+  onOpenEditorLocation: (path: string, line: number, column: number) => void;
 }
 
 export default function CenterPane({
@@ -106,10 +108,19 @@ export default function CenterPane({
   onSelectionChange,
   onProblemsChange,
   onRevealProblem,
+  onOpenEditorLocation,
 }: CenterPaneProps) {
   const activeFile = openFiles.find((f) => f.path === activePath);
   const labels = tabLabels(openFiles);
+  const openPathKey = openFiles.map((file) => file.path).join("\0");
+  // Content edits replace OpenFile objects, but the Monaco lifecycle depends
+  // only on the tab paths. Keep this array stable while the tab set is stable.
+  const openPaths = useMemo(() => openFiles.map((file) => file.path), [openPathKey]);
   const [problemsOpen, setProblemsOpen] = useState(false);
+  const [luaService, setLuaService] = useState<{ status: LuaServiceStatus; message?: string }>({ status: "stopped" });
+  const handleLuaStatusChange = useCallback((status: LuaServiceStatus, message?: string) => {
+    setLuaService((current) => current.status === status && current.message === message ? current : { status, message });
+  }, []);
   const problems = Object.values(editorProblems)
     .flat()
     .sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column);
@@ -220,14 +231,17 @@ export default function CenterPane({
                 <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
                   <CodeEditor
                     file={activeFile}
-                    openPaths={openFiles.map((file) => file.path)}
+                    openPaths={openPaths}
                     language={languageForPath(activeFile.path)}
                     preferences={editorPreferences}
+                    luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
                     reveal={editorReveal}
                     onChange={onChange}
                     onSave={onSave}
                     onSelectionChange={onSelectionChange}
                     onProblemsChange={onProblemsChange}
+                    onOpenLocation={onOpenEditorLocation}
+                    onLuaStatusChange={handleLuaStatusChange}
                   />
                 </Suspense>
               </div>
@@ -255,6 +269,14 @@ export default function CenterPane({
               )}
               <div className="editor-statusbar">
                 <span>{languageForPath(activeFile.path)}</span>
+                {languageForPath(activeFile.path) === "lua" && (
+                  <span
+                    className={`lua-service-status ${luaService.status}`}
+                    title={luaService.message}
+                  >
+                    Lua: {luaService.status}
+                  </span>
+                )}
                 <button
                   type="button"
                   className={problems.length > 0 ? "has-problems" : ""}

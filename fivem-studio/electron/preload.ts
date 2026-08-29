@@ -73,6 +73,21 @@ const api = {
   app: {
     setDirtyCount: (count: number) => ipcRenderer.invoke("app:setDirtyCount", count),
   },
+  lua: {
+    start: () => ipcRenderer.invoke("lua:start"),
+    stop: () => ipcRenderer.invoke("lua:stop"),
+    send: (message: unknown) => ipcRenderer.send("lua:send", message),
+    onMessage: (callback: (message: unknown) => void) => {
+      const listener = (_e: unknown, message: unknown) => callback(message);
+      ipcRenderer.on("lua:message", listener);
+      return () => ipcRenderer.removeListener("lua:message", listener);
+    },
+    onStatus: (callback: (status: unknown) => void) => {
+      const listener = (_e: unknown, status: unknown) => callback(status);
+      ipcRenderer.on("lua:status", listener);
+      return () => ipcRenderer.removeListener("lua:status", listener);
+    },
+  },
   agent: {
     setApiKey: (key: string) => ipcRenderer.invoke("agent:setApiKey", key),
     hasApiKey: () => ipcRenderer.invoke("agent:hasApiKey"),

@@ -7,6 +7,7 @@ dist-electron/
 bundle/
 */bundle/
 release/
+vendor/lua-language-server/
 .smoke-userdata/
 *.log
 .env

@@ -310,8 +310,13 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           <ol>
             <li>Create or select a server-data workspace below this txData root.</li>
             <li>
-              Use numeric <code>127.0.0.1</code> endpoints and add your license key plus a local {" "}
-              <code>rcon_password</code> through <code>secrets.cfg</code>.
+              Keep the <code>endpoint_add_tcp/udp</code> lines already in <code>server.cfg</code>; Workbench reads
+              their port and always sends RCON through loopback.
+            </li>
+            <li>
+              Add your license key and <code>set rcon_password "..."</code> to <code>server.cfg</code>, or put them
+              in a sibling <code>secrets.cfg</code> and add <code>exec secrets.cfg</code> to <code>server.cfg</code>.
+              The password is not stored in Settings.
             </li>
             <li>
               In txAdmin choose <strong>Existing Server Data</strong>, attach this exact workspace, and start FXServer.

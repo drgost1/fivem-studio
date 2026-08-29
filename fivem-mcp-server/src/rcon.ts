@@ -52,7 +52,7 @@ export class RconClient {
   async command(cmd: string): Promise<string> {
     if (!this.password || this.password === "changeme") {
       throw new RconError(
-        "RCON_PASSWORD is not configured (still 'changeme' or empty). Set it to match rcon_password in server.cfg.",
+        "RCON_PASSWORD is not configured (still 'changeme' or empty). Set it to match `set rcon_password` in server.cfg.",
       );
     }
     if (Buffer.byteLength(cmd, "utf8") > MAX_COMMAND_BYTES) {
@@ -118,7 +118,7 @@ export class RconClient {
           finish(
             new RconError(
               `No RCON response from ${this.host}:${this.port} within ${this.timeoutMs}ms. ` +
-                `Check RCON_HOST/RCON_PORT/RCON_PASSWORD and that rcon_password is set in server.cfg.`,
+                `Check RCON_HOST/RCON_PORT/RCON_PASSWORD and that \`set rcon_password\` is present in server.cfg.`,
             ),
           );
         } else {

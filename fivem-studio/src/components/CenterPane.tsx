@@ -312,8 +312,8 @@ function ResourcesSection({
       </div>
       {connected && resourceLifecycleAvailable === false && (
         <div className="operations-empty" role="status">
-          Add a local <code>rcon_password</code> in <code>server.cfg</code> or its workspace-local secrets include,
-          restart FXServer, then open Settings and Save again. This status does not indicate whether FXServer is running.
+          Add <code>set rcon_password "..."</code> to <code>server.cfg</code> or an <code>exec</code>-loaded sibling
+          config, restart FXServer, then open Settings and Save again. The password is not stored in Settings.
         </div>
       )}
       {error && <div className="error-text" role="alert">{error}</div>}

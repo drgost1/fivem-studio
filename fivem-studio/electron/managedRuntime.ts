@@ -81,15 +81,22 @@ function parseConfigValue(value: string): string {
 function parseEndpoint(value: string): { host: string; port: number } {
   const ipv6 = value.match(/^\[([^\]]+)]:(\d{1,5})$/);
   const ipv4 = value.match(/^([^:]+):(\d{1,5})$/);
-  const host = ipv6?.[1] ?? ipv4?.[1];
+  const configuredHost = ipv6?.[1] ?? ipv4?.[1];
   const rawPort = ipv6?.[2] ?? ipv4?.[2];
   const port = Number(rawPort);
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+  if (!configuredHost || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid local FXServer endpoint: ${value}`);
   }
+
+  // Cfx.re and txAdmin generate wildcard bind addresses by default. A bind
+  // address is not a remote destination: mirror txAdmin's own connection
+  // behavior and turn it into an explicit loopback RCON target. Specific LAN,
+  // public, and hostname targets remain forbidden.
+  const normalizedHost = configuredHost.toLowerCase();
+  const host = normalizedHost === "0.0.0.0" ? "127.0.0.1" : normalizedHost === "::" ? "::1" : configuredHost;
   if (!isLoopbackHostname(host)) {
     throw new Error(
-      `The selected server.cfg binds FXServer to ${host}. Ghz Workbench requires numeric loopback endpoints for local coding profiles.`,
+      `The selected server.cfg binds FXServer to ${configuredHost}. Ghz Workbench only accepts numeric loopback endpoints or the standard 0.0.0.0/[::] wildcard binds.`,
     );
   }
   return { host, port };
@@ -109,12 +116,17 @@ export function parseLocalServerConfig(contents: string): LocalServerConfig {
       endpoints.push({ kind: endpoint[1].toLowerCase() as "tcp" | "udp", ...parseEndpoint(parseConfigValue(endpoint[2])) });
       continue;
     }
-    const rcon = line.match(/^rcon_password\s+(.+)$/i);
+    if (/^setr\s+rcon_password\b/i.test(line)) {
+      throw new Error("`setr rcon_password` would replicate the password to clients. Use `set rcon_password` instead.");
+    }
+    // Both forms are accepted by FXServer. The official starter server.cfg
+    // uses `set rcon_password`, while older/local configs often omit `set`.
+    const rcon = line.match(/^(?:set\s+)?rcon_password\s+(.+)$/i);
     if (rcon) rconPassword = parseConfigValue(rcon[1]);
   }
 
   if (endpoints.length === 0) {
-    throw new Error("The selected server.cfg has no endpoint_add_tcp/udp localhost endpoint.");
+    throw new Error("The selected server.cfg has no endpoint_add_tcp/udp directive.");
   }
   const chosen = endpoints.find((endpoint) => endpoint.kind === "udp") ?? endpoints[0];
   return { host: chosen.host, port: chosen.port, rconPassword };

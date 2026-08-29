@@ -27,7 +27,9 @@ test("local workspace creation is staged, minimal, and collision-safe", () => {
     assert.equal(fs.existsSync(path.join(created.resourcesPath, "[local]")), true);
     assert.equal(fs.existsSync(path.join(created.profileRoot, "config.json")), false);
     assert.equal(fs.existsSync(path.join(created.profileRoot, "data")), false);
-    assert.equal(fs.readFileSync(path.join(created.profileRoot, "secrets.cfg.example"), "utf8").includes("paste-your-own-key"), true);
+    const secretsExample = fs.readFileSync(path.join(created.profileRoot, "secrets.cfg.example"), "utf8");
+    assert.equal(secretsExample.includes("paste-your-own-key"), true);
+    assert.equal(secretsExample.includes('set rcon_password "choose-a-local-development-password"'), true);
     assert.throws(() => createLocalWorkspace(root, "sandbox", 30121), /already exists/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

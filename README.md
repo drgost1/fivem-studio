@@ -5,9 +5,10 @@ own localhost Cfx.re server. It puts the editor, resource tree, console, GitHub
 imports, AI coding assistant, and an optional passive local-client preview in
 one app.
 
-It is a development tool—not a server administration or gameplay tool. It
-refuses non-loopback server endpoints and does not expose player actions, raw
-RCON, arbitrary Lua execution, spawning, teleporting, or screenshots.
+It is a development tool—not a server administration or gameplay tool. Its
+control traffic never leaves numeric loopback, and it does not expose player
+actions, raw RCON, arbitrary Lua execution, spawning, teleporting, or
+screenshots.
 
 ## Highlights
 
@@ -42,19 +43,34 @@ folder, and a Cfx.re server license key.
 1. Confirm the editable server-data folder is a direct child of `txData`,
    normally `txData\YourServer.base`, and contains `server.cfg` and
    `resources\`.
-2. Make its FXServer endpoints numeric loopback addresses. Ghz Workbench
-   deliberately rejects `localhost`, `0.0.0.0`, LAN addresses, and public
-   addresses:
+2. Leave the existing `endpoint_add_tcp` and `endpoint_add_udp` lines alone.
+   Workbench reads their port; the standard `0.0.0.0` or `[::]` bind is
+   converted to a loopback RCON destination internally. Do not add duplicate
+   endpoint lines. Explicit LAN/public addresses and hostnames are rejected.
+3. Add a non-empty password. The simplest option is a line in `server.cfg`:
 
    ```cfg
-   endpoint_add_tcp "127.0.0.1:30120"
-   endpoint_add_udp "127.0.0.1:30120"
-   sv_master1 ""
+   set rcon_password "CHOOSE_A_LOCAL_DEVELOPMENT_PASSWORD"
    ```
 
-3. Set a non-empty `rcon_password` in `server.cfg` or a workspace-local file
-   loaded with `exec`. There is no RCON field in the app; Workbench reads the
-   active configuration directly.
+   If the standard config already has `#set rcon_password ""`, remove the
+   leading `#` and replace the empty value.
+
+   To keep it out of source control, instead create `secrets.cfg` beside
+   `server.cfg`, put that line in it, and load it from `server.cfg`:
+
+   ```cfg
+   exec secrets.cfg
+   ```
+
+   There is intentionally no RCON field in Settings: FXServer and Workbench
+   both read the selected local configuration, so there is only one password
+   to maintain. Exclude `secrets.cfg` from Git.
+
+   A stock wildcard bind may still make FXServer reachable through other
+   network interfaces depending on Windows Firewall/router settings. Workbench
+   only uses it to discover the port and still sends RCON to loopback. Use a
+   local development profile that is never port-forwarded or publicly hosted.
 4. In txAdmin, make sure one control profile points its `server.dataPath` to
    that exact server-data folder.
 5. Open Workbench Settings and choose:
@@ -76,7 +92,7 @@ folder, and a Cfx.re server license key.
 
    ```cfg
    sv_licenseKey "YOUR_OWN_LICENSE_KEY"
-   rcon_password "CHOOSE_A_LOCAL_DEVELOPMENT_PASSWORD"
+   set rcon_password "CHOOSE_A_LOCAL_DEVELOPMENT_PASSWORD"
    ```
 
 3. In its `server.cfg`, change `# exec secrets.cfg` to `exec secrets.cfg`.

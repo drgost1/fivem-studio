@@ -58,7 +58,7 @@ export function starterServerCfg(port: number, workspaceName: string): string {
 }
 
 const GITIGNORE = `# FXServer / txAdmin runtime output\ncache/\ncrashes/\nlogs/\nlocal-database/\ndata/\n.console-history\n.id\nserver.cfg.bkp\n\n# Local credentials\nsecrets.cfg\n`;
-const SECRETS_EXAMPLE = `# Copy this file to secrets.cfg. Do not commit secrets.cfg.\n# sv_licenseKey "paste-your-own-key-here"\n# rcon_password "choose-a-local-development-password"\n`;
+const SECRETS_EXAMPLE = `# Copy this file to secrets.cfg. Do not commit secrets.cfg.\n# sv_licenseKey "paste-your-own-key-here"\n# set rcon_password "choose-a-local-development-password"\n`;
 
 function writeDurableText(filePath: string, content: string): void {
   const fd = fs.openSync(filePath, "wx", 0o600);

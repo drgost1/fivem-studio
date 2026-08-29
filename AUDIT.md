@@ -9,9 +9,10 @@ add player or gameplay controls.
 
 ## Fixed in this stabilization pass
 
-- Enforced numeric loopback-only MCP, RCON, and FXServer targets without DNS
-  resolution; the selected local profile binds to `127.0.0.1` and disables
-  server-list advertisement.
+- Enforced numeric loopback-only MCP and RCON destinations without DNS
+  resolution. Standard Cfx.re wildcard bind directives are normalized to
+  loopback for RCON; explicit LAN/public targets remain rejected. Workbench's
+  generated local profile binds to `127.0.0.1` and disables advertisement.
 - Removed all player, entity, teleport, spawn, screenshot, arbitrary-eval, and
   raw-RCON tools from the UI, agent allowlists, and bundled runtime.
 - Added bounded requests/sessions, strict tool schemas, resource-name checks,
@@ -23,7 +24,7 @@ add player or gameplay controls.
   from txAdmin's version-owned control profile. Creation is atomic and writes
   only `server.cfg`, `resources/[local]`, `.gitignore`, and a secrets example.
 - Removed the obsolete in-server bridge entirely. First-run documentation and
-  Settings now explain the loopback endpoints, secrets include, RCON, txAdmin
+  Settings now show the exact `set rcon_password`/secrets include, txAdmin
   attachment, server start, and rescan steps; no server resource is required.
 - Discover txAdmin attachment through the control profile's `server.dataPath`;
   fresh workspaces no longer masquerade as control profiles, and console

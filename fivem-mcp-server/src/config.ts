@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { assertLoopbackHost, assertSafeMcpExposure, isSafeProfileName } from "./networkPolicy.js";
 
-loadDotenv();
+loadDotenv({ quiet: true });
 
 function optional(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;

@@ -21,8 +21,8 @@
     "release": "semantic-release"
   },
   "devDependencies": {
-    "@electron/asar": "^3.4.1",
     "@cyclonedx/cyclonedx-npm": "^6.0.1",
+    "@electron/asar": "^4.3.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",

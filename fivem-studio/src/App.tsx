@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { Group, Panel, Separator } from "react-resizable-panels";
 
 import TopBar from "./components/TopBar";
 import SettingsModal from "./components/SettingsModal";
@@ -528,8 +528,8 @@ export default function App() {
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        <PanelGroup direction="horizontal">
-          <Panel defaultSize={20} minSize={14}>
+        <Group orientation="horizontal">
+          <Panel defaultSize="20" minSize="14">
             <div className="pane">
               <div className="tabbar" role="tablist" aria-label="Sidebar views">
                 <button
@@ -578,9 +578,9 @@ export default function App() {
             </div>
           </Panel>
 
-          <PanelResizeHandle className="resize-handle resize-handle-h" />
+          <Separator className="resize-handle resize-handle-h" />
 
-          <Panel defaultSize={55} minSize={30}>
+          <Panel defaultSize="55" minSize="30">
             <CenterPane
               connected={connected}
               runtimeReadable={connected && workspaceMatch?.ok === true}
@@ -604,9 +604,9 @@ export default function App() {
             />
           </Panel>
 
-          <PanelResizeHandle className="resize-handle resize-handle-h" />
+          <Separator className="resize-handle resize-handle-h" />
 
-          <Panel defaultSize={25} minSize={18}>
+          <Panel defaultSize="25" minSize="18">
             <ChatPanel
               key={`${config.txDataPath ?? ""}|${config.selectedProfile ?? ""}`}
               connected={connected}
@@ -615,7 +615,7 @@ export default function App() {
               selection={selection.selectedText ? { ...selection, path: activePath } : null}
             />
           </Panel>
-        </PanelGroup>
+        </Group>
       </div>
 
       {settingsOpen && <SettingsModal config={config} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)} />}

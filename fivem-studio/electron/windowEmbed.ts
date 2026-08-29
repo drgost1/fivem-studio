@@ -12,7 +12,6 @@
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import koffi from "koffi";
 import type { BrowserWindow } from "electron";
 import {
   getFreshCandidate,
@@ -20,6 +19,11 @@ import {
   matchesDiscoveredWindow,
   type DiscoveredWindowCandidate,
 } from "./windowEmbedValidation";
+
+// Electron's main process is CommonJS, while Koffi exposes separate ESM and
+// CommonJS entry points. A type query keeps its public API without asking
+// TypeScript's Node16 resolver to emit an invalid static ESM import here.
+const koffi = require("koffi") as typeof import("koffi", { with: { "resolution-mode": "import" } }).default;
 
 const user32 = koffi.load("user32.dll");
 const kernel32 = koffi.load("kernel32.dll");

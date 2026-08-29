@@ -35,8 +35,8 @@ add player or gameplay controls.
   cannot terminate a newer workspace runtime.
 - Use short-lived opaque IDs for local-client preview candidates and revalidate
   window ownership before native reparenting operations.
-- Added an NSIS installer, CI, semantic versioning, GitHub Release assets,
-  checksums, an SBOM, signed GitHub build attestations, an MIT license, and
+- Added an NSIS installer, CI, semantic versioning, a single installer release
+  asset, signed GitHub build and SBOM attestations, an MIT license, and
   neutral Ghz Workbench branding.
 
 ## Next priorities

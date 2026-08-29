@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -34,12 +33,3 @@ run(npm, ["run", "dist"]);
 run(npm, ["run", "verify:package"]);
 const cyclonedx = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "cyclonedx-npm.cmd" : "cyclonedx-npm");
 run(cyclonedx, ["--omit", "dev", "--output-file", "release/bom.cdx.json"]);
-
-const releaseDir = path.join(root, "release");
-const installers = fs.readdirSync(releaseDir).filter((name) => /^Ghz-Workbench-Setup-.*\.exe$/i.test(name)).sort();
-if (installers.length !== 1) throw new Error(`Expected exactly one installer, found ${installers.length}.`);
-const sums = installers.map((name) => {
-  const digest = createHash("sha256").update(fs.readFileSync(path.join(releaseDir, name))).digest("hex");
-  return `${digest}  ${name}`;
-});
-fs.writeFileSync(path.join(releaseDir, "SHA256SUMS.txt"), `${sums.join("\n")}\n`, "utf8");

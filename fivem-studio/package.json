@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
     "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/localUrl.test.js dist-electron/toolApproval.test.js dist-electron/fsTree.test.js dist-electron/managedRuntime.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js",
     "start": "electron .",
-    "predist": "npm run build:runtime",
+    "predist": "npm run build",
     "dist": "electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {

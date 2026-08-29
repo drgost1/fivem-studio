@@ -26,6 +26,8 @@ GitHub imports require [Git for Windows](https://git-scm.com/download/win).
 
 Download the latest Windows installer from
 [Releases](https://github.com/GhzGarage/GhzWorkbench/releases) and run it once.
+Choose the `.exe`; GitHub automatically adds source-code ZIP and TAR archives,
+but they are not installers.
 Ghz Workbench does not require any resource to be added to your server. Point
 it at an existing Cfx.re Windows server artifact and it can start that local
 server, launch the FiveM client separately, and update the artifact files.
@@ -134,12 +136,14 @@ record.
 
 Early releases are unsigned, so Windows may show an “Unknown publisher” or
 SmartScreen warning. Download only from the `GhzGarage/GhzWorkbench` release
-page, compare the published SHA-256 checksum, and verify the GitHub build
-attestation:
+page and verify the GitHub build attestation:
 
 ```powershell
 gh attestation verify <installer> -R GhzGarage/GhzWorkbench --signer-workflow GhzGarage/GhzWorkbench/.github/workflows/release.yml
 ```
+
+The release workflow also records a CycloneDX SBOM attestation without adding
+another user-facing download to the release.
 
 Authenticode signing is on the pre-public-launch roadmap.
 

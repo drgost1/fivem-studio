@@ -6,13 +6,15 @@ import { fileURLToPath } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { extractFile, listPackage } from "@electron/asar";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = path.join(root, "release");
-const installer = fs.existsSync(releaseDir)
-  ? fs.readdirSync(releaseDir).find((name) => /^Ghz-Workbench-Setup-.*\.exe$/i.test(name))
-  : undefined;
-if (!installer) throw new Error("No Ghz Workbench installer was produced.");
+const installers = fs.existsSync(releaseDir)
+  ? fs.readdirSync(releaseDir).filter((name) => /^Ghz-Workbench-Setup-.*\.exe$/i.test(name))
+  : [];
+if (installers.length !== 1) throw new Error(`Expected exactly one Ghz Workbench installer, found ${installers.length}.`);
+const [installer] = installers;
 if (fs.statSync(path.join(releaseDir, installer)).size < 10 * 1024 * 1024) {
   throw new Error("The installer is unexpectedly small.");
 }
@@ -24,6 +26,62 @@ if (!fs.existsSync(runtime) || fs.statSync(runtime).size < 100_000) {
 
 const packagedExe = path.join(releaseDir, "win-unpacked", "Ghz Workbench.exe");
 if (!fs.existsSync(packagedExe)) throw new Error("The unpacked Ghz Workbench executable is missing.");
+
+const appArchive = path.join(releaseDir, "win-unpacked", "resources", "app.asar");
+if (!fs.existsSync(appArchive)) throw new Error("The packaged Electron app archive is missing.");
+
+function verifyPackagedRenderer() {
+  const entries = new Set(
+    listPackage(appArchive).map((entry) => entry.replace(/^[/\\]+/, "").replaceAll("\\", "/")),
+  );
+  const required = ["dist/index.html", "dist/manifest.json", "dist-electron/main.js", "dist-electron/preload.js"];
+  for (const entry of required) {
+    if (!entries.has(entry)) throw new Error(`Required packaged app entry is missing: ${entry}`);
+  }
+
+  const html = extractFile(appArchive, "dist/index.html").toString("utf8");
+  if (!html.includes('<div id="root"></div>')) {
+    throw new Error("The packaged renderer HTML is missing its React root.");
+  }
+
+  const references = [...html.matchAll(/(?:src|href)=["']\.\/([^"'?#]+)(?:[?#][^"']*)?["']/g)].map(
+    (match) => `dist/${match[1]}`,
+  );
+  if (!references.some((entry) => entry.endsWith(".js"))) {
+    throw new Error("The packaged renderer HTML does not reference a JavaScript bundle.");
+  }
+  for (const entry of references) {
+    if (!entries.has(entry)) throw new Error(`The packaged renderer references a missing asset: ${entry}`);
+  }
+
+  const manifest = JSON.parse(extractFile(appArchive, "dist/manifest.json").toString("utf8"));
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("The packaged Vite manifest is invalid.");
+  }
+  const indexEntry = manifest["index.html"];
+  if (!indexEntry || indexEntry.isEntry !== true || typeof indexEntry.file !== "string") {
+    throw new Error("The packaged Vite manifest has no renderer entry point.");
+  }
+
+  const manifestEntries = new Set(Object.keys(manifest));
+  for (const [source, value] of Object.entries(manifest)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`The packaged Vite manifest entry is invalid: ${source}`);
+    }
+    const record = value;
+    const emittedFiles = [record.file, ...(record.css ?? []), ...(record.assets ?? [])];
+    for (const emitted of emittedFiles) {
+      if (typeof emitted !== "string" || !entries.has(`dist/${emitted}`)) {
+        throw new Error(`The packaged Vite manifest references a missing asset: ${String(emitted)}`);
+      }
+    }
+    for (const imported of [...(record.imports ?? []), ...(record.dynamicImports ?? [])]) {
+      if (typeof imported !== "string" || !manifestEntries.has(imported)) {
+        throw new Error(`The packaged Vite manifest references an unknown bundle: ${String(imported)}`);
+      }
+    }
+  }
+}
 
 const forbidden = [".env", "agent_bridge"];
 for (const entry of forbidden) {
@@ -118,6 +176,7 @@ async function verifyRuntimeContract() {
   }
 }
 
+verifyPackagedRenderer();
 await verifyRuntimeContract();
 
-console.log(`Verified ${installer} and packaged loopback runtime identity contract v3.`);
+console.log(`Verified ${installer}, packaged renderer assets, and loopback runtime identity contract v3.`);

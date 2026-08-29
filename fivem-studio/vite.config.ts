@@ -8,6 +8,7 @@ export default defineConfig({
   base: "./", // load assets via relative paths when opened from file:// in packaged builds
   build: {
     outDir: "dist",
+    manifest: "manifest.json",
   },
   server: {
     port: 5173,

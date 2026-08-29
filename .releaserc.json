@@ -17,14 +17,6 @@
           {
             "path": "release/Ghz-Workbench-Setup-*.exe",
             "label": "Ghz Workbench Windows installer"
-          },
-          {
-            "path": "release/SHA256SUMS.txt",
-            "label": "SHA-256 checksums"
-          },
-          {
-            "path": "release/bom.cdx.json",
-            "label": "CycloneDX SBOM"
           }
         ],
         "successComment": false,

@@ -30,6 +30,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   redmFxServerExePath: null,
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
+  consoleRefreshIntervalMs: 2_000,
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
   openaiModel: "gemini-3.7-flash",
@@ -306,6 +307,11 @@ export default function App() {
     }
   }
 
+  async function handleConsoleRefreshIntervalChange(intervalMs: number) {
+    const saved = await window.api.config.set({ ...config, consoleRefreshIntervalMs: intervalMs });
+    setConfig(saved);
+  }
+
   async function openFile(path: string) {
     setActivePath(path);
     setCenterTab("editor");
@@ -580,6 +586,8 @@ export default function App() {
               runtimeReadable={connected && workspaceMatch?.ok === true}
               runtimeWritable={connected && workspaceMatch?.ok === true && runtimeIdentity?.capabilities.resourceLifecycle === true}
               consoleAvailable={connected && workspaceMatch?.ok === true ? (runtimeIdentity?.capabilities.console ?? null) : null}
+              consoleRefreshIntervalMs={config.consoleRefreshIntervalMs}
+              onConsoleRefreshIntervalChange={handleConsoleRefreshIntervalChange}
               resourceLifecycleAvailable={runtimeIdentity?.capabilities.resourceLifecycle ?? null}
               clientLabel={activeTargetLabel}
               centerTab={centerTab}

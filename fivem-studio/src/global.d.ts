@@ -12,6 +12,7 @@ export interface StudioConfig {
   redmFxServerExePath: string | null;
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
+  consoleRefreshIntervalMs: number;
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;

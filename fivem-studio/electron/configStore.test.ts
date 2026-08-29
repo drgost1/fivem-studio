@@ -49,3 +49,13 @@ test("explicit FiveM and RedM paths remain separate", () => {
   assert.equal(normalized.redmClientExePath, redmClient);
   assert.equal(normalized.redmArtifactTrack, "latest");
 });
+
+test("console refresh accepts supported intervals and defaults invalid values", () => {
+  for (const interval of [0, 1_000, 2_000, 5_000, 10_000, 30_000]) {
+    assert.equal(normalizeConfig({ consoleRefreshIntervalMs: interval }).consoleRefreshIntervalMs, interval);
+  }
+
+  for (const interval of [-1, 500, 2_500, 60_000, "2000", null]) {
+    assert.equal(normalizeConfig({ consoleRefreshIntervalMs: interval }).consoleRefreshIntervalMs, 2_000);
+  }
+});

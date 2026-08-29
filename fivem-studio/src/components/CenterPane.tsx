@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../App";
 import type { WindowCandidate } from "../global";
 
@@ -63,6 +63,8 @@ interface CenterPaneProps {
   runtimeReadable: boolean;
   runtimeWritable: boolean;
   consoleAvailable: boolean | null;
+  consoleRefreshIntervalMs: number;
+  onConsoleRefreshIntervalChange: (intervalMs: number) => Promise<void>;
   resourceLifecycleAvailable: boolean | null;
   clientLabel: string;
   centerTab: CenterTab;
@@ -81,6 +83,8 @@ export default function CenterPane({
   runtimeReadable,
   runtimeWritable,
   consoleAvailable,
+  consoleRefreshIntervalMs,
+  onConsoleRefreshIntervalChange,
   resourceLifecycleAvailable,
   clientLabel,
   centerTab,
@@ -172,7 +176,13 @@ export default function CenterPane({
           <ViewportSection active={centerTab === "viewport"} clientLabel={clientLabel} />
         </div>
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "console" ? "flex" : "none" }}>
-          <ConsoleSection connected={connected} available={consoleAvailable} />
+          <ConsoleSection
+            active={centerTab === "console"}
+            connected={connected}
+            available={consoleAvailable}
+            refreshIntervalMs={consoleRefreshIntervalMs}
+            onRefreshIntervalChange={onConsoleRefreshIntervalChange}
+          />
         </div>
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "resources" ? "flex" : "none" }}>
           <ResourcesSection
@@ -205,37 +215,139 @@ export default function CenterPane({
   );
 }
 
-function ConsoleSection({ connected, available }: { connected: boolean; available: boolean | null }) {
+const CONSOLE_REFRESH_OPTIONS = [
+  { value: 0, label: "Off" },
+  { value: 1_000, label: "Every second" },
+  { value: 2_000, label: "Every 2 seconds" },
+  { value: 5_000, label: "Every 5 seconds" },
+  { value: 10_000, label: "Every 10 seconds" },
+  { value: 30_000, label: "Every 30 seconds" },
+] as const;
+
+function ConsoleSection({
+  active,
+  connected,
+  available,
+  refreshIntervalMs,
+  onRefreshIntervalChange,
+}: {
+  active: boolean;
+  connected: boolean;
+  available: boolean | null;
+  refreshIntervalMs: number;
+  onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
+}) {
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <ConsoleTab connected={connected} available={available} />
+      <ConsoleTab
+        active={active}
+        connected={connected}
+        available={available}
+        refreshIntervalMs={refreshIntervalMs}
+        onRefreshIntervalChange={onRefreshIntervalChange}
+      />
     </div>
   );
 }
 
-function ConsoleTab({ connected, available }: { connected: boolean; available: boolean | null }) {
+function ConsoleTab({
+  active,
+  connected,
+  available,
+  refreshIntervalMs,
+  onRefreshIntervalChange,
+}: {
+  active: boolean;
+  connected: boolean;
+  available: boolean | null;
+  refreshIntervalMs: number;
+  onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
+}) {
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savingInterval, setSavingInterval] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
+  const requestRef = useRef<Promise<void> | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
-  async function refresh() {
-    setLoading(true);
+  const refresh = useCallback((showLoading: boolean): Promise<void> => {
+    if (requestRef.current) return requestRef.current;
+    const view = outputRef.current;
+    stickToBottomRef.current = !view || view.scrollHeight - view.scrollTop - view.clientHeight < 32;
+    if (showLoading) setLoading(true);
+    setError(null);
+    const request = window.api.mcp
+      .callTool("get_console_output", { lines: 200 })
+      .then(setOutput)
+      .catch((err) => setError((err as Error).message))
+      .finally(() => {
+        requestRef.current = null;
+        if (showLoading) setLoading(false);
+      });
+    requestRef.current = request;
+    return request;
+  }, []);
+
+  useEffect(() => {
+    const onVisibilityChange = () => setPageVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (!active || !pageVisible || !connected || available !== true || refreshIntervalMs === 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await refresh(false);
+      if (!cancelled) timer = setTimeout(poll, refreshIntervalMs);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [active, available, connected, pageVisible, refresh, refreshIntervalMs]);
+
+  useEffect(() => {
+    if (stickToBottomRef.current && outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [output]);
+
+  async function changeRefreshInterval(intervalMs: number) {
+    setSavingInterval(true);
     setError(null);
     try {
-      setOutput(await window.api.mcp.callTool("get_console_output", { lines: 200 }));
+      await onRefreshIntervalChange(intervalMs);
     } catch (err) {
-      setError((err as Error).message);
+      setError(`Could not save the console refresh interval: ${(err as Error).message}`);
     } finally {
-      setLoading(false);
+      setSavingInterval(false);
     }
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
       <div style={{ display: "flex", gap: 6, padding: 6, borderBottom: "1px solid var(--border)" }}>
-        <button className="btn small" onClick={refresh} disabled={loading || !connected || available !== true}>
-          Refresh
+        <button className="btn small" onClick={() => void refresh(true)} disabled={loading || !connected || available !== true}>
+          {loading ? "Refreshing…" : "Refresh"}
         </button>
+        <label className="console-refresh-control">
+          <span>Auto-refresh</span>
+          <select
+            aria-label="Console auto-refresh interval"
+            value={refreshIntervalMs}
+            onChange={(event) => void changeRefreshInterval(Number(event.target.value))}
+            disabled={savingInterval}
+          >
+            {CONSOLE_REFRESH_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
       {connected && available === false && (
         <div className="operations-empty" role="status">
@@ -244,8 +356,17 @@ function ConsoleTab({ connected, available }: { connected: boolean; available: b
         </div>
       )}
       {error && <div className="error-text" style={{ padding: "0 8px" }}>{error}</div>}
-      <div className="console-lines" style={{ flex: 1, overflow: "auto" }} aria-live="polite">
-        {output || (available === false ? "(console not attached yet)" : "(no output yet — click Refresh)")}
+      <div
+        ref={outputRef}
+        className="console-lines"
+        style={{ flex: 1, overflow: "auto" }}
+        aria-live={refreshIntervalMs === 0 ? "polite" : "off"}
+      >
+        {output || (available === false
+          ? "(console not attached yet)"
+          : refreshIntervalMs === 0
+            ? "(no output yet — click Refresh)"
+            : "(waiting for console output…)" )}
       </div>
     </div>
   );

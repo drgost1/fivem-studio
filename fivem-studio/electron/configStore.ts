@@ -19,6 +19,7 @@ export interface StudioConfig {
   redmFxServerExePath: string | null;
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
+  consoleRefreshIntervalMs: number;
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
   // OpenAI-compatible endpoint — local runtimes and hosted providers alike.
@@ -43,6 +44,7 @@ const DEFAULTS: StudioConfig = {
   redmFxServerExePath: null,
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
+  consoleRefreshIntervalMs: 2_000,
   // Defaults to Google's free tier rather than a paid key or a local model the
   // user may not have installed — the least-friction way to a working agent.
   agentProvider: "openai",
@@ -110,6 +112,14 @@ function safeProfile(value: unknown): string | null {
   return path.basename(value) === value && !/[<>:"/\\|?*\u0000-\u001f]/.test(value) ? value : null;
 }
 
+const CONSOLE_REFRESH_INTERVALS = new Set([0, 1_000, 2_000, 5_000, 10_000, 30_000]);
+
+function consoleRefreshIntervalOrDefault(value: unknown): number {
+  return typeof value === "number" && CONSOLE_REFRESH_INTERVALS.has(value)
+    ? value
+    : DEFAULTS.consoleRefreshIntervalMs;
+}
+
 /** A narrow runtime schema — TypeScript types do not validate IPC or disk data. */
 export function normalizeConfig(value: unknown): StudioConfig {
   const raw = isRecord(value) ? value : {};
@@ -143,6 +153,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
     legacyArtifactTrack:
       raw.legacyArtifactTrack === "latest" || raw.artifactTrack === "latest" ? "latest" : "recommended",
     redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
+    consoleRefreshIntervalMs: consoleRefreshIntervalOrDefault(raw.consoleRefreshIntervalMs),
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),
     openaiModel: stringOr(raw.openaiModel, DEFAULTS.openaiModel, 256),

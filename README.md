@@ -16,7 +16,7 @@ screenshots.
 - txData workspace browser and minimal local-workspace creator
 - Separate one-click launchers and paths for FiveM Legacy, FiveM Enhanced, and RedM
 - Recommended/Latest server-artifact updates with staging and rollback backup
-- Read-only console plus approved resource refresh controls for coding loops
+- Read-only console with foreground-only configurable auto-refresh, plus approved resource refresh controls for coding loops
 - GitHub repository and organization search with resource imports
 - AI assistant scoped to project files and coding-oriented runtime tools
 - Bundled private runtime: no separate Node or MCP server to launch
@@ -130,7 +130,9 @@ If resource controls are unavailable, verify the RCON password, restart
 FXServer after configuration changes, then save Settings again. If the console
 is unavailable, verify the control profile's `server.dataPath` matches the
 selected workspace exactly and that txAdmin has started the server at least
-once.
+once. The Console toolbar can refresh every 1, 2, 5, 10, or 30 seconds (2
+seconds by default), or remain manual. Automatic polling pauses while another
+QB Studio tab is selected or the app is in the background.
 
 ## Server artifact updates
 

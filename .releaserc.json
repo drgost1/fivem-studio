@@ -3,7 +3,14 @@
   "tagFormat": "v${version}",
   "plugins": [
     "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "writerOpts": {
+          "footerPartial": "{{#if noteGroups}}\n{{#each noteGroups}}\n\n### {{title}}\n\n{{#each notes}}\n* {{#if commit.scope}}**{{commit.scope}}:** {{/if}}{{text}}\n{{/each}}\n{{/each}}\n\n{{/if}}\n---\n\nFree code signing provided by SignPath.io, certificate by SignPath Foundation. See the [QB Studio code signing policy](https://github.com/qbcore-framework/qb-studio/blob/main/CODE_SIGNING_POLICY.md) and [privacy policy](https://github.com/qbcore-framework/qb-studio/blob/main/PRIVACY.md).\n"
+        }
+      }
+    ],
     [
       "@semantic-release/exec",
       {

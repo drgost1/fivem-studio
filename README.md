@@ -166,7 +166,18 @@ gh attestation verify <installer> -R qbcore-framework/qb-studio --signer-workflo
 The release workflow also records a CycloneDX SBOM attestation without adding
 another user-facing download to the release.
 
-Authenticode signing is on the pre-public-launch roadmap.
+## Code signing policy
+
+QB Studio has applied to the SignPath Foundation open-source program for
+Authenticode signing. Free code signing provided by SignPath.io, certificate by
+SignPath Foundation.
+
+The current `v1.0.0` installer predates approval and remains unsigned. After
+onboarding, signed builds will be published as new releases rather than silently
+replacing existing assets. See the full [code signing policy](CODE_SIGNING_POLICY.md)
+for the controlled build and approval process, and review the
+[privacy policy](PRIVACY.md) for local storage and optional third-party network
+features.
 
 ## Build from source
 

@@ -125,10 +125,12 @@ export function resolveArtifactTarget(exePath: string, txDataPath?: string | nul
   assertOrdinaryFile(exePath, "The selected local server executable");
 
   const requested = path.resolve(exePath);
-  const canonical = fs.realpathSync.native(requested);
-  if (normalizedPath(requested) !== normalizedPath(canonical)) {
-    throw new Error("The local server executable may not be reached through a link or junction.");
+  const requestedRoot = path.dirname(requested);
+  const requestedRootStat = fs.lstatSync(requestedRoot);
+  if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) {
+    throw new Error("The server artifact folder may not be a link or junction.");
   }
+  const canonical = fs.realpathSync.native(requested);
 
   const lowerName = path.basename(canonical).toLowerCase();
   const executableName =

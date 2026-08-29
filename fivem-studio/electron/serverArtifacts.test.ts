@@ -135,6 +135,36 @@ test("artifact target is a dedicated ordinary Cfx server folder and never overla
   }
 });
 
+test("artifact target rejects an explicitly linked artifact folder", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghz-artifact-link-"));
+  try {
+    const artifactRoot = path.join(root, "server");
+    const linkedRoot = path.join(root, "linked-server");
+    const txDataRoot = path.join(root, "txData");
+    fs.mkdirSync(path.join(artifactRoot, "citizen", "system_resources"), { recursive: true });
+    fs.mkdirSync(txDataRoot);
+    fs.writeFileSync(path.join(artifactRoot, "FXServer.exe"), "test");
+
+    try {
+      fs.symlinkSync(artifactRoot, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES") {
+        t.skip("Creating directory links is not permitted on this machine.");
+        return;
+      }
+      throw error;
+    }
+
+    assert.throws(
+      () => resolveArtifactTarget(path.join(linkedRoot, "FXServer.exe"), txDataRoot),
+      /link or junction/i,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("server launch arguments select txData/profile without direct config execution", () => {
   const args = buildServerLaunchArgs("C:\\Local Dev\\txData", "default");
   assert.deepEqual(args, ["+set", "txDataPath", path.resolve("C:\\Local Dev\\txData"), "+set", "serverProfile", "default"]);

@@ -12,7 +12,8 @@ screenshots.
 
 ## Highlights
 
-- Monaco code editor with safe, conflict-aware saves
+- Monaco code editor with persistent per-file undo history, configurable editor preferences, Problems view, and safe side-by-side change review
+- QBCore, FiveM, and RedM Lua intelligence powered by a bundled, verified Lua language server
 - txData workspace browser and minimal local-workspace creator
 - Separate one-click launchers and paths for FiveM Legacy, FiveM Enhanced, and RedM
 - Recommended/Latest server-artifact updates with staging and rollback backup
@@ -134,6 +135,26 @@ once. The Console toolbar can refresh every 1, 2, 5, 10, or 30 seconds (2
 seconds by default), or remain manual. Automatic polling pauses while another
 QB Studio tab is selected or the app is in the background.
 
+## Editor intelligence and resource use
+
+Each open file keeps its own Monaco model, so switching tabs preserves undo,
+cursor position, folds, diagnostics, and language-service context. Closing a tab
+disposes that model instead of retaining the entire workspace in memory. Agent
+edits and conflicting disk changes get an on-demand side-by-side review; the
+diff editor is not loaded during normal editing.
+
+Lua files receive QBCore, CfxLua, FiveM, and RedM completions, hover details,
+signature help, definitions, references, rename, formatting, and diagnostics.
+The default **Balanced** mode starts the bundled Lua language server only while
+a Lua tab is open, limits workspace preloading to 2,000 files, and throttles
+background diagnostics. **Full** mode raises those limits for large machines,
+and **Off** disables the process completely. Monaco's language workers and the
+Lua service are loaded lazily, so these features do not add polling or CPU work
+while Studio is idle on non-code tabs.
+
+Editor font size, word wrap, minimap, sticky scroll, format-on-save, and Lua
+intelligence mode are configurable in Settings.
+
 ## Server artifact updates
 
 In Settings, save the server executable path and select **Check**. Recommended
@@ -174,9 +195,9 @@ QB Studio has applied to the SignPath Foundation open-source program for
 Authenticode signing. Free code signing provided by SignPath.io, certificate by
 SignPath Foundation.
 
-The current `v1.0.0` installer predates approval and remains unsigned. After
-onboarding, signed builds will be published as new releases rather than silently
-replacing existing assets. See the full [code signing policy](CODE_SIGNING_POLICY.md)
+Releases published before approval remain unsigned. After onboarding, signed
+builds will be published as new releases rather than silently replacing
+existing assets. See the full [code signing policy](CODE_SIGNING_POLICY.md)
 for the controlled build and approval process, and review the
 [privacy policy](PRIVACY.md) for local storage and optional third-party network
 features.
@@ -198,7 +219,9 @@ npm run dev -w qb-studio
 ```
 
 Conventional commits on `main` are automatically versioned by semantic-release
-and published as GitHub Releases.
+and published as GitHub Releases. Dependency updates are proposed weekly and
+must pass the same Windows build, test, audit, and package-verification gates;
+see the [dependency policy](DEPENDENCY_POLICY.md).
 
 ## License and trademarks
 

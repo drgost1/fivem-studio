@@ -8,10 +8,10 @@ Free code signing provided by SignPath.io, certificate by SignPath Foundation.
 
 ## Current status
 
-QB Studio has applied to the SignPath Foundation open-source program. The
-existing `v1.0.0` installer predates that approval and is unsigned. A download
-must not be treated as SignPath-signed unless Windows reports a valid Digital
-Signature issued by SignPath Foundation.
+QB Studio has applied to the SignPath Foundation open-source program. Releases
+published before that approval are unsigned. A download must not be treated as
+SignPath-signed unless Windows reports a valid Digital Signature issued by
+SignPath Foundation.
 
 When onboarding is complete, the first signed release will be published as a
 new version. Existing release assets will not be silently replaced.

@@ -134,6 +134,21 @@ export interface RepoInfo {
   defaultBranch: string;
 }
 
+export interface RepoSearchResult {
+  owner: string;
+  repo: string;
+  fullName: string;
+  description: string | null;
+  stars: number;
+  language: string | null;
+}
+
+export interface OrganizationRepoListing {
+  organization: string;
+  repositories: RepoSearchResult[];
+  truncated: boolean;
+}
+
 export interface CloneResult {
   ok: boolean;
   destPath?: string;
@@ -210,6 +225,8 @@ declare global {
       };
       github: {
         fetchRepoInfo(input: string): Promise<RepoInfo>;
+        searchRepos(input: string): Promise<RepoSearchResult[]>;
+        listOrgRepos(input: string): Promise<OrganizationRepoListing | null>;
         cloneRepo(repoUrl: string, projectRoot: string): Promise<CloneResult>;
       };
       fivem: {

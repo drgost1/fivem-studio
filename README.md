@@ -17,7 +17,7 @@ screenshots.
 - Separate one-click launchers for the local Cfx.re server and FiveM client
 - Recommended/Latest server-artifact updates with staging and rollback backup
 - Read-only console plus approved resource refresh controls for coding loops
-- GitHub resource imports without a separate file browser
+- GitHub repository and organization search with resource imports
 - AI assistant scoped to project files and coding-oriented runtime tools
 - Bundled private runtime: no separate Node or MCP server to launch
 

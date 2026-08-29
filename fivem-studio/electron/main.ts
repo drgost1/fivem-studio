@@ -24,7 +24,7 @@ import {
   mcpRuntimeWorkspaceMatch,
   setOnDropped,
 } from "./mcpClient";
-import { fetchRepoInfo, cloneRepo } from "./githubClient";
+import { fetchRepoInfo, searchGithubRepos, listGithubOrganizationRepos, cloneRepo } from "./githubClient";
 import * as windowEmbed from "./windowEmbed";
 import { setEditorContext, setOnFileWritten, type EditorContext } from "./projectTools";
 import { assertSafeBasename, resolveInsideRoot } from "./pathSafety";
@@ -402,6 +402,10 @@ function registerIpcHandlers() {
 
   // --- GitHub import ---
   ipcMain.handle("github:fetchRepoInfo", (_e, input: unknown) => fetchRepoInfo(requireString(input, "GitHub repository", 2048)));
+  ipcMain.handle("github:searchRepos", (_e, input: unknown) => searchGithubRepos(requireString(input, "GitHub search", 128)));
+  ipcMain.handle("github:listOrgRepos", (_e, input: unknown) =>
+    listGithubOrganizationRepos(requireString(input, "GitHub organization", 128)),
+  );
   ipcMain.handle("github:cloneRepo", (_e, repoUrl: unknown, _projectRoot: unknown) =>
     cloneRepo(requireString(repoUrl, "GitHub repository", 2048), activeResourcesRoot()),
   );

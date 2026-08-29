@@ -53,6 +53,8 @@ const api = {
   },
   github: {
     fetchRepoInfo: (input: string) => ipcRenderer.invoke("github:fetchRepoInfo", input),
+    searchRepos: (input: string) => ipcRenderer.invoke("github:searchRepos", input),
+    listOrgRepos: (input: string) => ipcRenderer.invoke("github:listOrgRepos", input),
     cloneRepo: (repoUrl: string, projectRoot: string) => ipcRenderer.invoke("github:cloneRepo", repoUrl, projectRoot),
   },
   fivem: {

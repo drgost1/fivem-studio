@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { config } from "../config.js";
+import { formatResourceStatuses, listResourceStatuses } from "../resourceStatus.js";
 import { RconClient } from "../rcon.js";
 
 function text(s: string) {
@@ -17,13 +19,12 @@ export const resourceNameSchema = z
 export function registerResourceTools(server: McpServer, rcon: RconClient) {
   server.tool(
     "list_resources",
-    "List FXServer resources and their loaded/started state. Sends the console `resources` command " +
-      "and returns its raw output verbatim — FXServer does not have a documented, stable machine-" +
-      "readable format for this over RCON, so this is best-effort text, not parsed JSON.",
+    "List resources detected in the selected server-data workspace and show which ones the local " +
+      "FXServer currently reports as started. This is read-only and does not rely on an undocumented console command.",
     {},
     async () => {
-      const output = await rcon.command("resources");
-      return text(output.trim().length > 0 ? output : "(no output — check the local RCON configuration)");
+      const result = await listResourceStatuses(config.serverData.workspacePath, config.rcon.host, config.rcon.port);
+      return text(formatResourceStatuses(result));
     },
   );
 

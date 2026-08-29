@@ -37,8 +37,8 @@ const api = {
   },
   dialog: {
     chooseFolder: () => ipcRenderer.invoke("dialog:chooseFolder"),
-    chooseExe: () => ipcRenderer.invoke("dialog:chooseExe"),
-    chooseFxServerExe: () => ipcRenderer.invoke("dialog:chooseFxServerExe"),
+    chooseExe: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("dialog:chooseExe", edition),
+    chooseFxServerExe: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("dialog:chooseFxServerExe", edition),
   },
   mcp: {
     connect: () => ipcRenderer.invoke("mcp:connect"),
@@ -58,16 +58,16 @@ const api = {
     cloneRepo: (repoUrl: string, projectRoot: string) => ipcRenderer.invoke("github:cloneRepo", repoUrl, projectRoot),
   },
   fivem: {
-    launch: (exePath: string) => ipcRenderer.invoke("fivem:launch", exePath),
+    launch: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("fivem:launch", edition),
   },
   server: {
     status: () => ipcRenderer.invoke("server:status"),
     launch: () => ipcRenderer.invoke("server:launch"),
-    stop: () => ipcRenderer.invoke("server:stop"),
+    stop: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("server:stop", edition),
   },
   artifacts: {
-    check: (track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", track),
-    update: (track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", track),
+    check: (edition: "legacy" | "enhanced", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", edition, track),
+    update: (edition: "legacy" | "enhanced", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", edition, track),
     recoveryNotice: () => ipcRenderer.invoke("artifacts:recoveryNotice"),
   },
   app: {

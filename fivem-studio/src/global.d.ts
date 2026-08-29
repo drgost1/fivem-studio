@@ -3,13 +3,18 @@ export {};
 export interface StudioConfig {
   txDataPath: string | null;
   selectedProfile: string | null;
-  fivemExePath: string | null;
-  fxServerExePath: string | null;
-  artifactTrack: "recommended" | "latest";
+  activeCfxEdition: CfxEdition;
+  legacyFivemExePath: string | null;
+  enhancedFivemExePath: string | null;
+  legacyFxServerExePath: string | null;
+  enhancedFxServerExePath: string | null;
+  legacyArtifactTrack: "recommended" | "latest";
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;
 }
+
+export type CfxEdition = "legacy" | "enhanced";
 
 export interface DirEntry {
   name: string;
@@ -208,8 +213,8 @@ declare global {
       };
       dialog: {
         chooseFolder(): Promise<string | null>;
-        chooseExe(): Promise<string | null>;
-        chooseFxServerExe(): Promise<string | null>;
+        chooseExe(edition: CfxEdition): Promise<string | null>;
+        chooseFxServerExe(edition: CfxEdition): Promise<string | null>;
       };
       mcp: {
         connect(): Promise<McpConnectResult>;
@@ -230,16 +235,16 @@ declare global {
         cloneRepo(repoUrl: string, projectRoot: string): Promise<CloneResult>;
       };
       fivem: {
-        launch(exePath: string): Promise<{ ok: boolean }>;
+        launch(edition: CfxEdition): Promise<{ ok: boolean; edition: CfxEdition }>;
       };
       server: {
-        status(): Promise<{ running: boolean; pids: number[] }>;
-        launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; recoveryNotice?: string }>;
-        stop(): Promise<{ stoppedPids: number[]; alreadyStopped: boolean }>;
+        status(): Promise<{ running: boolean; pids: number[]; edition: CfxEdition }>;
+        launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; edition: CfxEdition; recoveryNotice?: string }>;
+        stop(edition: CfxEdition): Promise<{ stoppedPids: number[]; alreadyStopped: boolean; edition: CfxEdition }>;
       };
       artifacts: {
-        check(track: "recommended" | "latest"): Promise<ArtifactStatus>;
-        update(track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
+        check(edition: CfxEdition, track: "recommended" | "latest"): Promise<ArtifactStatus>;
+        update(edition: CfxEdition, track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
         recoveryNotice(): Promise<string | null>;
       };
       app: {

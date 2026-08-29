@@ -60,6 +60,7 @@ function tabLabels(openFiles: OpenFile[]): Map<string, string> {
 
 interface CenterPaneProps {
   connected: boolean;
+  runtimeReadable: boolean;
   runtimeWritable: boolean;
   consoleAvailable: boolean | null;
   resourceLifecycleAvailable: boolean | null;
@@ -76,6 +77,7 @@ interface CenterPaneProps {
 
 export default function CenterPane({
   connected,
+  runtimeReadable,
   runtimeWritable,
   consoleAvailable,
   resourceLifecycleAvailable,
@@ -119,7 +121,11 @@ export default function CenterPane({
           aria-selected={centerTab === "resources"}
           onClick={() => onSelectCenterTab("resources")}
         >
-          <span className="icon">◫</span>
+          <svg className="tab-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="1.5" y="2" width="5" height="5" rx="1" />
+            <rect x="9.5" y="2" width="5" height="5" rx="1" />
+            <rect x="5.5" y="9" width="5" height="5" rx="1" />
+          </svg>
           <span>Resources</span>
         </button>
         {openFiles.map((f) => (
@@ -169,6 +175,7 @@ export default function CenterPane({
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "resources" ? "flex" : "none" }}>
           <ResourcesSection
             connected={connected}
+            runtimeReadable={runtimeReadable}
             runtimeWritable={runtimeWritable}
             resourceLifecycleAvailable={resourceLifecycleAvailable}
           />
@@ -244,10 +251,12 @@ function ConsoleTab({ connected, available }: { connected: boolean; available: b
 
 function ResourcesSection({
   connected,
+  runtimeReadable,
   runtimeWritable,
   resourceLifecycleAvailable,
 }: {
   connected: boolean;
+  runtimeReadable: boolean;
   runtimeWritable: boolean;
   resourceLifecycleAvailable: boolean | null;
 }) {
@@ -299,7 +308,7 @@ function ResourcesSection({
           <h2 id="resources-heading">Resources</h2>
           <div className="operations-source">Local coding runtime</div>
         </div>
-        <button className="btn small" onClick={() => void refresh()} disabled={loading || !runtimeWritable}>
+        <button className="btn small" onClick={() => void refresh()} disabled={loading || !runtimeReadable}>
           {loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
@@ -320,7 +329,7 @@ function ResourcesSection({
       {message && <pre className="operation-result" aria-live="polite">{message}</pre>}
       {output && <pre className="operation-result">{output}</pre>}
       {!connected && <div className="operations-empty">Choose a workspace to start the bundled local runtime.</div>}
-      {!output && !loading && !error && runtimeWritable && <div className="operations-empty">Refresh to list resources reported by the local server.</div>}
+      {!output && !loading && !error && runtimeReadable && <div className="operations-empty">Refresh to compare workspace resources with the local server's started resources.</div>}
     </section>
   );
 }

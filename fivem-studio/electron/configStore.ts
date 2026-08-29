@@ -10,9 +10,12 @@ import { providerUrlOr } from "./localUrl";
 export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
   selectedProfile: string | null; // which txData/<profile> to browse/edit
-  fivemExePath: string | null; // path to FiveM.exe, for the "Launch FiveM" button
-  fxServerExePath: string | null; // path to FXServer.exe/cfx-server.exe, kept separate from the game client
-  artifactTrack: "recommended" | "latest";
+  activeCfxEdition: CfxEdition;
+  legacyFivemExePath: string | null;
+  enhancedFivemExePath: string | null;
+  legacyFxServerExePath: string | null;
+  enhancedFxServerExePath: string | null;
+  legacyArtifactTrack: "recommended" | "latest";
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
   // OpenAI-compatible endpoint — local runtimes and hosted providers alike.
@@ -21,12 +24,17 @@ export interface StudioConfig {
   openaiModel: string;
 }
 
+export type CfxEdition = "legacy" | "enhanced";
+
 const DEFAULTS: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
-  fivemExePath: null,
-  fxServerExePath: null,
-  artifactTrack: "recommended",
+  activeCfxEdition: "legacy",
+  legacyFivemExePath: null,
+  enhancedFivemExePath: null,
+  legacyFxServerExePath: null,
+  enhancedFxServerExePath: null,
+  legacyArtifactTrack: "recommended",
   // Defaults to Google's free tier rather than a paid key or a local model the
   // user may not have installed — the least-friction way to a working agent.
   agentProvider: "openai",
@@ -79,15 +87,30 @@ function safeProfile(value: unknown): string | null {
 }
 
 /** A narrow runtime schema — TypeScript types do not validate IPC or disk data. */
-function normalizeConfig(value: unknown): StudioConfig {
+export function normalizeConfig(value: unknown): StudioConfig {
   const raw = isRecord(value) ? value : {};
   const provider = raw.agentProvider === "anthropic" || raw.agentProvider === "openai" ? raw.agentProvider : DEFAULTS.agentProvider;
+  // Migrate the original single client/server slots. A cfx-server.exe selection
+  // unambiguously identifies Enhanced; older FXServer.exe settings are Legacy.
+  const oldServerPath = nullablePath(raw.fxServerExePath);
+  const inferredEdition: CfxEdition = oldServerPath?.toLowerCase().endsWith("cfx-server.exe") ? "enhanced" : "legacy";
+  const activeCfxEdition: CfxEdition =
+    raw.activeCfxEdition === "legacy" || raw.activeCfxEdition === "enhanced" ? raw.activeCfxEdition : inferredEdition;
+  const oldClientPath = nullablePath(raw.fivemExePath);
   return {
     txDataPath: nullablePath(raw.txDataPath),
     selectedProfile: safeProfile(raw.selectedProfile),
-    fivemExePath: nullablePath(raw.fivemExePath),
-    fxServerExePath: nullablePath(raw.fxServerExePath),
-    artifactTrack: raw.artifactTrack === "latest" ? "latest" : "recommended",
+    activeCfxEdition,
+    legacyFivemExePath:
+      nullablePath(raw.legacyFivemExePath) ?? (inferredEdition === "legacy" ? oldClientPath : null),
+    enhancedFivemExePath:
+      nullablePath(raw.enhancedFivemExePath) ?? (inferredEdition === "enhanced" ? oldClientPath : null),
+    legacyFxServerExePath:
+      nullablePath(raw.legacyFxServerExePath) ?? (inferredEdition === "legacy" ? oldServerPath : null),
+    enhancedFxServerExePath:
+      nullablePath(raw.enhancedFxServerExePath) ?? (inferredEdition === "enhanced" ? oldServerPath : null),
+    legacyArtifactTrack:
+      raw.legacyArtifactTrack === "latest" || raw.artifactTrack === "latest" ? "latest" : "recommended",
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),
     openaiModel: stringOr(raw.openaiModel, DEFAULTS.openaiModel, 256),

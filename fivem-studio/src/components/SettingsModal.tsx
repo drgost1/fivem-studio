@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ArtifactStatus, ProfileInfo, StudioConfig } from "../global";
+import type { ArtifactStatus, CfxEdition, ProfileInfo, StudioConfig } from "../global";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
 
 interface SettingsModalProps {
@@ -75,8 +75,11 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
   const preset = matchPreset(draft.agentProvider, draft.openaiBaseUrl);
   const isAnthropic = draft.agentProvider === "anthropic";
-  const enhancedServer = draft.fxServerExePath?.toLowerCase().endsWith("cfx-server.exe") === true;
-  const serverPathIsSaved = Boolean(draft.fxServerExePath && draft.fxServerExePath === config.fxServerExePath);
+  const activeEdition = draft.activeCfxEdition;
+  const activeServerPath = activeEdition === "legacy" ? draft.legacyFxServerExePath : draft.enhancedFxServerExePath;
+  const savedActiveServerPath = activeEdition === "legacy" ? config.legacyFxServerExePath : config.enhancedFxServerExePath;
+  const artifactTrack = activeEdition === "enhanced" ? "recommended" : draft.legacyArtifactTrack;
+  const serverPathIsSaved = Boolean(activeServerPath && activeServerPath === savedActiveServerPath);
 
   /** Picking a provider fills in its endpoint and a starting model; both stay editable. */
   function applyPreset(id: string) {
@@ -141,21 +144,21 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     if (folder) setDraft((d) => ({ ...d, txDataPath: folder, selectedProfile: null }));
   }
 
-  async function pickExe() {
-    const exe = await window.api.dialog.chooseExe();
-    if (exe) setDraft((d) => ({ ...d, fivemExePath: exe }));
+  async function pickExe(edition: CfxEdition) {
+    const exe = await window.api.dialog.chooseExe(edition);
+    if (!exe) return;
+    setDraft((d) =>
+      edition === "legacy" ? { ...d, legacyFivemExePath: exe } : { ...d, enhancedFivemExePath: exe },
+    );
   }
 
-  async function pickFxServerExe() {
+  async function pickFxServerExe(edition: CfxEdition) {
     try {
-      const exe = await window.api.dialog.chooseFxServerExe();
-      if (exe) {
-        setDraft((d) => ({
-          ...d,
-          fxServerExePath: exe,
-          artifactTrack: exe.toLowerCase().endsWith("cfx-server.exe") ? "recommended" : d.artifactTrack,
-        }));
-      }
+      const exe = await window.api.dialog.chooseFxServerExe(edition);
+      if (!exe) return;
+      setDraft((d) =>
+        edition === "legacy" ? { ...d, legacyFxServerExePath: exe } : { ...d, enhancedFxServerExePath: exe },
+      );
     } catch (err) {
       setArtifactError((err as Error).message);
     }
@@ -166,7 +169,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setArtifactError(null);
     setArtifactMessage(null);
     try {
-      const status = await window.api.artifacts.check(draft.artifactTrack);
+      const status = await window.api.artifacts.check(activeEdition, artifactTrack);
       setArtifactStatus(status);
       if (status.recoveryNotice) setArtifactMessage(status.recoveryNotice);
     } catch (err) {
@@ -179,7 +182,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
   async function updateArtifacts() {
     if (!artifactStatus) return;
-    const target = draft.fxServerExePath ? draft.fxServerExePath.replace(/[\\/][^\\/]+$/, "") : "the artifact folder";
+    const target = activeServerPath ? activeServerPath.replace(/[\\/][^\\/]+$/, "") : "the artifact folder";
     if (
       !confirm(
         `Install Cfx.re build ${artifactStatus.build} into ${target}?\n\n` +
@@ -192,7 +195,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setArtifactError(null);
     setArtifactMessage(null);
     try {
-      const result = await window.api.artifacts.update(draft.artifactTrack);
+      const result = await window.api.artifacts.update(activeEdition, artifactTrack);
       setArtifactStatus(result);
       setArtifactMessage(
         `Installed build ${result.build}. Previous artifacts are preserved at ${result.backupPath}.` +
@@ -209,7 +212,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setArtifactStatus(null);
     setArtifactError(null);
     setArtifactMessage(null);
-  }, [draft.fxServerExePath, draft.artifactTrack]);
+  }, [activeEdition, activeServerPath, artifactTrack]);
 
   async function createWorkspace() {
     if (!draft.txDataPath) {
@@ -366,25 +369,66 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
         <div className="settings-divider">Local server & client</div>
 
-        <label className="field-label">Server artifact executable</label>
-        <div className="field-row">
-          <input value={draft.fxServerExePath ?? ""} readOnly placeholder="FXServer.exe or cfx-server.exe" />
-          <button className="btn" type="button" onClick={() => void pickFxServerExe()} disabled={artifactBusy !== null}>
-            Browse…
-          </button>
-        </div>
+        <label className="field-label">Active Cfx.re edition</label>
+        <select
+          value={draft.activeCfxEdition}
+          onChange={(e) => setDraft((d) => ({ ...d, activeCfxEdition: e.target.value as CfxEdition }))}
+          disabled={artifactBusy !== null}
+        >
+          <option value="legacy">GTA V Legacy</option>
+          <option value="enhanced">GTA V Enhanced</option>
+        </select>
         <div className="field-hint">
-          This enables <strong>Start server</strong> in the top bar. Workbench starts txAdmin from this executable and passes the selected
-          txData root; when the workspace is already attached, it also selects the matching txAdmin profile.
+          The top bar launches the client and server for this edition. Legacy and Enhanced installations are kept in separate slots.
         </div>
 
-        <label className="field-label">Artifact update track</label>
+        <div className="edition-path-grid">
+          {(["legacy", "enhanced"] as const).map((edition) => {
+            const label = edition === "legacy" ? "GTA V Legacy" : "GTA V Enhanced";
+            const serverPath = edition === "legacy" ? draft.legacyFxServerExePath : draft.enhancedFxServerExePath;
+            const clientPath = edition === "legacy" ? draft.legacyFivemExePath : draft.enhancedFivemExePath;
+            return (
+              <section key={edition} className={`edition-path-card ${activeEdition === edition ? "active" : ""}`}>
+                <h4>{label}</h4>
+                <label className="field-label">Server artifact executable</label>
+                <div className="field-row">
+                  <input
+                    value={serverPath ?? ""}
+                    readOnly
+                    placeholder={edition === "legacy" ? "FXServer.exe" : "cfx-server.exe"}
+                  />
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => void pickFxServerExe(edition)}
+                    disabled={artifactBusy !== null}
+                  >
+                    Browse…
+                  </button>
+                </div>
+                <label className="field-label">FiveM client executable</label>
+                <div className="field-row">
+                  <input value={clientPath ?? ""} readOnly placeholder="FiveM.exe" />
+                  <button className="btn" type="button" onClick={() => void pickExe(edition)} disabled={artifactBusy !== null}>
+                    Browse…
+                  </button>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+        <div className="field-hint">
+          Server paths enable <strong>Start server</strong>; client paths enable <strong>Launch client</strong>. Workbench uses the selected
+          txData root for either server edition and prevents both artifact executables from being started together.
+        </div>
+
+        <label className="field-label">{activeEdition === "legacy" ? "Legacy" : "Enhanced"} artifact update track</label>
         <div className="field-row artifact-controls">
           <select
-            value={enhancedServer ? "recommended" : draft.artifactTrack}
-            onChange={(e) => setDraft((d) => ({ ...d, artifactTrack: e.target.value as "recommended" | "latest" }))}
-            disabled={enhancedServer || artifactBusy !== null}
-            title={enhancedServer ? "Cfx.re currently publishes one Windows Enhanced artifact track." : undefined}
+            value={artifactTrack}
+            onChange={(e) => setDraft((d) => ({ ...d, legacyArtifactTrack: e.target.value as "recommended" | "latest" }))}
+            disabled={activeEdition === "enhanced" || artifactBusy !== null}
+            title={activeEdition === "enhanced" ? "Cfx.re currently publishes one Windows Enhanced artifact track." : undefined}
           >
             <option value="recommended">Recommended</option>
             <option value="latest">Latest (preview)</option>
@@ -406,10 +450,10 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
             {artifactBusy === "updating" ? "Updating…" : "Install update"}
           </button>
         </div>
-        {!serverPathIsSaved && draft.fxServerExePath && (
+        {!serverPathIsSaved && activeServerPath && (
           <div className="field-hint">Save Settings once before checking or installing artifacts for this path.</div>
         )}
-        {draft.artifactTrack === "latest" && !enhancedServer && (
+        {artifactTrack === "latest" && activeEdition === "legacy" && (
           <div className="field-hint" style={{ color: "var(--yellow)" }}>
             Latest is newer, but Cfx.re has not marked it Recommended. Use it only when you need a recent server change.
           </div>
@@ -446,15 +490,6 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           . The archive is staged, path-checked, and CRC-checked before the artifact directory is swapped. Cfx.re does not publish a
           separate signature/checksum for these Windows artifacts. txData is never inside the update target.
         </div>
-
-        <label className="field-label">FiveM client executable</label>
-        <div className="field-row">
-          <input value={draft.fivemExePath ?? ""} readOnly placeholder="FiveM.exe" />
-          <button className="btn" type="button" onClick={pickExe}>
-            Browse…
-          </button>
-        </div>
-        <div className="field-hint">This enables the separate <strong>Launch client</strong> button in the top bar.</div>
 
         <div className="settings-divider">Agent Chat</div>
 

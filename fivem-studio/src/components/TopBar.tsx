@@ -1,4 +1,4 @@
-import type { RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
+import type { CfxEdition, RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
 
 interface TopBarProps {
   connected: boolean;
@@ -8,13 +8,15 @@ interface TopBarProps {
   onLaunchServer: () => void;
   onStopServer: () => void;
   onLaunchFivem: () => void;
-  fxServerExePath: string | null;
+  activeEdition: CfxEdition;
+  serverEdition: CfxEdition;
+  activeServerPath: string | null;
   serverConfigured: boolean;
   serverAction: "starting" | "stopping" | null;
   serverRunning: boolean;
   serverPids: number[];
   serverStatusError: string | null;
-  fivemExePath: string | null;
+  activeClientPath: string | null;
 }
 
 export default function TopBar({
@@ -25,14 +27,18 @@ export default function TopBar({
   onLaunchServer,
   onStopServer,
   onLaunchFivem,
-  fxServerExePath,
+  activeEdition,
+  serverEdition,
+  activeServerPath,
   serverConfigured,
   serverAction,
   serverRunning,
   serverPids,
   serverStatusError,
-  fivemExePath,
+  activeClientPath,
 }: TopBarProps) {
+  const activeLabel = activeEdition === "legacy" ? "Legacy" : "Enhanced";
+  const serverLabel = serverEdition === "legacy" ? "Legacy" : "Enhanced";
   const runtimeReady = connected && workspaceMatch?.ok === true;
   const statusLabel = !connected
     ? "Coding runtime unavailable"
@@ -54,17 +60,17 @@ export default function TopBar({
       <button
         className="btn"
         onClick={serverRunning ? onStopServer : onLaunchServer}
-        disabled={!fxServerExePath || serverAction !== null || (!serverRunning && !serverConfigured)}
+        disabled={serverAction !== null || (!serverRunning && (!activeServerPath || !serverConfigured))}
         title={
           serverStatusError
             ? `Server status unavailable: ${serverStatusError}`
-            : !fxServerExePath
-            ? "Set FXServer.exe or cfx-server.exe in Settings"
             : serverRunning
-              ? `Stop the configured local server${serverPids.length ? ` (process ${serverPids.join(", ")})` : ""}`
+              ? `Stop the ${serverLabel} local server${serverPids.length ? ` (process ${serverPids.join(", ")})` : ""}`
+            : !activeServerPath
+            ? `Set the ${activeLabel} server executable in Settings`
             : !serverConfigured
               ? "Choose a txData workspace in Settings"
-              : fxServerExePath
+              : activeServerPath
         }
       >
         {serverAction === "starting"
@@ -72,11 +78,11 @@ export default function TopBar({
           : serverAction === "stopping"
             ? "Stopping…"
             : serverRunning
-              ? "■ Stop server"
-              : "▶ Start server"}
+              ? `■ Stop ${serverLabel} server`
+              : `▶ Start ${activeLabel} server`}
       </button>
-      <button className="btn" onClick={onLaunchFivem} disabled={!fivemExePath} title={fivemExePath ?? "Set FiveM.exe path in Settings"}>
-        ▶ Launch client
+      <button className="btn" onClick={onLaunchFivem} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} FiveM.exe path in Settings`}>
+        ▶ Launch {activeLabel} client
       </button>
       <button className="btn" onClick={onOpenSettings}>
         ⚙ Settings

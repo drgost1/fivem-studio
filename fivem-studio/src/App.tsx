@@ -7,7 +7,7 @@ import ResourceTree from "./components/ResourceTree";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
-import type { ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
+import type { CfxEdition, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
 
 export interface OpenFile {
   path: string;
@@ -21,9 +21,12 @@ type SidebarTab = "resources" | "github";
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
-  fivemExePath: null,
-  fxServerExePath: null,
-  artifactTrack: "recommended",
+  activeCfxEdition: "legacy",
+  legacyFivemExePath: null,
+  enhancedFivemExePath: null,
+  legacyFxServerExePath: null,
+  enhancedFxServerExePath: null,
+  legacyArtifactTrack: "recommended",
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
   openaiModel: "gemini-3.7-flash",
@@ -43,6 +46,7 @@ export default function App() {
   const [serverAction, setServerAction] = useState<"starting" | "stopping" | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
   const [serverPids, setServerPids] = useState<number[]>([]);
+  const [serverEdition, setServerEdition] = useState<CfxEdition>("legacy");
   const [serverStatusError, setServerStatusError] = useState<string | null>(null);
   const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
@@ -59,6 +63,8 @@ export default function App() {
   // tab strip with nothing highlighted and an empty pane, which reads as a broken state.
   const [centerTab, setCenterTab] = useState<CenterTab>("viewport");
   const [selection, setSelection] = useState({ selectedText: "", startLine: 0, endLine: 0 });
+  const activeServerPath = config.activeCfxEdition === "legacy" ? config.legacyFxServerExePath : config.enhancedFxServerExePath;
+  const activeClientPath = config.activeCfxEdition === "legacy" ? config.legacyFivemExePath : config.enhancedFivemExePath;
 
   const connect = useCallback(async () => {
     setConnectError(null);
@@ -103,10 +109,11 @@ export default function App() {
     shouldApply: () => boolean = () => true,
   ) => {
     const isCurrent = () => shouldApply() && expectedEpoch === serverStatusEpoch.current;
-    if (!config.fxServerExePath) {
+    if (!config.legacyFxServerExePath && !config.enhancedFxServerExePath) {
       if (!isCurrent()) return;
       setServerRunning(false);
       setServerPids([]);
+      setServerEdition(config.activeCfxEdition);
       setServerStatusError(null);
       return;
     }
@@ -115,12 +122,13 @@ export default function App() {
       if (!isCurrent()) return;
       setServerRunning(status.running);
       setServerPids(status.pids);
+      setServerEdition(status.edition);
       setServerStatusError(null);
     } catch (err) {
       if (!isCurrent()) return;
       setServerStatusError((err as Error).message || "Server status is unavailable.");
     }
-  }, [config.fxServerExePath]);
+  }, [config.activeCfxEdition, config.legacyFxServerExePath, config.enhancedFxServerExePath]);
 
   // FXServer runs in the background. Poll the exact configured executable so
   // the top-bar control remains truthful after a restart or a stop initiated
@@ -250,7 +258,9 @@ export default function App() {
     }
     const saved = await window.api.config.set(next);
     if (
-      saved.fxServerExePath !== config.fxServerExePath ||
+      saved.activeCfxEdition !== config.activeCfxEdition ||
+      saved.legacyFxServerExePath !== config.legacyFxServerExePath ||
+      saved.enhancedFxServerExePath !== config.enhancedFxServerExePath ||
       saved.txDataPath !== config.txDataPath ||
       saved.selectedProfile !== config.selectedProfile
     ) {
@@ -364,16 +374,16 @@ export default function App() {
   }
 
   async function launchFivem() {
-    if (!config.fivemExePath) return;
+    if (!activeClientPath) return;
     try {
-      await window.api.fivem.launch(config.fivemExePath);
+      await window.api.fivem.launch(config.activeCfxEdition);
     } catch (err) {
       alert((err as Error).message);
     }
   }
 
   async function launchServer() {
-    if (!config.fxServerExePath || !config.txDataPath || !config.selectedProfile || serverAction) return;
+    if (!activeServerPath || !config.txDataPath || !config.selectedProfile || serverAction) return;
     serverStatusEpoch.current += 1;
     setServerAction("starting");
     setServerNotice(null);
@@ -382,11 +392,12 @@ export default function App() {
       if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
       setServerRunning(true);
       setServerPids([result.pid]);
+      setServerEdition(result.edition);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyRunning
-          ? `The selected local server is already running (process ${result.pid}).`
-          : `Local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
+          ? `The ${result.edition} local server is already running (process ${result.pid}).`
+          : `${result.edition === "legacy" ? "Legacy" : "Enhanced"} local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
         error: false,
       });
     } catch (err) {
@@ -399,19 +410,19 @@ export default function App() {
   }
 
   async function stopServer() {
-    if (!config.fxServerExePath || serverAction) return;
+    if (serverAction) return;
     serverStatusEpoch.current += 1;
     setServerAction("stopping");
     setServerNotice(null);
     try {
-      const result = await window.api.server.stop();
+      const result = await window.api.server.stop(serverEdition);
       setServerRunning(false);
       setServerPids([]);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyStopped
-          ? "The selected local server is already stopped."
-          : `Stopped the local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
+          ? `The ${result.edition} local server is already stopped.`
+          : `Stopped the ${result.edition} local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
         error: false,
       });
     } catch (err) {
@@ -433,13 +444,15 @@ export default function App() {
         onLaunchServer={launchServer}
         onStopServer={stopServer}
         onLaunchFivem={launchFivem}
-        fxServerExePath={config.fxServerExePath}
+        activeEdition={config.activeCfxEdition}
+        serverEdition={serverEdition}
+        activeServerPath={activeServerPath}
         serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
         serverAction={serverAction}
         serverRunning={serverRunning}
         serverPids={serverPids}
         serverStatusError={serverStatusError}
-        fivemExePath={config.fivemExePath}
+        activeClientPath={activeClientPath}
       />
 
       {configLoaded && (!config.txDataPath || !config.selectedProfile) && (
@@ -541,6 +554,7 @@ export default function App() {
           <Panel defaultSize={55} minSize={30}>
             <CenterPane
               connected={connected}
+              runtimeReadable={connected && workspaceMatch?.ok === true}
               runtimeWritable={connected && workspaceMatch?.ok === true && runtimeIdentity?.capabilities.resourceLifecycle === true}
               consoleAvailable={connected && workspaceMatch?.ok === true ? (runtimeIdentity?.capabilities.console ?? null) : null}
               resourceLifecycleAvailable={runtimeIdentity?.capabilities.resourceLifecycle ?? null}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 import TopBar from "./components/TopBar";
@@ -40,8 +40,13 @@ export default function App() {
   const [runtimeIdentity, setRuntimeIdentity] = useState<RuntimeIdentity | null>(null);
   const [workspaceMatch, setWorkspaceMatch] = useState<RuntimeWorkspaceMatch | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [serverLaunching, setServerLaunching] = useState(false);
+  const [serverAction, setServerAction] = useState<"starting" | "stopping" | null>(null);
+  const [serverRunning, setServerRunning] = useState(false);
+  const [serverPids, setServerPids] = useState<number[]>([]);
+  const [serverStatusError, setServerStatusError] = useState<string | null>(null);
+  const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
+  const serverStatusEpoch = useRef(0);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
@@ -92,6 +97,49 @@ export default function App() {
         setConnectError(`Could not load settings: ${(err as Error).message}`);
       });
   }, [connect]);
+
+  const refreshServerStatus = useCallback(async (
+    expectedEpoch = serverStatusEpoch.current,
+    shouldApply: () => boolean = () => true,
+  ) => {
+    const isCurrent = () => shouldApply() && expectedEpoch === serverStatusEpoch.current;
+    if (!config.fxServerExePath) {
+      if (!isCurrent()) return;
+      setServerRunning(false);
+      setServerPids([]);
+      setServerStatusError(null);
+      return;
+    }
+    try {
+      const status = await window.api.server.status();
+      if (!isCurrent()) return;
+      setServerRunning(status.running);
+      setServerPids(status.pids);
+      setServerStatusError(null);
+    } catch (err) {
+      if (!isCurrent()) return;
+      setServerStatusError((err as Error).message || "Server status is unavailable.");
+    }
+  }, [config.fxServerExePath]);
+
+  // FXServer runs in the background. Poll the exact configured executable so
+  // the top-bar control remains truthful after a restart or a stop initiated
+  // in txAdmin.
+  useEffect(() => {
+    if (!configLoaded) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const expectedEpoch = serverStatusEpoch.current;
+      await refreshServerStatus(expectedEpoch, () => !cancelled);
+      if (!cancelled) timer = setTimeout(poll, 5_000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [configLoaded, refreshServerStatus]);
 
   // The server is often started after Studio, so a failed connect can't be
   // terminal — keep retrying quietly in the background until it comes up.
@@ -201,6 +249,13 @@ export default function App() {
       throw new Error("Profile switch cancelled; your unsaved editor tabs are still open.");
     }
     const saved = await window.api.config.set(next);
+    if (
+      saved.fxServerExePath !== config.fxServerExePath ||
+      saved.txDataPath !== config.txDataPath ||
+      saved.selectedProfile !== config.selectedProfile
+    ) {
+      serverStatusEpoch.current += 1;
+    }
     setConfig(saved);
     if (profileChanged) {
       setOpenFiles([]);
@@ -318,16 +373,53 @@ export default function App() {
   }
 
   async function launchServer() {
-    if (!config.fxServerExePath || !config.txDataPath || !config.selectedProfile || serverLaunching) return;
-    setServerLaunching(true);
+    if (!config.fxServerExePath || !config.txDataPath || !config.selectedProfile || serverAction) return;
+    serverStatusEpoch.current += 1;
+    setServerAction("starting");
+    setServerNotice(null);
     try {
       const result = await window.api.server.launch();
       if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
-      if (result.alreadyRunning) alert(`That local server is already running (process ${result.pid}).`);
+      setServerRunning(true);
+      setServerPids([result.pid]);
+      setServerStatusError(null);
+      setServerNotice({
+        message: result.alreadyRunning
+          ? `The selected local server is already running (process ${result.pid}).`
+          : `Local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
+        error: false,
+      });
     } catch (err) {
-      alert((err as Error).message);
+      setServerNotice({ message: `Could not start the local server: ${(err as Error).message}`, error: true });
     } finally {
-      setServerLaunching(false);
+      const settledEpoch = ++serverStatusEpoch.current;
+      await refreshServerStatus(settledEpoch);
+      setServerAction(null);
+    }
+  }
+
+  async function stopServer() {
+    if (!config.fxServerExePath || serverAction) return;
+    serverStatusEpoch.current += 1;
+    setServerAction("stopping");
+    setServerNotice(null);
+    try {
+      const result = await window.api.server.stop();
+      setServerRunning(false);
+      setServerPids([]);
+      setServerStatusError(null);
+      setServerNotice({
+        message: result.alreadyStopped
+          ? "The selected local server is already stopped."
+          : `Stopped the local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
+        error: false,
+      });
+    } catch (err) {
+      setServerNotice({ message: `Could not stop the local server: ${(err as Error).message}`, error: true });
+    } finally {
+      const settledEpoch = ++serverStatusEpoch.current;
+      await refreshServerStatus(settledEpoch);
+      setServerAction(null);
     }
   }
 
@@ -339,10 +431,14 @@ export default function App() {
         workspaceMatch={workspaceMatch}
         onOpenSettings={() => setSettingsOpen(true)}
         onLaunchServer={launchServer}
+        onStopServer={stopServer}
         onLaunchFivem={launchFivem}
         fxServerExePath={config.fxServerExePath}
         serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
-        serverLaunching={serverLaunching}
+        serverAction={serverAction}
+        serverRunning={serverRunning}
+        serverPids={serverPids}
+        serverStatusError={serverStatusError}
         fivemExePath={config.fivemExePath}
       />
 
@@ -358,6 +454,14 @@ export default function App() {
         <div className="warning-banner setup-banner" role="status">
           {artifactNotice}
           <button className="btn small" onClick={() => setArtifactNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {serverNotice && (
+        <div className={`warning-banner setup-banner ${serverNotice.error ? "error-banner" : ""}`} role={serverNotice.error ? "alert" : "status"}>
+          {serverNotice.message}
+          <button className="btn small" onClick={() => setServerNotice(null)}>
             Dismiss
           </button>
         </div>

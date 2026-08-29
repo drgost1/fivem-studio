@@ -61,7 +61,9 @@ const api = {
     launch: (exePath: string) => ipcRenderer.invoke("fivem:launch", exePath),
   },
   server: {
+    status: () => ipcRenderer.invoke("server:status"),
     launch: () => ipcRenderer.invoke("server:launch"),
+    stop: () => ipcRenderer.invoke("server:stop"),
   },
   artifacts: {
     check: (track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", track),

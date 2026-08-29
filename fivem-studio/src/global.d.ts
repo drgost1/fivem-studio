@@ -233,7 +233,9 @@ declare global {
         launch(exePath: string): Promise<{ ok: boolean }>;
       };
       server: {
+        status(): Promise<{ running: boolean; pids: number[] }>;
         launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; recoveryNotice?: string }>;
+        stop(): Promise<{ stoppedPids: number[]; alreadyStopped: boolean }>;
       };
       artifacts: {
         check(track: "recommended" | "latest"): Promise<ArtifactStatus>;

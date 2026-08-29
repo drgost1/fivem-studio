@@ -32,12 +32,15 @@ import { resolveToolApproval } from "./toolApproval";
 import { createLocalWorkspace } from "./workspaceCreator";
 import { discoverTxAdminControlProfile, ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
 import { parseProviderUrl } from "./localUrl";
+import { OperationLock } from "./operationLock";
 import {
   checkArtifactUpdate,
+  findRunningServerPids,
   installArtifactUpdate,
   launchLocalServer,
   recoverInterruptedArtifactUpdate,
   resolveArtifactTarget,
+  stopLocalServer,
   type ArtifactTrack,
 } from "./serverArtifacts";
 
@@ -55,8 +58,8 @@ let allowCloseWithUnsavedChanges = false;
 let pendingTxDataPath: string | null = null;
 let pendingFivemExePath: string | null = null;
 let pendingFxServerExePath: string | null = null;
-let artifactUpdateInProgress = false;
 let artifactRecoveryNotice: string | null = null;
+const serverOperation = new OperationLock();
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -291,24 +294,25 @@ app.on("window-all-closed", () => {
 function registerIpcHandlers() {
   // --- config ---
   ipcMain.handle("config:get", () => loadConfig());
-  ipcMain.handle("config:set", async (_e, config: unknown) => {
-    if (artifactUpdateInProgress) throw new Error("Wait for the server artifact update to finish before changing Settings.");
-    if (typeof config !== "object" || config === null || Array.isArray(config)) throw new Error("Configuration must be an object.");
-    const candidate = config as Record<string, unknown>;
-    const previous = loadConfig();
-    const switchingProfile =
-      candidate.txDataPath !== previous.txDataPath || candidate.selectedProfile !== previous.selectedProfile;
-    if (switchingProfile) {
-      agent.resetConversation();
-      await mcpDisconnect();
-      stopManagedRuntime();
-    }
-    if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
-    if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
-    scopedFiveMExe(candidate.fivemExePath);
-    scopedFxServerExe(candidate.fxServerExePath, typeof candidate.txDataPath === "string" ? candidate.txDataPath : null);
-    return saveConfig(config);
-  });
+  ipcMain.handle("config:set", (_e, config: unknown) =>
+    serverOperation.run("the Settings change", async () => {
+      if (typeof config !== "object" || config === null || Array.isArray(config)) throw new Error("Configuration must be an object.");
+      const candidate = config as Record<string, unknown>;
+      const previous = loadConfig();
+      const switchingProfile =
+        candidate.txDataPath !== previous.txDataPath || candidate.selectedProfile !== previous.selectedProfile;
+      if (switchingProfile) {
+        agent.resetConversation();
+        await mcpDisconnect();
+        stopManagedRuntime();
+      }
+      if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
+      if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
+      scopedFiveMExe(candidate.fivemExePath);
+      scopedFxServerExe(candidate.fxServerExePath, typeof candidate.txDataPath === "string" ? candidate.txDataPath : null);
+      return saveConfig(config);
+    }),
+  );
 
   // --- filesystem / resource tree ---
   ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listDir(scopedProfilePath(dirPath)));
@@ -423,36 +427,50 @@ function registerIpcHandlers() {
   });
 
   // --- local Cfx.re server launch and artifact maintenance ---
-  ipcMain.handle("server:launch", async () => {
-    if (artifactUpdateInProgress) throw new Error("Wait for the server artifact update to finish before starting the server.");
+  ipcMain.handle("server:status", async () => {
     const config = loadConfig();
-    if (!config.fxServerExePath) throw new Error("Choose FXServer.exe or cfx-server.exe in Settings first.");
-    if (!config.txDataPath || !config.selectedProfile) throw new Error("Choose a txData workspace in Settings first.");
-    const workspaceRoot = activeProfileRoot();
-    const controlProfile = discoverTxAdminControlProfile(config.txDataPath, workspaceRoot);
-    const recoveryNotice = recoverInterruptedArtifactUpdate(config.fxServerExePath, artifactStatePath());
-    const launched = await launchLocalServer(config.fxServerExePath, config.txDataPath, controlProfile);
-    return { ...launched, recoveryNotice: recoveryNotice ?? undefined };
+    if (!config.fxServerExePath) return { running: false, pids: [] };
+    const target = resolveArtifactTarget(config.fxServerExePath, config.txDataPath);
+    const pids = await findRunningServerPids(target.executablePath);
+    return { running: pids.length > 0, pids };
   });
 
-  ipcMain.handle("artifacts:check", (_e, track: unknown) => {
-    if (artifactUpdateInProgress) throw new Error("A server artifact update is already running.");
-    const config = loadConfig();
-    if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
-    return checkArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
-  });
+  ipcMain.handle("server:launch", () =>
+    serverOperation.run("the local server start", async () => {
+      const config = loadConfig();
+      if (!config.fxServerExePath) throw new Error("Choose FXServer.exe or cfx-server.exe in Settings first.");
+      if (!config.txDataPath || !config.selectedProfile) throw new Error("Choose a txData workspace in Settings first.");
+      const workspaceRoot = activeProfileRoot();
+      const controlProfile = discoverTxAdminControlProfile(config.txDataPath, workspaceRoot);
+      const recoveryNotice = recoverInterruptedArtifactUpdate(config.fxServerExePath, artifactStatePath());
+      const launched = await launchLocalServer(config.fxServerExePath, config.txDataPath, controlProfile);
+      return { ...launched, recoveryNotice: recoveryNotice ?? undefined };
+    }),
+  );
 
-  ipcMain.handle("artifacts:update", async (_e, track: unknown) => {
-    if (artifactUpdateInProgress) throw new Error("A server artifact update is already running.");
-    const config = loadConfig();
-    if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
-    artifactUpdateInProgress = true;
-    try {
-      return await installArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
-    } finally {
-      artifactUpdateInProgress = false;
-    }
-  });
+  ipcMain.handle("server:stop", () =>
+    serverOperation.run("the local server stop", async () => {
+      const config = loadConfig();
+      if (!config.fxServerExePath) throw new Error("Choose FXServer.exe or cfx-server.exe in Settings first.");
+      return stopLocalServer(config.fxServerExePath, config.txDataPath);
+    }),
+  );
+
+  ipcMain.handle("artifacts:check", (_e, track: unknown) =>
+    serverOperation.run("the server artifact check", async () => {
+      const config = loadConfig();
+      if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
+      return checkArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
+    }),
+  );
+
+  ipcMain.handle("artifacts:update", (_e, track: unknown) =>
+    serverOperation.run("the server artifact update", async () => {
+      const config = loadConfig();
+      if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
+      return installArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
+    }),
+  );
 
   ipcMain.handle("artifacts:recoveryNotice", () => {
     const notice = artifactRecoveryNotice;

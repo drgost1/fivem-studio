@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,10 +7,15 @@ import test from "node:test";
 import yazl from "yazl";
 
 import {
+  buildServerProcessQueryScript,
+  buildServerProcessStopScript,
   buildServerLaunchArgs,
+  buildServerLaunchEnvironment,
+  buildServerSpawnOptions,
   extractValidatedZip,
   parseArtifactDownloadPage,
   parseProcessIds,
+  parseServerStopOutput,
   recoverInterruptedArtifactUpdate,
   resolveArtifactTarget,
   validateArchiveEntryName,
@@ -165,11 +171,90 @@ test("artifact target rejects an explicitly linked artifact folder", (t) => {
   }
 });
 
-test("server launch arguments select txData/profile without direct config execution", () => {
-  const args = buildServerLaunchArgs("C:\\Local Dev\\txData", "default");
-  assert.deepEqual(args, ["+set", "txDataPath", path.resolve("C:\\Local Dev\\txData"), "+set", "serverProfile", "default"]);
-  assert.equal(args.includes("+exec"), false);
-  assert.deepEqual(buildServerLaunchArgs("C:\\txData", null), ["+set", "txDataPath", path.resolve("C:\\txData")]);
+test("server launch uses current txAdmin boot configuration without deprecated Enhanced arguments", () => {
+  const legacyNamedProfileArgs = buildServerLaunchArgs("legacy", "C:\\Legacy txData", "development");
+  assert.deepEqual(legacyNamedProfileArgs, [
+    "+set",
+    "txDataPath",
+    path.resolve("C:\\Legacy txData"),
+    "+set",
+    "serverProfile",
+    "development",
+  ]);
+  assert.equal(legacyNamedProfileArgs.includes("+exec"), false);
+  assert.deepEqual(buildServerLaunchArgs("legacy", "C:\\txData", "default"), [
+    "+set",
+    "txDataPath",
+    path.resolve("C:\\txData"),
+  ]);
+  assert.deepEqual(buildServerLaunchArgs("legacy", "C:\\txData", null), [
+    "+set",
+    "txDataPath",
+    path.resolve("C:\\txData"),
+  ]);
+  assert.deepEqual(buildServerLaunchArgs("enhanced", "C:\\txData", "default"), []);
+  assert.deepEqual(buildServerLaunchArgs("enhanced", "C:\\txData", "development"), []);
+  assert.deepEqual(buildServerLaunchEnvironment("C:\\Local Dev\\txData"), {
+    TXHOST_DATA_PATH: path.resolve("C:\\Local Dev\\txData"),
+  });
+  const spawnOptions = buildServerSpawnOptions("C:\\Artifact", "C:\\Local Dev\\txData");
+  assert.equal(spawnOptions.cwd, "C:\\Artifact");
+  assert.equal(spawnOptions.detached, false);
+  assert.equal(spawnOptions.windowsHide, true);
+  assert.equal(spawnOptions.shell, false);
+  assert.equal(spawnOptions.stdio, "ignore");
+});
+
+test("Windows PowerShell executes the matching process probe and stop branches", { skip: process.platform !== "win32" }, () => {
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  assert.ok(systemRoot);
+  const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const target = "C:\\Mock Server\\cfx-server.exe";
+  const fakeCim =
+    "function Get-CimInstance { [pscustomobject]@{ Name = 'cfx-server.exe'; ExecutablePath = $env:GHZ_TARGET_SERVER_EXE; ProcessId = 4242 } }";
+  const env = { ...process.env, GHZ_TARGET_SERVER_EXE: target };
+
+  const probe = spawnSync(
+    powershell,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${fakeCim}\r\n${buildServerProcessQueryScript()}`],
+    { encoding: "utf8", env, windowsHide: true },
+  );
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.deepEqual(parseProcessIds(probe.stdout), [4242]);
+
+  const fakeStop =
+    "function Stop-Process { [CmdletBinding()] param([int]$Id); [Console]::Out.WriteLine(('mock-stop:' + $Id)) }";
+  const stop = spawnSync(
+    powershell,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${fakeCim}\r\n${fakeStop}\r\n${buildServerProcessStopScript()}`],
+    { encoding: "utf8", env, windowsHide: true },
+  );
+  assert.equal(stop.status, 0, stop.stderr);
+  assert.match(stop.stdout, /^mock-stop:4242$/m);
+  assert.match(stop.stdout, /^stopped:4242$/m);
+
+  const transientCim = [
+    "$script:cimCalls = 0",
+    "function Get-CimInstance {",
+    "  $script:cimCalls++",
+    "  if ($script:cimCalls -eq 1) { [pscustomobject]@{ Name = 'cfx-server.exe'; ExecutablePath = $env:GHZ_TARGET_SERVER_EXE; ProcessId = 4242 } }",
+    "}",
+  ].join("\r\n");
+  const transientStop =
+    "function Stop-Process { [CmdletBinding()] param([int]$Id); throw [System.ArgumentException]::new('process already exited') }";
+  const transient = spawnSync(
+    powershell,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `${transientCim}\r\n${transientStop}\r\n${buildServerProcessStopScript()}`,
+    ],
+    { encoding: "utf8", env, windowsHide: true },
+  );
+  assert.equal(transient.status, 0, transient.stderr);
+  assert.deepEqual(parseServerStopOutput(transient.stdout), { matchedPids: [4242], stoppedPids: [] });
 });
 
 test("archive path and process-output validation are narrow", () => {

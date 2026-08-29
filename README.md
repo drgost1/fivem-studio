@@ -80,8 +80,13 @@ folder, and a Cfx.re server license key.
    - `FXServer.exe` or `cfx-server.exe` from the downloaded server artifact;
    - optionally, `FiveM.exe` for the separate client launcher.
 
-6. Select **Save & Connect**, then use **Start server** in the top bar. When a
-   matching txAdmin profile exists, Workbench selects it automatically.
+6. Select **Save & Connect**, then use **Start server** in the top bar. Legacy
+   FXServer can select a matching named txAdmin profile automatically; current
+   Enhanced artifacts use txAdmin's default profile and require a separate
+   `txData` root per server. The server runs in the background so it does not
+   leave another console window open. While that exact configured process is
+   running, the button changes to **Stop server**; use it (or txAdmin) to stop
+   the local server before closing Workbench.
 
 ### Create a new local workspace
 
@@ -134,7 +139,7 @@ is the safe default; Latest is an explicit preview-track choice for legacy
 FXServer. Both legacy `FXServer.exe` and Enhanced `cfx-server.exe` artifacts
 are supported.
 
-Stop the local server in txAdmin before selecting **Install update**. Workbench
+Use **Stop server** (or stop it in txAdmin) before selecting **Install update**. Workbench
 downloads from the [official Cfx.re server page](https://docs.fivem.net/docs/server-download/),
 checks the expected HTTPS host, size, archive paths, file count, extracted
 size, and per-file CRC, then extracts to a sibling staging folder. Only after

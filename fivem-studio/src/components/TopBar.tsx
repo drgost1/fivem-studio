@@ -6,10 +6,14 @@ interface TopBarProps {
   workspaceMatch: RuntimeWorkspaceMatch | null;
   onOpenSettings: () => void;
   onLaunchServer: () => void;
+  onStopServer: () => void;
   onLaunchFivem: () => void;
   fxServerExePath: string | null;
   serverConfigured: boolean;
-  serverLaunching: boolean;
+  serverAction: "starting" | "stopping" | null;
+  serverRunning: boolean;
+  serverPids: number[];
+  serverStatusError: string | null;
   fivemExePath: string | null;
 }
 
@@ -19,10 +23,14 @@ export default function TopBar({
   workspaceMatch,
   onOpenSettings,
   onLaunchServer,
+  onStopServer,
   onLaunchFivem,
   fxServerExePath,
   serverConfigured,
-  serverLaunching,
+  serverAction,
+  serverRunning,
+  serverPids,
+  serverStatusError,
   fivemExePath,
 }: TopBarProps) {
   const runtimeReady = connected && workspaceMatch?.ok === true;
@@ -45,17 +53,27 @@ export default function TopBar({
       </div>
       <button
         className="btn"
-        onClick={onLaunchServer}
-        disabled={!fxServerExePath || !serverConfigured || serverLaunching}
+        onClick={serverRunning ? onStopServer : onLaunchServer}
+        disabled={!fxServerExePath || serverAction !== null || (!serverRunning && !serverConfigured)}
         title={
-          !fxServerExePath
+          serverStatusError
+            ? `Server status unavailable: ${serverStatusError}`
+            : !fxServerExePath
             ? "Set FXServer.exe or cfx-server.exe in Settings"
+            : serverRunning
+              ? `Stop the configured local server${serverPids.length ? ` (process ${serverPids.join(", ")})` : ""}`
             : !serverConfigured
               ? "Choose a txData workspace in Settings"
               : fxServerExePath
         }
       >
-        {serverLaunching ? "Starting…" : "▶ Start server"}
+        {serverAction === "starting"
+          ? "Starting…"
+          : serverAction === "stopping"
+            ? "Stopping…"
+            : serverRunning
+              ? "■ Stop server"
+              : "▶ Start server"}
       </button>
       <button className="btn" onClick={onLaunchFivem} disabled={!fivemExePath} title={fivemExePath ?? "Set FiveM.exe path in Settings"}>
         ▶ Launch client

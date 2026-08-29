@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import type { Readable } from "node:stream";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
 
@@ -164,10 +164,41 @@ export function resolveArtifactTarget(exePath: string, txDataPath?: string | nul
   };
 }
 
-export function buildServerLaunchArgs(txDataPath: string, controlProfile: string | null): string[] {
+export function buildServerLaunchArgs(
+  flavor: ArtifactFlavor,
+  txDataPath: string,
+  controlProfile: string | null,
+): string[] {
+  // Current Enhanced artifacts reject serverProfile outright. The default
+  // profile also never needs an argument on legacy FXServer, so keep the
+  // deprecated compatibility switches only for legacy artifacts which may
+  // predate TXHOST_DATA_PATH.
+  if (flavor === "enhanced") return [];
   const args = ["+set", "txDataPath", path.resolve(txDataPath)];
-  if (controlProfile) args.push("+set", "serverProfile", controlProfile);
+  if (controlProfile && controlProfile.toLowerCase() !== "default") {
+    args.push("+set", "serverProfile", controlProfile);
+  }
   return args;
+}
+
+/** txAdmin v8 removed the txDataPath ConVar. Pass the official boot-scoped
+ * replacement only to the server process rather than changing the user's
+ * machine environment. */
+export function buildServerLaunchEnvironment(txDataPath: string): Record<string, string> {
+  return { TXHOST_DATA_PATH: path.resolve(txDataPath) };
+}
+
+export function buildServerSpawnOptions(artifactRoot: string, txDataPath: string): SpawnOptions {
+  return {
+    cwd: artifactRoot,
+    // On Windows, `detached` overrides CREATE_NO_WINDOW. Keep it false so
+    // `windowsHide` also suppresses Windows Terminal's console delegation.
+    detached: false,
+    windowsHide: true,
+    shell: false,
+    stdio: "ignore",
+    env: { ...process.env, ...buildServerLaunchEnvironment(txDataPath) },
+  };
 }
 
 function helperEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -185,24 +216,54 @@ export function parseProcessIds(output: string): number[] {
     .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
 }
 
-/** Find only processes whose executable path exactly matches the configured artifact. */
-export async function findRunningServerPids(executablePath: string): Promise<number[]> {
-  if (process.platform !== "win32") return [];
-  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
-  if (!systemRoot) throw new Error("Windows system directory is unavailable; server process state cannot be verified.");
-  const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  assertOrdinaryFile(powershell, "Windows PowerShell");
-
-  const script = [
+/** Kept exportable so the real Windows PowerShell parser/executor can cover
+ * every branch in tests. Newlines are significant here: inserting a semicolon
+ * between an `if` block and `elseif` turns `elseif` into a command. */
+export function buildServerProcessQueryScript(): string {
+  return [
     "$ErrorActionPreference = 'Stop'",
     "$target = [IO.Path]::GetFullPath($env:GHZ_TARGET_SERVER_EXE)",
     "Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq 'FXServer.exe' -or $_.Name -ieq 'cfx-server.exe' } | ForEach-Object {",
     "  if (-not $_.ExecutablePath) { [Console]::Out.WriteLine(('unknown:' + $_.ProcessId)) }",
     "  elseif ([IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) { [Console]::Out.WriteLine($_.ProcessId) }",
     "}",
-  ].join("; ");
+  ].join("\r\n");
+}
 
-  return new Promise<number[]>((resolve, reject) => {
+export function buildServerProcessStopScript(): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$target = [IO.Path]::GetFullPath($env:GHZ_TARGET_SERVER_EXE)",
+    "$servers = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq 'FXServer.exe' -or $_.Name -ieq 'cfx-server.exe' })",
+    "$hidden = @($servers | Where-Object { -not $_.ExecutablePath })",
+    "if ($hidden.Count -gt 0) {",
+    "  $hidden | ForEach-Object { [Console]::Out.WriteLine(('unknown:' + $_.ProcessId)) }",
+    "} else {",
+    "  $servers | ForEach-Object {",
+    "    if ([IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) {",
+    "      $serverPid = [int]$_.ProcessId",
+    "      [Console]::Out.WriteLine(('matched:' + $serverPid))",
+    "      try {",
+    "        Stop-Process -Id $serverPid -ErrorAction Stop",
+    "        [Console]::Out.WriteLine(('stopped:' + $serverPid))",
+    "      } catch {",
+    "        $remaining = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $serverPid) -ErrorAction SilentlyContinue",
+    "        if ($remaining -and (-not $remaining.ExecutablePath -or [IO.Path]::GetFullPath($remaining.ExecutablePath) -ieq $target)) { throw }",
+    "      }",
+    "    }",
+    "  }",
+    "}",
+  ].join("\r\n");
+}
+
+function runServerPowerShell(script: string, executablePath: string, operation: string): Promise<string> {
+  if (process.platform !== "win32") return Promise.resolve("");
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  if (!systemRoot) throw new Error(`Windows system directory is unavailable; cannot ${operation}.`);
+  const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  assertOrdinaryFile(powershell, "Windows PowerShell");
+
+  return new Promise<string>((resolve, reject) => {
     const child = spawn(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
       windowsHide: true,
       shell: false,
@@ -211,9 +272,16 @@ export async function findRunningServerPids(executablePath: string): Promise<num
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error("Timed out while checking whether the local server is running."));
+      finish(() => reject(new Error(`Timed out while attempting to ${operation}.`)));
     }, 15_000);
     timer.unref();
     child.stdout.on("data", (chunk: Buffer) => {
@@ -222,23 +290,85 @@ export async function findRunningServerPids(executablePath: string): Promise<num
     child.stderr.on("data", (chunk: Buffer) => {
       if (stderr.length < 64 * 1024) stderr += chunk.toString("utf8");
     });
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(`Could not verify local server process state${stderr.trim() ? `: ${stderr.trim()}` : "."}`));
-        return;
-      }
-      if (/^unknown:\d+$/m.test(stdout)) {
-        reject(new Error("Another Cfx.re server process is running but Windows hid its executable path. Stop it before continuing."));
-        return;
-      }
-      resolve(parseProcessIds(stdout));
+    child.once("error", (error) => finish(() => reject(error)));
+    // `close` fires after stdout/stderr have closed, so parsing cannot race the
+    // last buffered process id or error line.
+    child.once("close", (code) => {
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(`Could not ${operation}${stderr.trim() ? `: ${stderr.trim()}` : "."}`));
+          return;
+        }
+        resolve(stdout);
+      });
     });
   });
+}
+
+/** Find only processes whose executable path exactly matches the configured artifact. */
+export async function findRunningServerPids(executablePath: string): Promise<number[]> {
+  if (process.platform !== "win32") return [];
+  const stdout = await runServerPowerShell(buildServerProcessQueryScript(), executablePath, "verify local server process state");
+  if (/^unknown:\d+$/m.test(stdout)) {
+    throw new Error("Another Cfx.re server process is running but Windows hid its executable path. Stop it before continuing.");
+  }
+  return parseProcessIds(stdout);
+}
+
+export interface StopLocalServerResult {
+  stoppedPids: number[];
+  alreadyStopped: boolean;
+}
+
+export function parseServerStopOutput(output: string): { matchedPids: number[]; stoppedPids: number[] } {
+  const tagged = (tag: "matched" | "stopped") =>
+    output
+      .split(/\r?\n/)
+      .map((line) => line.trim().match(new RegExp(`^${tag}:(\\d+)$`))?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+  return { matchedPids: tagged("matched"), stoppedPids: tagged("stopped") };
+}
+
+/** Stop only Cfx.re processes whose executable path still exactly matches the
+ * configured artifact. This also gives users a reliable escape hatch when the
+ * native server console ignores its close button. */
+export async function stopLocalServer(
+  exePath: string,
+  txDataPath: string | null,
+): Promise<StopLocalServerResult> {
+  const target = resolveArtifactTarget(exePath, txDataPath);
+  const matchedPids = new Set<number>();
+  const stoppedPids = new Set<number>();
+  const deadline = Date.now() + 5_000;
+  let emptySince: number | null = null;
+  while (Date.now() < deadline) {
+    // Enhanced can hand off to another cfx-server.exe after the first process
+    // snapshot. Re-run the exact-path stop until the whole artifact tree is gone.
+    const stdout = await runServerPowerShell(buildServerProcessStopScript(), target.executablePath, "stop the local server");
+    if (/^unknown:\d+$/m.test(stdout)) {
+      throw new Error("Another Cfx.re server process is running but Windows hid its executable path. Stop it in txAdmin.");
+    }
+    const parsed = parseServerStopOutput(stdout);
+    parsed.matchedPids.forEach((pid) => matchedPids.add(pid));
+    parsed.stoppedPids.forEach((pid) => stoppedPids.add(pid));
+
+    const remaining = await findRunningServerPids(target.executablePath);
+    if (remaining.length === 0) {
+      emptySince ??= Date.now();
+      if (Date.now() - emptySince >= 500) {
+        return {
+          stoppedPids: [...stoppedPids],
+          alreadyStopped: matchedPids.size === 0,
+        };
+      }
+    } else {
+      emptySince = null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error("The local server did not stop within five seconds. Stop it in txAdmin and try again.");
 }
 
 export async function launchLocalServer(
@@ -250,36 +380,53 @@ export async function launchLocalServer(
   const running = await findRunningServerPids(target.executablePath);
   if (running[0]) return { pid: running[0], controlProfile, alreadyRunning: true };
 
-  const child = spawn(target.executablePath, buildServerLaunchArgs(txDataPath, controlProfile), {
-    cwd: target.root,
-    detached: true,
-    windowsHide: false,
-    shell: false,
-    stdio: "ignore",
-  });
+  if (target.flavor === "enhanced" && controlProfile && controlProfile.toLowerCase() !== "default") {
+    throw new Error(
+      "Current Enhanced artifacts no longer support selecting a non-default txAdmin profile at launch. Use the default profile or a separate txData folder for this server.",
+    );
+  }
+
+  const child = spawn(
+    target.executablePath,
+    buildServerLaunchArgs(target.flavor, txDataPath, controlProfile),
+    buildServerSpawnOptions(target.root, txDataPath),
+  );
   await new Promise<void>((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", reject);
   });
   if (!child.pid) throw new Error("The local server process did not return a process id.");
-  const earlyExit = await new Promise<number | null>((resolve) => {
-    if (child.exitCode !== null) {
-      resolve(child.exitCode);
-      return;
+
+  // Enhanced artifacts briefly hand off from one cfx-server.exe process to
+  // another. Require a matching executable to remain continuously visible,
+  // instead of trusting the launcher's original PID or a one-frame process.
+  const deadline = Date.now() + 6_000;
+  let runningSince: number | null = null;
+  let stablePids: number[] = [];
+  try {
+    while (Date.now() < deadline) {
+      const detected = await findRunningServerPids(target.executablePath);
+      if (detected.length > 0) {
+        stablePids = detected;
+        runningSince ??= Date.now();
+        if (Date.now() - runningSince >= 1_500) {
+          child.unref();
+          return { pid: stablePids[0], controlProfile, alreadyRunning: false };
+        }
+      } else {
+        runningSince = null;
+        stablePids = [];
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    const timer = setTimeout(() => {
-      child.removeListener("exit", onExit);
-      resolve(null);
-    }, 1_250);
-    const onExit = (code: number | null) => {
-      clearTimeout(timer);
-      resolve(code ?? -1);
-    };
-    child.once("exit", onExit);
-  });
-  if (earlyExit !== null) throw new Error(`The local server exited immediately with code ${earlyExit}. Check its console output.`);
-  child.unref();
-  return { pid: child.pid, controlProfile, alreadyRunning: false };
+  } catch (error) {
+    if (child.exitCode === null) child.kill();
+    throw error;
+  }
+
+  const exitDetail = child.exitCode === null ? "no matching process remained running" : `the launcher exited with code ${child.exitCode}`;
+  if (child.exitCode === null) child.kill();
+  throw new Error(`The local server did not stay running (${exitDetail}). Check the txAdmin logs for the startup error.`);
 }
 
 function requireTrack(value: unknown): ArtifactTrack {

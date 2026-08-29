@@ -538,6 +538,63 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           separate signature/checksum for these Windows artifacts. txData is never inside the update target.
         </div>
 
+        <div className="settings-divider">Code editor</div>
+
+        <label className="field-label">Font size</label>
+        <select
+          value={draft.editor.fontSize}
+          onChange={(e) => setDraft((d) => ({ ...d, editor: { ...d.editor, fontSize: Number(e.target.value) } }))}
+        >
+          {[11, 12, 13, 14, 16, 18, 20, 22, 24].map((size) => (
+            <option key={size} value={size}>{size}px</option>
+          ))}
+        </select>
+
+        <label className="field-label">Word wrap</label>
+        <select
+          value={draft.editor.wordWrap ? "on" : "off"}
+          onChange={(e) => setDraft((d) => ({ ...d, editor: { ...d.editor, wordWrap: e.target.value === "on" } }))}
+        >
+          <option value="off">Off</option>
+          <option value="on">On</option>
+        </select>
+
+        <div className="editor-settings-grid">
+          <label className="field-label">
+            Minimap
+            <select
+              value={draft.editor.minimap ? "on" : "off"}
+              onChange={(e) => setDraft((d) => ({ ...d, editor: { ...d.editor, minimap: e.target.value === "on" } }))}
+            >
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Sticky scroll
+            <select
+              value={draft.editor.stickyScroll ? "on" : "off"}
+              onChange={(e) => setDraft((d) => ({ ...d, editor: { ...d.editor, stickyScroll: e.target.value === "on" } }))}
+            >
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Format on save
+            <select
+              value={draft.editor.formatOnSave ? "on" : "off"}
+              onChange={(e) => setDraft((d) => ({ ...d, editor: { ...d.editor, formatOnSave: e.target.value === "on" } }))}
+            >
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+        </div>
+        <div className="field-hint">
+          Format on save runs only when the active language has a formatter. Editor models are kept only for open tabs so undo history survives tab switches without indexing closed files.
+        </div>
+
         <div className="settings-divider">Agent Chat</div>
 
         <label className="field-label">Provider</label>

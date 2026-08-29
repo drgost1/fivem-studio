@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../App";
-import type { WindowCandidate } from "../global";
+import type { EditorPreferences, EditorProblem, WindowCandidate } from "../global";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
@@ -67,6 +67,9 @@ interface CenterPaneProps {
   onConsoleRefreshIntervalChange: (intervalMs: number) => Promise<void>;
   resourceLifecycleAvailable: boolean | null;
   clientLabel: string;
+  editorPreferences: EditorPreferences;
+  editorProblems: Record<string, EditorProblem[]>;
+  editorReveal: { path: string; line: number; column: number; nonce: number } | null;
   centerTab: CenterTab;
   onSelectCenterTab: (tab: CenterTab) => void;
   openFiles: OpenFile[];
@@ -76,6 +79,8 @@ interface CenterPaneProps {
   onChange: (path: string, content: string) => void;
   onSave: (path: string, content: string, expectedRevision: string) => Promise<void>;
   onSelectionChange: (selectedText: string, startLine: number, endLine: number) => void;
+  onProblemsChange: (path: string, problems: EditorProblem[]) => void;
+  onRevealProblem: (problem: EditorProblem) => void;
 }
 
 export default function CenterPane({
@@ -87,6 +92,9 @@ export default function CenterPane({
   onConsoleRefreshIntervalChange,
   resourceLifecycleAvailable,
   clientLabel,
+  editorPreferences,
+  editorProblems,
+  editorReveal,
   centerTab,
   onSelectCenterTab,
   openFiles,
@@ -96,9 +104,17 @@ export default function CenterPane({
   onChange,
   onSave,
   onSelectionChange,
+  onProblemsChange,
+  onRevealProblem,
 }: CenterPaneProps) {
   const activeFile = openFiles.find((f) => f.path === activePath);
   const labels = tabLabels(openFiles);
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const problems = Object.values(editorProblems)
+    .flat()
+    .sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column);
+  const errorCount = problems.filter((problem) => problem.severity === "error").length;
+  const warningCount = problems.filter((problem) => problem.severity === "warning").length;
 
   return (
     <div className="pane" style={{ height: "100%" }}>
@@ -152,6 +168,11 @@ export default function CenterPane({
             >
               {f.dirty && <span className="dirty-dot" />}
               <span>{labels.get(f.path)}</span>
+              {(editorProblems[f.path]?.length ?? 0) > 0 && (
+                <span className="problem-badge" aria-label={`${editorProblems[f.path].length} problems`}>
+                  {editorProblems[f.path].length}
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -192,17 +213,58 @@ export default function CenterPane({
             resourceLifecycleAvailable={resourceLifecycleAvailable}
           />
         </div>
-        <div style={{ flex: 1, minHeight: 0, display: centerTab === "editor" ? "block" : "none" }}>
+        <div className="editor-workbench" style={{ flex: 1, minHeight: 0, display: centerTab === "editor" ? "flex" : "none" }}>
           {activeFile ? (
-            <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
-              <CodeEditor
-                file={activeFile}
-                language={languageForPath(activeFile.path)}
-                onChange={onChange}
-                onSave={onSave}
-                onSelectionChange={onSelectionChange}
-              />
-            </Suspense>
+            <>
+              <div className="editor-surface">
+                <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
+                  <CodeEditor
+                    file={activeFile}
+                    openPaths={openFiles.map((file) => file.path)}
+                    language={languageForPath(activeFile.path)}
+                    preferences={editorPreferences}
+                    reveal={editorReveal}
+                    onChange={onChange}
+                    onSave={onSave}
+                    onSelectionChange={onSelectionChange}
+                    onProblemsChange={onProblemsChange}
+                  />
+                </Suspense>
+              </div>
+              {problemsOpen && (
+                <section className="problems-panel" aria-label="Problems">
+                  {problems.length === 0 ? (
+                    <div className="problems-empty">No problems detected in open files.</div>
+                  ) : problems.map((problem, index) => (
+                    <button
+                      key={`${problem.path}:${problem.line}:${problem.column}:${problem.message}:${index}`}
+                      className={`problem-row ${problem.severity}`}
+                      type="button"
+                      onClick={() => onRevealProblem(problem)}
+                    >
+                      <span className="problem-severity" aria-hidden="true">
+                        {problem.severity === "error" ? "×" : problem.severity === "warning" ? "!" : "i"}
+                      </span>
+                      <span className="problem-message">{problem.message}</span>
+                      <span className="problem-location">
+                        {problem.path.split(/[/\\]/).pop()}:{problem.line}:{problem.column}
+                      </span>
+                    </button>
+                  ))}
+                </section>
+              )}
+              <div className="editor-statusbar">
+                <span>{languageForPath(activeFile.path)}</span>
+                <button
+                  type="button"
+                  className={problems.length > 0 ? "has-problems" : ""}
+                  onClick={() => setProblemsOpen((open) => !open)}
+                  aria-expanded={problemsOpen}
+                >
+                  Problems: {errorCount} errors, {warningCount} warnings
+                </button>
+              </div>
+            </>
           ) : (
             <div className="editor-empty">
               <div>No file open</div>

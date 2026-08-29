@@ -59,3 +59,23 @@ test("console refresh accepts supported intervals and defaults invalid values", 
     assert.equal(normalizeConfig({ consoleRefreshIntervalMs: interval }).consoleRefreshIntervalMs, 2_000);
   }
 });
+
+test("editor preferences are bounded and migrate from missing settings", () => {
+  assert.deepEqual(normalizeConfig({}).editor, {
+    fontSize: 13,
+    wordWrap: false,
+    minimap: false,
+    stickyScroll: true,
+    formatOnSave: false,
+  });
+  assert.deepEqual(normalizeConfig({
+    editor: { fontSize: 18, wordWrap: true, minimap: true, stickyScroll: false, formatOnSave: true },
+  }).editor, {
+    fontSize: 18,
+    wordWrap: true,
+    minimap: true,
+    stickyScroll: false,
+    formatOnSave: true,
+  });
+  assert.equal(normalizeConfig({ editor: { fontSize: 99 } }).editor.fontSize, 13);
+});

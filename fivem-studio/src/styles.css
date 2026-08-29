@@ -413,6 +413,17 @@ button.tree-node {
   border-radius: 50%;
   background: var(--yellow);
 }
+.editor-tab .problem-badge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--red);
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+}
 .editor-tab .close {
   color: var(--text-dim);
   padding: 0 2px;
@@ -434,6 +445,96 @@ button.tree-node {
   color: var(--text-dim);
   flex-direction: column;
   gap: 8px;
+}
+.editor-workbench {
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+.editor-surface {
+  flex: 1;
+  min-height: 0;
+}
+.problems-panel {
+  flex: 0 0 min(180px, 30%);
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.problems-empty {
+  padding: 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.problem-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 9px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.problem-row:hover {
+  background: var(--bg-2);
+}
+.problem-severity {
+  font-weight: 700;
+  text-align: center;
+}
+.problem-row.error .problem-severity {
+  color: var(--red);
+}
+.problem-row.warning .problem-severity {
+  color: var(--yellow);
+}
+.problem-row.info .problem-severity,
+.problem-row.hint .problem-severity {
+  color: var(--accent);
+}
+.problem-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problem-location {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.editor-statusbar {
+  display: flex;
+  flex: 0 0 23px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 23px;
+  padding: 0 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-2);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+.editor-statusbar button {
+  padding: 1px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.editor-statusbar button:hover,
+.editor-statusbar button.has-problems {
+  color: var(--text);
 }
 
 /* --- Live operations --- */
@@ -914,6 +1015,18 @@ button.tree-node {
   display: grid;
   gap: 8px;
   margin: 10px 0 6px;
+}
+.editor-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.editor-settings-grid .field-label {
+  margin: 0;
+}
+.editor-settings-grid select {
+  margin-top: 4px;
 }
 .edition-path-card {
   padding: 10px;

@@ -20,12 +20,21 @@ export interface StudioConfig {
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
+  editor: EditorPreferences;
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
   // OpenAI-compatible endpoint — local runtimes and hosted providers alike.
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;
+}
+
+export interface EditorPreferences {
+  fontSize: number;
+  wordWrap: boolean;
+  minimap: boolean;
+  stickyScroll: boolean;
+  formatOnSave: boolean;
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
@@ -45,6 +54,13 @@ const DEFAULTS: StudioConfig = {
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
+  editor: {
+    fontSize: 13,
+    wordWrap: false,
+    minimap: false,
+    stickyScroll: true,
+    formatOnSave: false,
+  },
   // Defaults to Google's free tier rather than a paid key or a local model the
   // user may not have installed — the least-friction way to a working agent.
   agentProvider: "openai",
@@ -120,6 +136,24 @@ function consoleRefreshIntervalOrDefault(value: unknown): number {
     : DEFAULTS.consoleRefreshIntervalMs;
 }
 
+function booleanOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function editorPreferences(value: unknown): EditorPreferences {
+  const raw = isRecord(value) ? value : {};
+  const fontSize = typeof raw.fontSize === "number" && Number.isInteger(raw.fontSize) && raw.fontSize >= 11 && raw.fontSize <= 24
+    ? raw.fontSize
+    : DEFAULTS.editor.fontSize;
+  return {
+    fontSize,
+    wordWrap: booleanOr(raw.wordWrap, DEFAULTS.editor.wordWrap),
+    minimap: booleanOr(raw.minimap, DEFAULTS.editor.minimap),
+    stickyScroll: booleanOr(raw.stickyScroll, DEFAULTS.editor.stickyScroll),
+    formatOnSave: booleanOr(raw.formatOnSave, DEFAULTS.editor.formatOnSave),
+  };
+}
+
 /** A narrow runtime schema — TypeScript types do not validate IPC or disk data. */
 export function normalizeConfig(value: unknown): StudioConfig {
   const raw = isRecord(value) ? value : {};
@@ -154,6 +188,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
       raw.legacyArtifactTrack === "latest" || raw.artifactTrack === "latest" ? "latest" : "recommended",
     redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
     consoleRefreshIntervalMs: consoleRefreshIntervalOrDefault(raw.consoleRefreshIntervalMs),
+    editor: editorPreferences(raw.editor),
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),
     openaiModel: stringOr(raw.openaiModel, DEFAULTS.openaiModel, 256),

@@ -13,9 +13,30 @@ export interface StudioConfig {
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
+  editor: EditorPreferences;
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;
+}
+
+export interface EditorPreferences {
+  fontSize: number;
+  wordWrap: boolean;
+  minimap: boolean;
+  stickyScroll: boolean;
+  formatOnSave: boolean;
+}
+
+export interface EditorProblem {
+  path: string;
+  severity: "error" | "warning" | "info" | "hint";
+  message: string;
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  source?: string;
+  code?: string;
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";

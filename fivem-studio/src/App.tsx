@@ -7,7 +7,7 @@ import ResourceTree from "./components/ResourceTree";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
-import type { CfxTarget, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
+import type { CfxTarget, EditorProblem, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
 
 export interface OpenFile {
   path: string;
@@ -31,6 +31,13 @@ const DEFAULT_CONFIG: StudioConfig = {
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
+  editor: {
+    fontSize: 13,
+    wordWrap: false,
+    minimap: false,
+    stickyScroll: true,
+    formatOnSave: false,
+  },
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
   openaiModel: "gemini-3.7-flash",
@@ -85,6 +92,8 @@ export default function App() {
   // tab strip with nothing highlighted and an empty pane, which reads as a broken state.
   const [centerTab, setCenterTab] = useState<CenterTab>("viewport");
   const [selection, setSelection] = useState({ selectedText: "", startLine: 0, endLine: 0 });
+  const [editorProblems, setEditorProblems] = useState<Record<string, EditorProblem[]>>({});
+  const [editorReveal, setEditorReveal] = useState<{ path: string; line: number; column: number; nonce: number } | null>(null);
   const activeServerPath = serverExeFor(config, config.activeCfxTarget);
   const activeClientPath = clientExeFor(config, config.activeCfxTarget);
   const activeTargetLabel = cfxTargetLabel(config.activeCfxTarget);
@@ -295,6 +304,8 @@ export default function App() {
       setOpenFiles([]);
       setActivePath(null);
       setCenterTab("viewport");
+      setEditorProblems({});
+      setEditorReveal(null);
     }
     setTreeRefreshKey((k) => k + 1);
     if (saved.txDataPath && saved.selectedProfile) {
@@ -324,12 +335,41 @@ export default function App() {
     }
   }
 
+  function handleEditorProblems(path: string, problems: EditorProblem[]) {
+    setEditorProblems((current) => {
+      if (problems.length === 0) {
+        if (!(path in current)) return current;
+        const next = { ...current };
+        delete next[path];
+        return next;
+      }
+      return { ...current, [path]: problems };
+    });
+  }
+
+  function revealEditorProblem(problem: EditorProblem) {
+    setActivePath(problem.path);
+    setCenterTab("editor");
+    setEditorReveal((current) => ({
+      path: problem.path,
+      line: problem.line,
+      column: problem.column,
+      nonce: (current?.nonce ?? 0) + 1,
+    }));
+  }
+
   function closeTab(path: string) {
     const file = openFiles.find((f) => f.path === path);
     if (file?.dirty && !confirm(`${path.split(/[/\\]/).pop()} has unsaved changes.\n\nClose it and discard them?`)) {
       return;
     }
     setOpenFiles((files) => files.filter((f) => f.path !== path));
+    setEditorProblems((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
     if (activePath === path) {
       const remaining = openFiles.filter((f) => f.path !== path);
       setActivePath(remaining.length ? remaining[remaining.length - 1].path : null);
@@ -358,6 +398,15 @@ export default function App() {
       return remapped ? { ...f, path: remapped } : f;
     }));
     setActivePath((p) => (p ? (remapPath(p, oldPath, newPath) ?? p) : p));
+    setEditorProblems((current) => Object.fromEntries(
+      Object.entries(current).map(([problemPath, problems]) => {
+        const remapped = remapPath(problemPath, oldPath, newPath) ?? problemPath;
+        return [remapped, problems.map((problem) => ({
+          ...problem,
+          path: remapPath(problem.path, oldPath, newPath) ?? problem.path,
+        }))];
+      }),
+    ));
     setTreeRefreshKey((k) => k + 1);
   }
 
@@ -365,6 +414,9 @@ export default function App() {
     const affected = (p: string) => p === deletedPath || p.startsWith(deletedPath + "\\") || p.startsWith(deletedPath + "/");
     const remaining = openFiles.filter((f) => !affected(f.path));
     setOpenFiles(remaining);
+    setEditorProblems((current) => Object.fromEntries(
+      Object.entries(current).filter(([problemPath]) => !affected(problemPath)),
+    ));
     if (activePath && affected(activePath)) {
       setActivePath(remaining.length ? remaining[remaining.length - 1].path : null);
       if (remaining.length === 0) setCenterTab("viewport");
@@ -590,6 +642,9 @@ export default function App() {
               onConsoleRefreshIntervalChange={handleConsoleRefreshIntervalChange}
               resourceLifecycleAvailable={runtimeIdentity?.capabilities.resourceLifecycle ?? null}
               clientLabel={activeTargetLabel}
+              editorPreferences={config.editor}
+              editorProblems={editorProblems}
+              editorReveal={editorReveal}
               centerTab={centerTab}
               onSelectCenterTab={setCenterTab}
               openFiles={openFiles}
@@ -601,6 +656,8 @@ export default function App() {
               onSelectionChange={(selectedText, startLine, endLine) =>
                 setSelection({ selectedText, startLine, endLine })
               }
+              onProblemsChange={handleEditorProblems}
+              onRevealProblem={revealEditorProblem}
             />
           </Panel>
 

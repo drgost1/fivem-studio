@@ -36,6 +36,18 @@ test("local workspace creation is staged, minimal, and collision-safe", () => {
   }
 });
 
+test("RedM workspace creation selects the rdr3 game runtime", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "fivem-studio-redm-workspace-"));
+  try {
+    const created = createLocalWorkspace(root, "redm-sandbox", 30130, "redm");
+    const config = fs.readFileSync(created.serverCfgPath, "utf8");
+    assert.match(config, /^set gamename rdr3$/m);
+    assert.equal(config.includes("127.0.0.1:30130"), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a dangling symbolic-link collision is refused", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "fivem-studio-workspace-"));
   const collision = path.join(root, "linked.base");

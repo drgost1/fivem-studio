@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getFreshCandidate, matchesDiscoveredWindow, type DiscoveredWindowCandidate } from "./windowEmbedValidation";
+import {
+  getFreshCandidate,
+  isCfxClientProcessName,
+  matchesDiscoveredWindow,
+  type DiscoveredWindowCandidate,
+} from "./windowEmbedValidation";
 
 const candidate: DiscoveredWindowCandidate = {
   id: "opaque-id",
@@ -22,4 +27,12 @@ test("requires the current PID and process identity to match the discovered wind
   assert.equal(matchesDiscoveredWindow(candidate, { pid: 4321, processName: "gta5_enhanced.exe" }), true);
   assert.equal(matchesDiscoveredWindow(candidate, { pid: 9999, processName: "gta5_enhanced.exe" }), false);
   assert.equal(matchesDiscoveredWindow(candidate, { pid: 4321, processName: "FiveM.exe" }), false);
+});
+
+test("recognizes FiveM and RedM bootstrap and render processes", () => {
+  for (const processName of ["FiveM.exe", "GTA5_Enhanced.exe", "RedM.exe", "RDR2.exe", "RDR2_b1491.exe"]) {
+    assert.equal(isCfxClientProcessName(processName), true, processName);
+  }
+  assert.equal(isCfxClientProcessName("explorer.exe"), false);
+  assert.equal(isCfxClientProcessName("My RedM Notes.exe"), false);
 });

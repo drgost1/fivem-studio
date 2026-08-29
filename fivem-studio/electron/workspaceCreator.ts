@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { CfxTarget } from "./configStore";
 
 const MAX_WORKSPACE_NAME_LENGTH = 64;
 const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|clock\$)(?:\.|$)/i;
@@ -41,10 +42,14 @@ export function assertLocalPort(value: number): number {
   return value;
 }
 
-export function starterServerCfg(port: number, workspaceName: string): string {
+export function starterServerCfg(port: number, workspaceName: string, target: CfxTarget = "legacy"): string {
+  const gameSelection = target === "redm"
+    ? "# RedM requires the RDR3 game runtime.\nset gamename rdr3\n\n"
+    : "";
   return `# Ghz Workbench local server-data workspace: ${workspaceName}\n` +
     "# txAdmin owns its control profile/config.json. Attach this folder through txAdmin's normal deployment flow.\n" +
     "# This template deliberately contains no license key, RCON password, or other secrets.\n\n" +
+    gameSelection +
     `endpoint_add_tcp "127.0.0.1:${port}"\n` +
     `endpoint_add_udp "127.0.0.1:${port}"\n` +
     "sv_master1 \"\"\n\n" +
@@ -87,7 +92,12 @@ function directoryEntryExists(target: string): boolean {
  * folder and final folder are direct children of the same txData root, so the
  * final rename is same-volume. No existing profile is ever modified.
  */
-export function createLocalWorkspace(txDataPath: string, requestedName: string, requestedPort: number): LocalWorkspace {
+export function createLocalWorkspace(
+  txDataPath: string,
+  requestedName: string,
+  requestedPort: number,
+  target: CfxTarget = "legacy",
+): LocalWorkspace {
   if (typeof txDataPath !== "string" || !txDataPath) throw new Error("Choose a txData folder first.");
   const rootLinkStat = fs.lstatSync(txDataPath);
   if (!rootLinkStat.isDirectory() || rootLinkStat.isSymbolicLink()) {
@@ -109,7 +119,7 @@ export function createLocalWorkspace(txDataPath: string, requestedName: string, 
     fs.mkdirSync(stagingPath, { mode: 0o700 });
     const resourcesPath = path.join(stagingPath, "resources");
     fs.mkdirSync(path.join(resourcesPath, "[local]"), { recursive: true, mode: 0o700 });
-    writeDurableText(path.join(stagingPath, "server.cfg"), starterServerCfg(port, name));
+    writeDurableText(path.join(stagingPath, "server.cfg"), starterServerCfg(port, name, target));
     writeDurableText(path.join(stagingPath, ".gitignore"), GITIGNORE);
     writeDurableText(path.join(stagingPath, "secrets.cfg.example"), SECRETS_EXAMPLE);
 

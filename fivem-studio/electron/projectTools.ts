@@ -91,7 +91,7 @@ export function projectToolDefinitions(): McpToolDefinition[] {
     {
       name: "list_project_files",
       description:
-        "List files and folders inside the FiveM resources folder. Use this to explore what resources exist and what's in them. Paths are relative to the resources folder — pass an empty string for the top level.",
+        "List files and folders inside the active Cfx.re resources folder. Use this to explore what resources exist and what's in them. Paths are relative to the resources folder — pass an empty string for the top level.",
       input_schema: {
         type: "object",
         properties: {

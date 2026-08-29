@@ -1,4 +1,4 @@
-import type { CfxEdition, RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
+import type { CfxTarget, RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
 
 interface TopBarProps {
   connected: boolean;
@@ -7,9 +7,9 @@ interface TopBarProps {
   onOpenSettings: () => void;
   onLaunchServer: () => void;
   onStopServer: () => void;
-  onLaunchFivem: () => void;
-  activeEdition: CfxEdition;
-  serverEdition: CfxEdition;
+  onLaunchClient: () => void;
+  activeTarget: CfxTarget;
+  serverTarget: CfxTarget;
   activeServerPath: string | null;
   serverConfigured: boolean;
   serverAction: "starting" | "stopping" | null;
@@ -26,9 +26,9 @@ export default function TopBar({
   onOpenSettings,
   onLaunchServer,
   onStopServer,
-  onLaunchFivem,
-  activeEdition,
-  serverEdition,
+  onLaunchClient,
+  activeTarget,
+  serverTarget,
   activeServerPath,
   serverConfigured,
   serverAction,
@@ -37,8 +37,10 @@ export default function TopBar({
   serverStatusError,
   activeClientPath,
 }: TopBarProps) {
-  const activeLabel = activeEdition === "legacy" ? "Legacy" : "Enhanced";
-  const serverLabel = serverEdition === "legacy" ? "Legacy" : "Enhanced";
+  const labelFor = (target: CfxTarget) => target === "legacy" ? "FiveM Legacy" : target === "enhanced" ? "FiveM Enhanced" : "RedM";
+  const activeLabel = labelFor(activeTarget);
+  const serverLabel = labelFor(serverTarget);
+  const clientExecutable = activeTarget === "redm" ? "RedM.exe" : "FiveM.exe";
   const runtimeReady = connected && workspaceMatch?.ok === true;
   const statusLabel = !connected
     ? "Coding runtime unavailable"
@@ -81,8 +83,8 @@ export default function TopBar({
               ? `■ Stop ${serverLabel} server`
               : `▶ Start ${activeLabel} server`}
       </button>
-      <button className="btn" onClick={onLaunchFivem} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} FiveM.exe path in Settings`}>
-        ▶ Launch {activeLabel} client
+      <button className="btn" onClick={onLaunchClient} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} ${clientExecutable} path in Settings`}>
+        ▶ Launch {activeLabel}
       </button>
       <button className="btn" onClick={onOpenSettings}>
         ⚙ Settings

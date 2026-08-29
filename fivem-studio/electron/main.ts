@@ -10,7 +10,8 @@ import {
   hasApiKey,
   saveProviderKey,
   hasProviderKey,
-  type CfxEdition,
+  CFX_TARGETS,
+  type CfxTarget,
   type StudioConfig,
 } from "./configStore";
 import * as agent from "./agent";
@@ -58,8 +59,8 @@ let allowCloseWithUnsavedChanges = false;
 // returned it. This prevents the renderer from turning discovery into an
 // arbitrary-directory listing API.
 let pendingTxDataPath: string | null = null;
-const pendingFivemExePaths: Record<CfxEdition, string | null> = { legacy: null, enhanced: null };
-const pendingFxServerExePaths: Record<CfxEdition, string | null> = { legacy: null, enhanced: null };
+const pendingClientExePaths: Record<CfxTarget, string | null> = { legacy: null, enhanced: null, redm: null };
+const pendingFxServerExePaths: Record<CfxTarget, string | null> = { legacy: null, enhanced: null, redm: null };
 let artifactRecoveryNotice: string | null = null;
 const serverOperation = new OperationLock();
 
@@ -127,46 +128,55 @@ function scopedTxDataPath(value: unknown): string {
   return requested;
 }
 
-function requireCfxEdition(value: unknown): CfxEdition {
-  if (value !== "legacy" && value !== "enhanced") throw new Error("Cfx.re edition must be Legacy or Enhanced.");
+function requireCfxTarget(value: unknown): CfxTarget {
+  if (value !== "legacy" && value !== "enhanced" && value !== "redm") {
+    throw new Error("Cfx.re target must be FiveM Legacy, FiveM Enhanced, or RedM.");
+  }
   return value;
 }
 
-function clientExeFor(config: StudioConfig, edition: CfxEdition): string | null {
-  return edition === "legacy" ? config.legacyFivemExePath : config.enhancedFivemExePath;
+function cfxTargetLabel(target: CfxTarget): string {
+  if (target === "legacy") return "FiveM Legacy";
+  if (target === "enhanced") return "FiveM Enhanced";
+  return "RedM";
 }
 
-function serverExeFor(config: StudioConfig, edition: CfxEdition): string | null {
-  return edition === "legacy" ? config.legacyFxServerExePath : config.enhancedFxServerExePath;
+function clientExeFor(config: StudioConfig, target: CfxTarget): string | null {
+  if (target === "legacy") return config.legacyFivemExePath;
+  if (target === "enhanced") return config.enhancedFivemExePath;
+  return config.redmClientExePath;
 }
 
-function otherEdition(edition: CfxEdition): CfxEdition {
-  return edition === "legacy" ? "enhanced" : "legacy";
+function serverExeFor(config: StudioConfig, target: CfxTarget): string | null {
+  if (target === "legacy") return config.legacyFxServerExePath;
+  if (target === "enhanced") return config.enhancedFxServerExePath;
+  return config.redmFxServerExePath;
 }
 
-function scopedFiveMExe(value: unknown, edition: CfxEdition): string | null {
+function scopedClientExe(value: unknown, target: CfxTarget): string | null {
   if (value === null || value === undefined || value === "") return null;
-  const requested = requireString(value, "FiveM executable");
-  const current = clientExeFor(loadConfig(), edition);
-  if (requested !== current && requested !== pendingFivemExePaths[edition]) {
-    throw new Error(`Choose the ${edition} FiveM executable using Browse before saving it.`);
+  const requested = requireString(value, `${cfxTargetLabel(target)} executable`);
+  const current = clientExeFor(loadConfig(), target);
+  if (requested !== current && requested !== pendingClientExePaths[target]) {
+    throw new Error(`Choose the ${cfxTargetLabel(target)} client executable using Browse before saving it.`);
   }
   return requested;
 }
 
-function scopedFxServerExe(value: unknown, edition: CfxEdition, txDataPath?: string | null): string | null {
+function scopedFxServerExe(value: unknown, target: CfxTarget, txDataPath?: string | null): string | null {
   if (value === null || value === undefined || value === "") return null;
   const requested = requireString(value, "Local server executable");
-  const current = serverExeFor(loadConfig(), edition);
-  if (requested !== current && requested !== pendingFxServerExePaths[edition]) {
-    throw new Error(`Choose the ${edition} local server executable using Browse before saving it.`);
+  const current = serverExeFor(loadConfig(), target);
+  if (requested !== current && requested !== pendingFxServerExePaths[target]) {
+    throw new Error(`Choose the ${cfxTargetLabel(target)} local server executable using Browse before saving it.`);
   }
-  const target = resolveArtifactTarget(requested, txDataPath);
-  if (target.flavor !== edition) {
+  const artifact = resolveArtifactTarget(requested, txDataPath);
+  const expectedFlavor = target === "enhanced" ? "enhanced" : "legacy";
+  if (artifact.flavor !== expectedFlavor) {
     throw new Error(
-      edition === "legacy"
-        ? "The Legacy server path must point to FXServer.exe."
-        : "The Enhanced server path must point to cfx-server.exe.",
+      target === "enhanced"
+        ? "The FiveM Enhanced server path must point to cfx-server.exe."
+        : `The ${cfxTargetLabel(target)} server path must point to FXServer.exe.`,
     );
   }
   return requested;
@@ -177,8 +187,8 @@ function requireArtifactTrack(value: unknown): ArtifactTrack {
   return value;
 }
 
-function artifactStatePath(edition: CfxEdition): string {
-  return path.join(app.getPath("userData"), `artifact-install-${edition}.json`);
+function artifactStatePath(target: CfxTarget): string {
+  return path.join(app.getPath("userData"), `artifact-install-${target}.json`);
 }
 
 function createWindow() {
@@ -293,14 +303,14 @@ app.whenReady().then(() => {
 
   const startupConfig = loadConfig();
   const recoveryNotices: string[] = [];
-  for (const edition of ["legacy", "enhanced"] as const) {
-    const executable = serverExeFor(startupConfig, edition);
+  for (const target of CFX_TARGETS) {
+    const executable = serverExeFor(startupConfig, target);
     if (!executable) continue;
     try {
-      const notice = recoverInterruptedArtifactUpdate(executable, artifactStatePath(edition));
-      if (notice) recoveryNotices.push(`${edition === "legacy" ? "Legacy" : "Enhanced"}: ${notice}`);
+      const notice = recoverInterruptedArtifactUpdate(executable, artifactStatePath(target));
+      if (notice) recoveryNotices.push(`${cfxTargetLabel(target)}: ${notice}`);
     } catch (error) {
-      recoveryNotices.push(`${edition === "legacy" ? "Legacy" : "Enhanced"} artifact recovery needs attention: ${(error as Error).message}`);
+      recoveryNotices.push(`${cfxTargetLabel(target)} artifact recovery needs attention: ${(error as Error).message}`);
     }
   }
   artifactRecoveryNotice = recoveryNotices.length > 0 ? recoveryNotices.join(" ") : null;
@@ -339,12 +349,14 @@ function registerIpcHandlers() {
       }
       if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
       if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
-      requireCfxEdition(candidate.activeCfxEdition);
-      scopedFiveMExe(candidate.legacyFivemExePath, "legacy");
-      scopedFiveMExe(candidate.enhancedFivemExePath, "enhanced");
+      requireCfxTarget(candidate.activeCfxTarget);
+      scopedClientExe(candidate.legacyFivemExePath, "legacy");
+      scopedClientExe(candidate.enhancedFivemExePath, "enhanced");
+      scopedClientExe(candidate.redmClientExePath, "redm");
       const txDataPath = typeof candidate.txDataPath === "string" ? candidate.txDataPath : null;
       scopedFxServerExe(candidate.legacyFxServerExePath, "legacy", txDataPath);
       scopedFxServerExe(candidate.enhancedFxServerExePath, "enhanced", txDataPath);
+      scopedFxServerExe(candidate.redmFxServerExePath, "redm", txDataPath);
       return saveConfig(config);
     }),
   );
@@ -385,11 +397,12 @@ function registerIpcHandlers() {
   ipcMain.handle("txdata:resolveProfile", (_e, txDataPath: unknown, profile: unknown) =>
     resolveProfile(scopedTxDataPath(txDataPath), assertSafeBasename(requireString(profile, "Profile", 255))),
   );
-  ipcMain.handle("txdata:createLocalWorkspace", (_e, txDataPath: unknown, name: unknown, port: unknown) =>
+  ipcMain.handle("txdata:createLocalWorkspace", (_e, txDataPath: unknown, name: unknown, port: unknown, target: unknown) =>
     createLocalWorkspace(
       scopedTxDataPath(txDataPath),
       requireString(name, "Workspace name", 255),
       requireFiniteNumber(port, "Local server port"),
+      requireCfxTarget(target),
     ),
   );
 
@@ -400,33 +413,39 @@ function registerIpcHandlers() {
     return pendingTxDataPath;
   });
 
-  ipcMain.handle("dialog:chooseExe", async (_e, editionValue: unknown) => {
-    const edition = requireCfxEdition(editionValue);
+  ipcMain.handle("dialog:chooseExe", async (_e, targetValue: unknown) => {
+    const target = requireCfxTarget(targetValue);
     const filters =
       process.platform === "win32" ? [{ name: "Executable", extensions: ["exe"] }] : [{ name: "All files", extensions: ["*"] }];
     const result = await dialog.showOpenDialog({ properties: ["openFile"], filters });
     if (result.canceled) return null;
-    pendingFivemExePaths[edition] = result.filePaths[0];
-    return pendingFivemExePaths[edition];
+    const selected = result.filePaths[0];
+    const expectedName = target === "redm" ? "redm.exe" : "fivem.exe";
+    if (process.platform === "win32" && path.basename(selected).toLowerCase() !== expectedName) {
+      throw new Error(`Choose ${target === "redm" ? "RedM.exe" : "FiveM.exe"} for ${cfxTargetLabel(target)}.`);
+    }
+    pendingClientExePaths[target] = selected;
+    return pendingClientExePaths[target];
   });
 
-  ipcMain.handle("dialog:chooseFxServerExe", async (_e, editionValue: unknown) => {
-    const edition = requireCfxEdition(editionValue);
+  ipcMain.handle("dialog:chooseFxServerExe", async (_e, targetValue: unknown) => {
+    const target = requireCfxTarget(targetValue);
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
       filters: [{ name: "Cfx.re server executable", extensions: ["exe"] }],
     });
     if (result.canceled) return null;
-    const target = resolveArtifactTarget(result.filePaths[0], null);
-    if (target.flavor !== edition) {
+    const artifactTarget = resolveArtifactTarget(result.filePaths[0], null);
+    const expectedFlavor = target === "enhanced" ? "enhanced" : "legacy";
+    if (artifactTarget.flavor !== expectedFlavor) {
       throw new Error(
-        edition === "legacy"
-          ? "Choose FXServer.exe for the Legacy server."
-          : "Choose cfx-server.exe for the Enhanced server.",
+        target === "enhanced"
+          ? "Choose cfx-server.exe for the FiveM Enhanced server."
+          : `Choose FXServer.exe for the ${cfxTargetLabel(target)} server.`,
       );
     }
-    pendingFxServerExePaths[edition] = result.filePaths[0];
-    return pendingFxServerExePaths[edition];
+    pendingFxServerExePaths[target] = result.filePaths[0];
+    return pendingFxServerExePaths[target];
   });
 
   // --- bundled coding runtime ---
@@ -458,83 +477,88 @@ function registerIpcHandlers() {
     cloneRepo(requireString(repoUrl, "GitHub repository", 2048), activeResourcesRoot()),
   );
 
-  // --- launch the real FiveM client, in its own window ---
-  ipcMain.handle("fivem:launch", (_e, editionValue: unknown) => {
-    const edition = requireCfxEdition(editionValue);
-    const configured = clientExeFor(loadConfig(), edition);
-    if (!configured) throw new Error(`Choose the ${edition} FiveM executable in Settings first.`);
-    if (process.platform === "win32" && path.extname(configured).toLowerCase() !== ".exe") throw new Error("FiveM executable must be an .exe file.");
+  // --- launch the selected FiveM or RedM client, in its own window ---
+  ipcMain.handle("cfx:launch", (_e, targetValue: unknown) => {
+    const target = requireCfxTarget(targetValue);
+    const configured = clientExeFor(loadConfig(), target);
+    if (!configured) throw new Error(`Choose the ${cfxTargetLabel(target)} client executable in Settings first.`);
+    if (process.platform === "win32" && path.extname(configured).toLowerCase() !== ".exe") {
+      throw new Error("Cfx.re client executable must be an .exe file.");
+    }
     spawn(configured, [], { detached: true, stdio: "ignore" }).unref();
-    return { ok: true, edition };
+    return { ok: true, target };
   });
 
   // --- local Cfx.re server launch and artifact maintenance ---
   ipcMain.handle("server:status", async () => {
     const config = loadConfig();
-    const ordered = [config.activeCfxEdition, otherEdition(config.activeCfxEdition)];
-    for (const edition of ordered) {
-      const executable = serverExeFor(config, edition);
+    const ordered = [config.activeCfxTarget, ...CFX_TARGETS.filter((target) => target !== config.activeCfxTarget)];
+    for (const target of ordered) {
+      const executable = serverExeFor(config, target);
       if (!executable) continue;
-      const target = resolveArtifactTarget(executable, config.txDataPath);
-      const pids = await findRunningServerPids(target.executablePath);
-      if (pids.length > 0) return { running: true, pids, edition };
+      const artifact = resolveArtifactTarget(executable, config.txDataPath);
+      const pids = await findRunningServerPids(artifact.executablePath);
+      if (pids.length > 0) return { running: true, pids, target };
     }
-    return { running: false, pids: [], edition: config.activeCfxEdition };
+    return { running: false, pids: [], target: config.activeCfxTarget };
   });
 
   ipcMain.handle("server:launch", () =>
     serverOperation.run("the local server start", async () => {
       const config = loadConfig();
-      const edition = config.activeCfxEdition;
-      const executable = serverExeFor(config, edition);
-      if (!executable) throw new Error(`Choose the ${edition} server executable in Settings first.`);
+      const target = config.activeCfxTarget;
+      const executable = serverExeFor(config, target);
+      if (!executable) throw new Error(`Choose the ${cfxTargetLabel(target)} server executable in Settings first.`);
       if (!config.txDataPath || !config.selectedProfile) throw new Error("Choose a txData workspace in Settings first.");
-      const other = otherEdition(edition);
-      const otherExecutable = serverExeFor(config, other);
-      if (otherExecutable) {
+      for (const otherTargetName of CFX_TARGETS) {
+        if (otherTargetName === target) continue;
+        const otherExecutable = serverExeFor(config, otherTargetName);
+        if (!otherExecutable || path.resolve(otherExecutable).toLowerCase() === path.resolve(executable).toLowerCase()) continue;
         const otherTarget = resolveArtifactTarget(otherExecutable, config.txDataPath);
         const otherPids = await findRunningServerPids(otherTarget.executablePath);
         if (otherPids.length > 0) {
-          throw new Error(`Stop the ${other} server before starting the ${edition} server on this workspace.`);
+          throw new Error(
+            `Stop the ${cfxTargetLabel(otherTargetName)} server before starting the ${cfxTargetLabel(target)} server on this workspace.`,
+          );
         }
       }
       const workspaceRoot = activeProfileRoot();
       const controlProfile = discoverTxAdminControlProfile(config.txDataPath, workspaceRoot);
-      const recoveryNotice = recoverInterruptedArtifactUpdate(executable, artifactStatePath(edition));
+      const recoveryNotice = recoverInterruptedArtifactUpdate(executable, artifactStatePath(target));
       const launched = await launchLocalServer(executable, config.txDataPath, controlProfile);
-      return { ...launched, edition, recoveryNotice: recoveryNotice ?? undefined };
+      return { ...launched, target, recoveryNotice: recoveryNotice ?? undefined };
     }),
   );
 
-  ipcMain.handle("server:stop", (_e, editionValue: unknown) =>
+  ipcMain.handle("server:stop", (_e, targetValue: unknown) =>
     serverOperation.run("the local server stop", async () => {
-      const edition = requireCfxEdition(editionValue);
+      const target = requireCfxTarget(targetValue);
       const config = loadConfig();
-      const executable = serverExeFor(config, edition);
-      if (!executable) throw new Error(`Choose the ${edition} server executable in Settings first.`);
-      return { ...(await stopLocalServer(executable, config.txDataPath)), edition };
+      const executable = serverExeFor(config, target);
+      if (!executable) throw new Error(`Choose the ${cfxTargetLabel(target)} server executable in Settings first.`);
+      return { ...(await stopLocalServer(executable, config.txDataPath)), target };
     }),
   );
 
-  ipcMain.handle("artifacts:check", (_e, editionValue: unknown, track: unknown) =>
+  ipcMain.handle("artifacts:check", (_e, targetValue: unknown, track: unknown) =>
     serverOperation.run("the server artifact check", async () => {
-      const edition = requireCfxEdition(editionValue);
+      const target = requireCfxTarget(targetValue);
       const config = loadConfig();
-      const executable = serverExeFor(config, edition);
-      if (!executable) throw new Error(`Choose and save the ${edition} server executable first.`);
-      const selectedTrack = edition === "enhanced" ? "recommended" : requireArtifactTrack(track);
-      return checkArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(edition));
+      const executable = serverExeFor(config, target);
+      if (!executable) throw new Error(`Choose and save the ${cfxTargetLabel(target)} server executable first.`);
+      const selectedTrack = target === "enhanced" ? "recommended" : requireArtifactTrack(track);
+      return checkArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(target));
     }),
   );
 
-  ipcMain.handle("artifacts:update", (_e, editionValue: unknown, track: unknown) =>
+  ipcMain.handle("artifacts:update", (_e, targetValue: unknown, track: unknown) =>
     serverOperation.run("the server artifact update", async () => {
-      const edition = requireCfxEdition(editionValue);
+      const target = requireCfxTarget(targetValue);
       const config = loadConfig();
-      const executable = serverExeFor(config, edition);
-      if (!executable) throw new Error(`Choose and save the ${edition} server executable first.`);
-      const selectedTrack = edition === "enhanced" ? "recommended" : requireArtifactTrack(track);
-      return installArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(edition));
+      const executable = serverExeFor(config, target);
+      if (!executable) throw new Error(`Choose and save the ${cfxTargetLabel(target)} server executable first.`);
+      const selectedTrack = target === "enhanced" ? "recommended" : requireArtifactTrack(track);
+      return installArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(target));
     }),
   );
 

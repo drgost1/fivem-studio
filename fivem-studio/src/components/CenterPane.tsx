@@ -38,7 +38,7 @@ function languageForPath(path: string): string {
 
 /**
  * Tab labels, disambiguated by parent folder when bare filenames collide — near-universal
- * in a FiveM tree, where every resource has its own fxmanifest.lua, client/main.lua, etc.
+ * in a Cfx.re resource tree, where every resource has its own fxmanifest.lua, client/main.lua, etc.
  * Without this, several tabs read identically with no way to tell which is which.
  */
 function tabLabels(openFiles: OpenFile[]): Map<string, string> {
@@ -64,6 +64,7 @@ interface CenterPaneProps {
   runtimeWritable: boolean;
   consoleAvailable: boolean | null;
   resourceLifecycleAvailable: boolean | null;
+  clientLabel: string;
   centerTab: CenterTab;
   onSelectCenterTab: (tab: CenterTab) => void;
   openFiles: OpenFile[];
@@ -81,6 +82,7 @@ export default function CenterPane({
   runtimeWritable,
   consoleAvailable,
   resourceLifecycleAvailable,
+  clientLabel,
   centerTab,
   onSelectCenterTab,
   openFiles,
@@ -164,10 +166,10 @@ export default function CenterPane({
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         {/* Sections stay mounted, toggled with CSS — this is what lets the
-            embedded FiveM window (and the console's fetched output) survive switching
+            embedded Cfx.re client window (and the console's fetched output) survive switching
             to/from a file tab instead of being torn down and rebuilt every time. */}
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "viewport" ? "flex" : "none" }}>
-          <ViewportSection active={centerTab === "viewport"} />
+          <ViewportSection active={centerTab === "viewport"} clientLabel={clientLabel} />
         </div>
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "console" ? "flex" : "none" }}>
           <ConsoleSection connected={connected} available={consoleAvailable} />
@@ -336,9 +338,10 @@ function ResourcesSection({
 
 interface ViewportSectionProps {
   active: boolean;
+  clientLabel: string;
 }
 
-function ViewportSection({ active }: ViewportSectionProps) {
+function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
   const [attachedTitle, setAttachedTitle] = useState<string | null>(null);
 
   async function detach() {
@@ -365,7 +368,7 @@ function ViewportSection({ active }: ViewportSectionProps) {
       {attachedTitle ? (
         <EmbedSurface active={active} />
       ) : (
-        <EmbedPicker onAttached={setAttachedTitle} />
+        <EmbedPicker clientLabel={clientLabel} onAttached={setAttachedTitle} />
       )}
     </div>
   );
@@ -413,7 +416,7 @@ function EmbedSurface({ active }: { active: boolean }) {
   );
 }
 
-function EmbedPicker({ onAttached }: { onAttached: (title: string) => void }) {
+function EmbedPicker({ clientLabel, onAttached }: { clientLabel: string; onAttached: (title: string) => void }) {
   const [candidates, setCandidates] = useState<WindowCandidate[]>([]);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -424,7 +427,7 @@ function EmbedPicker({ onAttached }: { onAttached: (title: string) => void }) {
     try {
       const found = await window.api.windowEmbed.listCandidates();
       setCandidates(found);
-      if (found.length === 0) setError("No FiveM window found — make sure it's running in windowed/borderless mode, then scan again.");
+      if (found.length === 0) setError(`No ${clientLabel} window found — make sure it's running in windowed/borderless mode, then scan again.`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -443,7 +446,7 @@ function EmbedPicker({ onAttached }: { onAttached: (title: string) => void }) {
     <div>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <button className="btn small primary" onClick={scan} disabled={scanning}>
-          {scanning ? "Scanning…" : "Scan for FiveM window"}
+          {scanning ? "Scanning…" : `Scan for ${clientLabel} window`}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
@@ -461,8 +464,8 @@ function EmbedPicker({ onAttached }: { onAttached: (title: string) => void }) {
       )}
       {candidates.length === 0 && !error && (
         <div style={{ fontSize: 12, marginTop: 8 }}>
-          Docks the real, live FiveM client window into this pane (Windows only).
-          Launch FiveM in windowed or borderless mode first, then scan.
+          Docks the real, live {clientLabel} client window into this pane (Windows only).
+          Launch it in windowed or borderless mode first, then scan.
         </div>
       )}
     </div>

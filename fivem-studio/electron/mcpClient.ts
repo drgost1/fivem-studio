@@ -209,7 +209,7 @@ export async function mcpCallTool(name: string, args: Record<string, unknown>): 
     const match = runtimeWorkspaceMatch(runtimeIdentity);
     if (!match.ok) {
       throw new Error(
-        `${match.reason ?? "The active workspace does not match the connected FiveM runtime."} ` +
+        `${match.reason ?? "The active workspace does not match the connected Cfx.re runtime."} ` +
           "Runtime mutations are blocked until Settings points Ghz Workbench at the same server-data workspace and local RCON endpoint.",
       );
     }

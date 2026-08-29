@@ -1,10 +1,10 @@
-// Embeds an external top-level window (the running FiveM game client) into
+// Embeds an external top-level window (the running FiveM or RedM game client) into
 // Studio's own window, using raw Win32 window management — SetParent,
 // SetWindowLongPtr, SetWindowPos — via koffi bindings to user32.dll. This
 // does not touch the target process's memory in any way; it's the same kind
 // of operation any window-docking/tiling utility performs.
 //
-// Windows-only. FiveM must be running windowed/borderless — an exclusive
+// Windows-only. The Cfx client must be running windowed/borderless — an exclusive
 // fullscreen window generally can't be reparented as a child window.
 //
 // The GetWindowThreadProcessId/GetWindowText pattern below follows koffi's
@@ -16,6 +16,7 @@ import koffi from "koffi";
 import type { BrowserWindow } from "electron";
 import {
   getFreshCandidate,
+  isCfxClientProcessName,
   matchesDiscoveredWindow,
   type DiscoveredWindowCandidate,
 } from "./windowEmbedValidation";
@@ -98,7 +99,7 @@ function getWindowThreadAndPid(hwnd: bigint): { tid: number; pid: number } {
   return { tid, pid: out[0] };
 }
 
-/** PID -> image name (e.g. "FiveM_GTAProcess.exe"), via `tasklist` — far simpler than the extra
+/** PID -> image name (e.g. "FiveM_GTAProcess.exe" or "RDR2.exe"), via `tasklist` — far simpler than the extra
  * Win32 calls (OpenProcess + QueryFullProcessImageName) it'd otherwise take to get this ourselves. */
 function processNames(): Promise<Map<number, string>> {
   return new Promise((resolve) => {
@@ -132,10 +133,10 @@ export async function listCandidates(): Promise<WindowCandidate[]> {
 
     const processName = names.get(pid) ?? "";
     // Match on process name only — matching on window title too (as a first cut) turned out to
-    // false-positive on anything with "fivem" anywhere in its title: Explorer windows browsing a
-    // folder named similarly, Windows' own jump-list popups, etc. FiveM's newer builds render the
-    // actual game through a GTA5 Enhanced Edition process, not FiveM.exe itself, hence "gta5" here.
-    if (!/^(fivem|gta5|redm)/i.test(processName)) continue;
+    // false-positive on anything with "fivem" or "redm" in its title: Explorer windows browsing a
+    // folder named similarly, Windows' own jump-list popups, etc. The game render surfaces run as
+    // GTA5*/RDR2* processes rather than the FiveM.exe/RedM.exe bootstrapper, so include both families.
+    if (!isCfxClientProcessName(processName)) continue;
 
     const title = getWindowTitle(hwnd);
     const id = randomUUID();
@@ -150,9 +151,9 @@ export async function listCandidates(): Promise<WindowCandidate[]> {
     results.push({ id, title, processName, pid });
   }
 
-  // The actual game render surface (gta5*.exe) is far more likely to be the wanted window than
-  // FiveM.exe's own bootstrapper window — surface it first.
-  results.sort((a, b) => Number(/^gta5/i.test(b.processName)) - Number(/^gta5/i.test(a.processName)));
+  // The actual game render surface is far more likely to be the wanted window than the Cfx
+  // bootstrapper window — surface GTA5*/RDR2* processes first.
+  results.sort((a, b) => Number(/^(gta5|rdr2)/i.test(b.processName)) - Number(/^(gta5|rdr2)/i.test(a.processName)));
 
   return results;
 }
@@ -243,7 +244,7 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
     // Resolve after scanning and immediately before mutation. This blocks both
     // renderer-invented HWNDs and a stale/reused HWND from another process.
     const initial = await resolveCurrentCandidate(candidateId);
-    if (!initial) return { ok: false, error: "That window is no longer an approved FiveM candidate. Scan again and select it from the list." };
+    if (!initial) return { ok: false, error: "That window is no longer an approved Cfx client candidate. Scan again and select it from the list." };
 
     detach();
 

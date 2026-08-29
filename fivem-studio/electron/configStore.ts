@@ -10,12 +10,15 @@ import { providerUrlOr } from "./localUrl";
 export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
   selectedProfile: string | null; // which txData/<profile> to browse/edit
-  activeCfxEdition: CfxEdition;
+  activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
+  redmClientExePath: string | null;
   legacyFxServerExePath: string | null;
   enhancedFxServerExePath: string | null;
+  redmFxServerExePath: string | null;
   legacyArtifactTrack: "recommended" | "latest";
+  redmArtifactTrack: "recommended" | "latest";
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
   // OpenAI-compatible endpoint — local runtimes and hosted providers alike.
@@ -24,17 +27,22 @@ export interface StudioConfig {
   openaiModel: string;
 }
 
-export type CfxEdition = "legacy" | "enhanced";
+export type CfxTarget = "legacy" | "enhanced" | "redm";
+
+export const CFX_TARGETS: readonly CfxTarget[] = ["legacy", "enhanced", "redm"];
 
 const DEFAULTS: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
-  activeCfxEdition: "legacy",
+  activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
+  redmClientExePath: null,
   legacyFxServerExePath: null,
   enhancedFxServerExePath: null,
+  redmFxServerExePath: null,
   legacyArtifactTrack: "recommended",
+  redmArtifactTrack: "recommended",
   // Defaults to Google's free tier rather than a paid key or a local model the
   // user may not have installed — the least-friction way to a working agent.
   agentProvider: "openai",
@@ -93,24 +101,32 @@ export function normalizeConfig(value: unknown): StudioConfig {
   // Migrate the original single client/server slots. A cfx-server.exe selection
   // unambiguously identifies Enhanced; older FXServer.exe settings are Legacy.
   const oldServerPath = nullablePath(raw.fxServerExePath);
-  const inferredEdition: CfxEdition = oldServerPath?.toLowerCase().endsWith("cfx-server.exe") ? "enhanced" : "legacy";
-  const activeCfxEdition: CfxEdition =
-    raw.activeCfxEdition === "legacy" || raw.activeCfxEdition === "enhanced" ? raw.activeCfxEdition : inferredEdition;
+  const inferredTarget: CfxTarget = oldServerPath?.toLowerCase().endsWith("cfx-server.exe") ? "enhanced" : "legacy";
+  // v1.1.5 stored only a Legacy/Enhanced edition. Preserve it while moving to
+  // the wider target model that also includes RedM.
+  const migratedEdition = raw.activeCfxEdition === "legacy" || raw.activeCfxEdition === "enhanced" ? raw.activeCfxEdition : null;
+  const activeCfxTarget: CfxTarget =
+    raw.activeCfxTarget === "legacy" || raw.activeCfxTarget === "enhanced" || raw.activeCfxTarget === "redm"
+      ? raw.activeCfxTarget
+      : (migratedEdition ?? inferredTarget);
   const oldClientPath = nullablePath(raw.fivemExePath);
   return {
     txDataPath: nullablePath(raw.txDataPath),
     selectedProfile: safeProfile(raw.selectedProfile),
-    activeCfxEdition,
+    activeCfxTarget,
     legacyFivemExePath:
-      nullablePath(raw.legacyFivemExePath) ?? (inferredEdition === "legacy" ? oldClientPath : null),
+      nullablePath(raw.legacyFivemExePath) ?? (inferredTarget === "legacy" ? oldClientPath : null),
     enhancedFivemExePath:
-      nullablePath(raw.enhancedFivemExePath) ?? (inferredEdition === "enhanced" ? oldClientPath : null),
+      nullablePath(raw.enhancedFivemExePath) ?? (inferredTarget === "enhanced" ? oldClientPath : null),
+    redmClientExePath: nullablePath(raw.redmClientExePath),
     legacyFxServerExePath:
-      nullablePath(raw.legacyFxServerExePath) ?? (inferredEdition === "legacy" ? oldServerPath : null),
+      nullablePath(raw.legacyFxServerExePath) ?? (inferredTarget === "legacy" ? oldServerPath : null),
     enhancedFxServerExePath:
-      nullablePath(raw.enhancedFxServerExePath) ?? (inferredEdition === "enhanced" ? oldServerPath : null),
+      nullablePath(raw.enhancedFxServerExePath) ?? (inferredTarget === "enhanced" ? oldServerPath : null),
+    redmFxServerExePath: nullablePath(raw.redmFxServerExePath),
     legacyArtifactTrack:
       raw.legacyArtifactTrack === "latest" || raw.artifactTrack === "latest" ? "latest" : "recommended",
+    redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),
     openaiModel: stringOr(raw.openaiModel, DEFAULTS.openaiModel, 256),

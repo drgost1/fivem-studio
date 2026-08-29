@@ -7,7 +7,7 @@ import ResourceTree from "./components/ResourceTree";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
-import type { CfxEdition, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
+import type { CfxTarget, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
 
 export interface OpenFile {
   path: string;
@@ -21,18 +21,39 @@ type SidebarTab = "resources" | "github";
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
-  activeCfxEdition: "legacy",
+  activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
+  redmClientExePath: null,
   legacyFxServerExePath: null,
   enhancedFxServerExePath: null,
+  redmFxServerExePath: null,
   legacyArtifactTrack: "recommended",
+  redmArtifactTrack: "recommended",
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
   openaiModel: "gemini-3.7-flash",
 };
 
 const EMPTY_PROFILE: ResolvedProfile = { profileRoot: "", resourcesPath: null, serverCfgPath: null };
+
+function cfxTargetLabel(target: CfxTarget): string {
+  if (target === "legacy") return "FiveM Legacy";
+  if (target === "enhanced") return "FiveM Enhanced";
+  return "RedM";
+}
+
+function serverExeFor(config: StudioConfig, target: CfxTarget): string | null {
+  if (target === "legacy") return config.legacyFxServerExePath;
+  if (target === "enhanced") return config.enhancedFxServerExePath;
+  return config.redmFxServerExePath;
+}
+
+function clientExeFor(config: StudioConfig, target: CfxTarget): string | null {
+  if (target === "legacy") return config.legacyFivemExePath;
+  if (target === "enhanced") return config.enhancedFivemExePath;
+  return config.redmClientExePath;
+}
 
 export default function App() {
   const [config, setConfig] = useState<StudioConfig>(DEFAULT_CONFIG);
@@ -46,7 +67,7 @@ export default function App() {
   const [serverAction, setServerAction] = useState<"starting" | "stopping" | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
   const [serverPids, setServerPids] = useState<number[]>([]);
-  const [serverEdition, setServerEdition] = useState<CfxEdition>("legacy");
+  const [serverTarget, setServerTarget] = useState<CfxTarget>("legacy");
   const [serverStatusError, setServerStatusError] = useState<string | null>(null);
   const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
@@ -63,8 +84,9 @@ export default function App() {
   // tab strip with nothing highlighted and an empty pane, which reads as a broken state.
   const [centerTab, setCenterTab] = useState<CenterTab>("viewport");
   const [selection, setSelection] = useState({ selectedText: "", startLine: 0, endLine: 0 });
-  const activeServerPath = config.activeCfxEdition === "legacy" ? config.legacyFxServerExePath : config.enhancedFxServerExePath;
-  const activeClientPath = config.activeCfxEdition === "legacy" ? config.legacyFivemExePath : config.enhancedFivemExePath;
+  const activeServerPath = serverExeFor(config, config.activeCfxTarget);
+  const activeClientPath = clientExeFor(config, config.activeCfxTarget);
+  const activeTargetLabel = cfxTargetLabel(config.activeCfxTarget);
 
   const connect = useCallback(async () => {
     setConnectError(null);
@@ -109,11 +131,11 @@ export default function App() {
     shouldApply: () => boolean = () => true,
   ) => {
     const isCurrent = () => shouldApply() && expectedEpoch === serverStatusEpoch.current;
-    if (!config.legacyFxServerExePath && !config.enhancedFxServerExePath) {
+    if (!config.legacyFxServerExePath && !config.enhancedFxServerExePath && !config.redmFxServerExePath) {
       if (!isCurrent()) return;
       setServerRunning(false);
       setServerPids([]);
-      setServerEdition(config.activeCfxEdition);
+      setServerTarget(config.activeCfxTarget);
       setServerStatusError(null);
       return;
     }
@@ -122,13 +144,13 @@ export default function App() {
       if (!isCurrent()) return;
       setServerRunning(status.running);
       setServerPids(status.pids);
-      setServerEdition(status.edition);
+      setServerTarget(status.target);
       setServerStatusError(null);
     } catch (err) {
       if (!isCurrent()) return;
       setServerStatusError((err as Error).message || "Server status is unavailable.");
     }
-  }, [config.activeCfxEdition, config.legacyFxServerExePath, config.enhancedFxServerExePath]);
+  }, [config.activeCfxTarget, config.legacyFxServerExePath, config.enhancedFxServerExePath, config.redmFxServerExePath]);
 
   // FXServer runs in the background. Poll the exact configured executable so
   // the top-bar control remains truthful after a restart or a stop initiated
@@ -258,9 +280,10 @@ export default function App() {
     }
     const saved = await window.api.config.set(next);
     if (
-      saved.activeCfxEdition !== config.activeCfxEdition ||
+      saved.activeCfxTarget !== config.activeCfxTarget ||
       saved.legacyFxServerExePath !== config.legacyFxServerExePath ||
       saved.enhancedFxServerExePath !== config.enhancedFxServerExePath ||
+      saved.redmFxServerExePath !== config.redmFxServerExePath ||
       saved.txDataPath !== config.txDataPath ||
       saved.selectedProfile !== config.selectedProfile
     ) {
@@ -373,10 +396,10 @@ export default function App() {
     }
   }
 
-  async function launchFivem() {
+  async function launchCfxClient() {
     if (!activeClientPath) return;
     try {
-      await window.api.fivem.launch(config.activeCfxEdition);
+      await window.api.cfx.launch(config.activeCfxTarget);
     } catch (err) {
       alert((err as Error).message);
     }
@@ -392,12 +415,12 @@ export default function App() {
       if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
       setServerRunning(true);
       setServerPids([result.pid]);
-      setServerEdition(result.edition);
+      setServerTarget(result.target);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyRunning
-          ? `The ${result.edition} local server is already running (process ${result.pid}).`
-          : `${result.edition === "legacy" ? "Legacy" : "Enhanced"} local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
+          ? `The ${cfxTargetLabel(result.target)} local server is already running (process ${result.pid}).`
+          : `${cfxTargetLabel(result.target)} local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
         error: false,
       });
     } catch (err) {
@@ -415,14 +438,14 @@ export default function App() {
     setServerAction("stopping");
     setServerNotice(null);
     try {
-      const result = await window.api.server.stop(serverEdition);
+      const result = await window.api.server.stop(serverTarget);
       setServerRunning(false);
       setServerPids([]);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyStopped
-          ? `The ${result.edition} local server is already stopped.`
-          : `Stopped the ${result.edition} local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
+          ? `The ${cfxTargetLabel(result.target)} local server is already stopped.`
+          : `Stopped the ${cfxTargetLabel(result.target)} local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
         error: false,
       });
     } catch (err) {
@@ -443,9 +466,9 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         onLaunchServer={launchServer}
         onStopServer={stopServer}
-        onLaunchFivem={launchFivem}
-        activeEdition={config.activeCfxEdition}
-        serverEdition={serverEdition}
+        onLaunchClient={launchCfxClient}
+        activeTarget={config.activeCfxTarget}
+        serverTarget={serverTarget}
         activeServerPath={activeServerPath}
         serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
         serverAction={serverAction}
@@ -558,6 +581,7 @@ export default function App() {
               runtimeWritable={connected && workspaceMatch?.ok === true && runtimeIdentity?.capabilities.resourceLifecycle === true}
               consoleAvailable={connected && workspaceMatch?.ok === true ? (runtimeIdentity?.capabilities.console ?? null) : null}
               resourceLifecycleAvailable={runtimeIdentity?.capabilities.resourceLifecycle ?? null}
+              clientLabel={activeTargetLabel}
               centerTab={centerTab}
               onSelectCenterTab={setCenterTab}
               openFiles={openFiles}

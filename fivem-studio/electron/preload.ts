@@ -25,8 +25,8 @@ const api = {
   txdata: {
     listProfiles: (txDataPath: string) => ipcRenderer.invoke("txdata:listProfiles", txDataPath),
     resolveProfile: (txDataPath: string, profile: string) => ipcRenderer.invoke("txdata:resolveProfile", txDataPath, profile),
-    createLocalWorkspace: (txDataPath: string, name: string, port: number) =>
-      ipcRenderer.invoke("txdata:createLocalWorkspace", txDataPath, name, port),
+    createLocalWorkspace: (txDataPath: string, name: string, port: number, target: "legacy" | "enhanced" | "redm") =>
+      ipcRenderer.invoke("txdata:createLocalWorkspace", txDataPath, name, port, target),
   },
   windowEmbed: {
     listCandidates: () => ipcRenderer.invoke("windowEmbed:listCandidates"),
@@ -37,8 +37,8 @@ const api = {
   },
   dialog: {
     chooseFolder: () => ipcRenderer.invoke("dialog:chooseFolder"),
-    chooseExe: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("dialog:chooseExe", edition),
-    chooseFxServerExe: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("dialog:chooseFxServerExe", edition),
+    chooseExe: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("dialog:chooseExe", target),
+    chooseFxServerExe: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("dialog:chooseFxServerExe", target),
   },
   mcp: {
     connect: () => ipcRenderer.invoke("mcp:connect"),
@@ -57,17 +57,17 @@ const api = {
     listOrgRepos: (input: string) => ipcRenderer.invoke("github:listOrgRepos", input),
     cloneRepo: (repoUrl: string, projectRoot: string) => ipcRenderer.invoke("github:cloneRepo", repoUrl, projectRoot),
   },
-  fivem: {
-    launch: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("fivem:launch", edition),
+  cfx: {
+    launch: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("cfx:launch", target),
   },
   server: {
     status: () => ipcRenderer.invoke("server:status"),
     launch: () => ipcRenderer.invoke("server:launch"),
-    stop: (edition: "legacy" | "enhanced") => ipcRenderer.invoke("server:stop", edition),
+    stop: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("server:stop", target),
   },
   artifacts: {
-    check: (edition: "legacy" | "enhanced", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", edition, track),
-    update: (edition: "legacy" | "enhanced", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", edition, track),
+    check: (target: "legacy" | "enhanced" | "redm", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", target, track),
+    update: (target: "legacy" | "enhanced" | "redm", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", target, track),
     recoveryNotice: () => ipcRenderer.invoke("artifacts:recoveryNotice"),
   },
   app: {

@@ -3,18 +3,21 @@ export {};
 export interface StudioConfig {
   txDataPath: string | null;
   selectedProfile: string | null;
-  activeCfxEdition: CfxEdition;
+  activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
+  redmClientExePath: string | null;
   legacyFxServerExePath: string | null;
   enhancedFxServerExePath: string | null;
+  redmFxServerExePath: string | null;
   legacyArtifactTrack: "recommended" | "latest";
+  redmArtifactTrack: "recommended" | "latest";
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;
 }
 
-export type CfxEdition = "legacy" | "enhanced";
+export type CfxTarget = "legacy" | "enhanced" | "redm";
 
 export interface DirEntry {
   name: string;
@@ -203,7 +206,7 @@ declare global {
       txdata: {
         listProfiles(txDataPath: string): Promise<ProfileInfo[]>;
         resolveProfile(txDataPath: string, profile: string): Promise<ResolvedProfile>;
-        createLocalWorkspace(txDataPath: string, name: string, port: number): Promise<LocalWorkspace>;
+        createLocalWorkspace(txDataPath: string, name: string, port: number, target: CfxTarget): Promise<LocalWorkspace>;
       };
       windowEmbed: {
         listCandidates(): Promise<WindowCandidate[]>;
@@ -213,8 +216,8 @@ declare global {
       };
       dialog: {
         chooseFolder(): Promise<string | null>;
-        chooseExe(edition: CfxEdition): Promise<string | null>;
-        chooseFxServerExe(edition: CfxEdition): Promise<string | null>;
+        chooseExe(target: CfxTarget): Promise<string | null>;
+        chooseFxServerExe(target: CfxTarget): Promise<string | null>;
       };
       mcp: {
         connect(): Promise<McpConnectResult>;
@@ -234,17 +237,17 @@ declare global {
         listOrgRepos(input: string): Promise<OrganizationRepoListing | null>;
         cloneRepo(repoUrl: string, projectRoot: string): Promise<CloneResult>;
       };
-      fivem: {
-        launch(edition: CfxEdition): Promise<{ ok: boolean; edition: CfxEdition }>;
+      cfx: {
+        launch(target: CfxTarget): Promise<{ ok: boolean; target: CfxTarget }>;
       };
       server: {
-        status(): Promise<{ running: boolean; pids: number[]; edition: CfxEdition }>;
-        launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; edition: CfxEdition; recoveryNotice?: string }>;
-        stop(edition: CfxEdition): Promise<{ stoppedPids: number[]; alreadyStopped: boolean; edition: CfxEdition }>;
+        status(): Promise<{ running: boolean; pids: number[]; target: CfxTarget }>;
+        launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; target: CfxTarget; recoveryNotice?: string }>;
+        stop(target: CfxTarget): Promise<{ stoppedPids: number[]; alreadyStopped: boolean; target: CfxTarget }>;
       };
       artifacts: {
-        check(edition: CfxEdition, track: "recommended" | "latest"): Promise<ArtifactStatus>;
-        update(edition: CfxEdition, track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
+        check(target: CfxTarget, track: "recommended" | "latest"): Promise<ArtifactStatus>;
+        update(target: CfxTarget, track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
         recoveryNotice(): Promise<string | null>;
       };
       app: {

@@ -46,19 +46,19 @@ export function starterServerCfg(port: number, workspaceName: string, target: Cf
   const gameSelection = target === "redm"
     ? "# RedM requires the RDR3 game runtime.\nset gamename rdr3\n\n"
     : "";
-  return `# Ghz Workbench local server-data workspace: ${workspaceName}\n` +
+  return `# QB Studio local server-data workspace: ${workspaceName}\n` +
     "# txAdmin owns its control profile/config.json. Attach this folder through txAdmin's normal deployment flow.\n" +
     "# This template deliberately contains no license key, RCON password, or other secrets.\n\n" +
     gameSelection +
     `endpoint_add_tcp "127.0.0.1:${port}"\n` +
     `endpoint_add_udp "127.0.0.1:${port}"\n` +
     "sv_master1 \"\"\n\n" +
-    `sv_hostname "Ghz Workbench Local - ${workspaceName}"\n` +
+    `sv_hostname "QB Studio Local - ${workspaceName}"\n` +
     "sv_maxclients 8\n" +
     `sets sv_projectName "${workspaceName}"\n\n` +
     "# Copy secrets.cfg.example to secrets.cfg, add your own values, then uncomment this line.\n" +
     "# exec secrets.cfg\n\n" +
-    "# Your Ghz Workbench resources belong in resources/[local]/.\n" +
+    "# Your QB Studio resources belong in resources/[local]/.\n" +
     "ensure [local]\n";
 }
 

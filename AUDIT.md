@@ -1,8 +1,8 @@
-# Ghz Workbench audit and improvement plan
+# QB Studio audit and improvement plan
 
 ## Product boundary
 
-Ghz Workbench is a single-user, localhost-only coding environment. Its live
+QB Studio is a single-user, localhost-only coding environment. Its live
 runtime surface is intentionally limited to console reading and named resource
 lifecycle actions. The embedded local-client preview is passive: it does not
 add player or gameplay controls.
@@ -11,7 +11,7 @@ add player or gameplay controls.
 
 - Enforced numeric loopback-only MCP and RCON destinations without DNS
   resolution. Standard Cfx.re wildcard bind directives are normalized to
-  loopback for RCON; explicit LAN/public targets remain rejected. Workbench's
+  loopback for RCON; explicit LAN/public targets remain rejected. QB Studio's
   generated local profile binds to `127.0.0.1` and disables advertisement.
 - Removed all player, entity, teleport, spawn, screenshot, arbitrary-eval, and
   raw-RCON tools from the UI, agent allowlists, and bundled runtime.
@@ -38,7 +38,7 @@ add player or gameplay controls.
   window ownership before native reparenting operations.
 - Added an NSIS installer, CI, semantic versioning, a single installer release
   asset, signed GitHub build and SBOM attestations, an MIT license, and
-  neutral Ghz Workbench branding.
+  QB Studio branding.
 
 ## Next priorities
 
@@ -74,7 +74,7 @@ add player or gameplay controls.
 - The AI provider may receive prompts and selected project content; a local
   OpenAI-compatible provider is available for developers who require offline
   inference.
-- txAdmin owns its control-profile schema. Ghz Workbench creates a safe
+- txAdmin owns its control-profile schema. QB Studio creates a safe
   server-data workspace, then the developer attaches it through txAdmin's
   supported setup/deployer flow.
 - Initial installers are unsigned and will accumulate reputation slowly until

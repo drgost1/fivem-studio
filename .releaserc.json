@@ -15,8 +15,8 @@
       {
         "assets": [
           {
-            "path": "release/Ghz-Workbench-Setup-*.exe",
-            "label": "Ghz Workbench Windows installer"
+            "path": "release/QB-Studio-Setup-*.exe",
+            "label": "QB Studio Windows installer"
           }
         ],
         "successComment": false,

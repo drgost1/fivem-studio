@@ -197,7 +197,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 640,
-    title: "Ghz Workbench",
+    title: "QB Studio",
     backgroundColor: "#1e1e1e",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -262,7 +262,7 @@ function createWindow() {
       cancelId: 1,
       title: "Unsaved changes",
       message: `${dirtyFileCount} ${plural} unsaved changes.`,
-      detail: "Closing Ghz Workbench now will discard them.",
+      detail: "Closing QB Studio now will discard them.",
     });
     if (choice === 0) {
       allowCloseWithUnsavedChanges = true;
@@ -463,7 +463,7 @@ function registerIpcHandlers() {
   ipcMain.handle("mcp:callTool", (_e, name: unknown, args: unknown) => {
     if (typeof args !== "object" || args === null || Array.isArray(args)) throw new Error("Tool arguments must be an object.");
     const toolName = requireString(name, "Tool name", 256);
-    if (!RENDERER_MCP_TOOLS.has(toolName)) throw new Error(`The Ghz Workbench UI is not allowed to invoke ${toolName}.`);
+    if (!RENDERER_MCP_TOOLS.has(toolName)) throw new Error(`The QB Studio UI is not allowed to invoke ${toolName}.`);
     return mcpCallTool(toolName, args as Record<string, unknown>);
   });
 

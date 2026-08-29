@@ -26,7 +26,7 @@ test("atomic editor saves reject a stale revision", () => {
 });
 
 test("atomic agent creates refuse an existing target", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghz-workbench-create-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-create-"));
   const target = path.join(root, "fxmanifest.lua");
   try {
     const revision = createTextFile(target, "fx_version 'cerulean'\n");

@@ -1,4 +1,4 @@
-// Tiny JSON config store — where Ghz Workbench remembers the user's local
+// Tiny JSON config store — where QB Studio remembers the user's local
 // workspace and client path between launches.
 // Deliberately not using a dependency for this; it's ~20 lines of fs code.
 
@@ -51,16 +51,32 @@ const DEFAULTS: StudioConfig = {
 };
 
 function configPath(): string {
-  return path.join(app.getPath("userData"), "ghz-workbench.config.json");
+  return path.join(app.getPath("userData"), "qb-studio.config.json");
 }
 
-function legacyConfigPath(): string {
-  return path.join(app.getPath("userData"), "fivem-studio.config.json");
+function previousProductUserDataPaths(): string[] {
+  return [
+    path.join(app.getPath("appData"), "Ghz Workbench"),
+    path.join(app.getPath("appData"), "ghz-workbench"),
+  ];
+}
+
+function configCandidates(): string[] {
+  return [...new Set([
+    configPath(),
+    path.join(app.getPath("userData"), "ghz-workbench.config.json"),
+    path.join(app.getPath("userData"), "fivem-studio.config.json"),
+    ...previousProductUserDataPaths().flatMap((directory) => [
+      path.join(directory, "ghz-workbench.config.json"),
+      path.join(directory, "fivem-studio.config.json"),
+    ]),
+  ])];
 }
 
 export function loadConfig(): StudioConfig {
   try {
-    const target = fs.existsSync(configPath()) ? configPath() : legacyConfigPath();
+    const target = configCandidates().find((candidate) => fs.existsSync(candidate));
+    if (!target) return { ...DEFAULTS };
     const raw = fs.readFileSync(target, "utf8");
     return normalizeConfig(JSON.parse(raw));
   } catch {
@@ -146,6 +162,13 @@ function credentialPath(name: string): string {
   return path.join(app.getPath("userData"), `${name}-key.bin`);
 }
 
+function credentialCandidates(name: string): string[] {
+  return [...new Set([
+    credentialPath(name),
+    ...previousProductUserDataPaths().map((directory) => path.join(directory, `${name}-key.bin`)),
+  ])];
+}
+
 /**
  * Keys are stored per endpoint, not one shared "the OpenAI key". Switching
  * provider (say Gemini -> Groq) would otherwise silently send the previous
@@ -159,7 +182,7 @@ function endpointSlug(baseUrl: string): string {
 function saveCredential(name: string, key: string): void {
   const target = credentialPath(name);
   if (!key) {
-    fs.rmSync(target, { force: true });
+    for (const candidate of credentialCandidates(name)) fs.rmSync(candidate, { force: true });
     return;
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -170,21 +193,27 @@ function saveCredential(name: string, key: string): void {
 }
 
 function loadCredential(name: string): string {
-  try {
-    const raw = fs.readFileSync(credentialPath(name));
-    const asText = raw.toString("utf8");
-    // Migrate credentials written by early development builds, which used a
-    // marked plaintext fallback when no keyring was detected.
-    if (asText.startsWith("plain:")) {
-      if (!safeStorage.isEncryptionAvailable()) return "";
-      const value = asText.slice("plain:".length);
-      fs.writeFileSync(credentialPath(name), safeStorage.encryptString(value));
+  const current = credentialPath(name);
+  for (const candidate of credentialCandidates(name)) {
+    try {
+      const raw = fs.readFileSync(candidate);
+      const asText = raw.toString("utf8");
+      // Migrate credentials written by early development builds, which used a
+      // marked plaintext fallback when no keyring was detected.
+      const value = asText.startsWith("plain:")
+        ? (safeStorage.isEncryptionAvailable() ? asText.slice("plain:".length) : "")
+        : safeStorage.decryptString(raw);
+      if (!value) return "";
+      if ((candidate !== current || asText.startsWith("plain:")) && safeStorage.isEncryptionAvailable()) {
+        fs.mkdirSync(path.dirname(current), { recursive: true });
+        fs.writeFileSync(current, safeStorage.encryptString(value));
+      }
       return value;
+    } catch {
+      // Try the previous product directory before treating the key as absent.
     }
-    return safeStorage.decryptString(raw);
-  } catch {
-    return "";
   }
+  return "";
 }
 
 export function saveApiKey(key: string): void {

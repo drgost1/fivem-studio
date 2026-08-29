@@ -1,10 +1,10 @@
 {
-  "name": "ghz-workbench",
+  "name": "qb-studio",
   "version": "0.0.0-development",
   "description": "A localhost-only Windows workbench for Cfx.re server-resource coding.",
-  "author": "GhzGarage",
+  "author": "QBCore Framework",
   "license": "MIT",
-  "repository": "https://github.com/GhzGarage/GhzWorkbench",
+  "repository": "https://github.com/qbcore-framework/qb-studio",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "dev:vite": "vite",
     "predev:electron": "npm run build:runtime",
     "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:5173 electron .",
-    "build:runtime": "npm run bundle -w @ghzgarage/workbench-runtime",
+    "build:runtime": "npm run bundle -w @qbcore-framework/qb-studio-runtime",
     "build:vite": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "prebuild": "npm run build:runtime",
@@ -54,10 +54,11 @@
     "node": ">=22.12.0"
   },
   "build": {
-    "appId": "com.ghzgarage.workbench",
-    "productName": "Ghz Workbench",
+    "appId": "org.qbcore.qbstudio",
+    "productName": "QB Studio",
     "asar": true,
     "directories": {
+      "buildResources": "build",
       "output": "../release"
     },
     "files": [
@@ -77,6 +78,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "nsis",
@@ -85,14 +87,14 @@
           ]
         }
       ],
-      "artifactName": "Ghz-Workbench-Setup-${version}-${arch}.${ext}"
+      "artifactName": "QB-Studio-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Ghz Workbench"
+      "shortcutName": "QB Studio"
     }
   }
 }

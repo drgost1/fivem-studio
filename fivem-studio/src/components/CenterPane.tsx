@@ -98,7 +98,7 @@ export default function CenterPane({
 
   return (
     <div className="pane" style={{ height: "100%" }}>
-      <div className="editor-tabbar" role="tablist" aria-label="Ghz Workbench views">
+      <div className="editor-tabbar" role="tablist" aria-label="QB Studio views">
         <button
           className={`editor-tab pinned ${centerTab === "viewport" ? "active" : ""}`}
           role="tab"

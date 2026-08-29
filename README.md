@@ -1,9 +1,9 @@
-# Ghz Workbench
+# QB Studio
 
-Ghz Workbench is a Windows desktop workspace for coding resources against your
-own localhost Cfx.re server. It puts the editor, resource tree, console, GitHub
-imports, AI coding assistant, and an optional passive local-client preview in
-one app.
+QB Studio is QBCore Framework's Windows desktop workspace for coding resources
+against your own localhost Cfx.re server. It puts the editor, resource tree,
+console, GitHub imports, AI coding assistant, and an optional passive
+local-client preview in one app.
 
 It is a development tool—not a server administration or gameplay tool. Its
 control traffic never leaves numeric loopback, and it does not expose player
@@ -14,7 +14,7 @@ screenshots.
 
 - Monaco code editor with safe, conflict-aware saves
 - txData workspace browser and minimal local-workspace creator
-- Separate one-click launchers for the local Cfx.re server and FiveM client
+- Separate one-click launchers and paths for FiveM Legacy, FiveM Enhanced, and RedM
 - Recommended/Latest server-artifact updates with staging and rollback backup
 - Read-only console plus approved resource refresh controls for coding loops
 - GitHub repository and organization search with resource imports
@@ -26,12 +26,12 @@ GitHub imports require [Git for Windows](https://git-scm.com/download/win).
 ## Install
 
 Download the latest Windows installer from
-[Releases](https://github.com/GhzGarage/GhzWorkbench/releases) and run it once.
+[Releases](https://github.com/qbcore-framework/qb-studio/releases) and run it once.
 Choose the `.exe`; GitHub automatically adds source-code ZIP and TAR archives,
 but they are not installers.
-Ghz Workbench does not require any resource to be added to your server. Point
+QB Studio does not require any resource to be added to your server. Point
 it at an existing Cfx.re Windows server artifact and it can start that local
-server, launch the FiveM client separately, and update the artifact files.
+server, launch the selected FiveM or RedM client separately, and update the artifact files.
 
 ## First run
 
@@ -44,7 +44,7 @@ folder, and a Cfx.re server license key.
    normally `txData\YourServer.base`, and contains `server.cfg` and
    `resources\`.
 2. Leave the existing `endpoint_add_tcp` and `endpoint_add_udp` lines alone.
-   Workbench reads their port; the standard `0.0.0.0` or `[::]` bind is
+   QB Studio reads their port; the standard `0.0.0.0` or `[::]` bind is
    converted to a loopback RCON destination internally. Do not add duplicate
    endpoint lines. Explicit LAN/public addresses and hostnames are rejected.
 3. Add a non-empty password. The simplest option is a line in `server.cfg`:
@@ -63,22 +63,22 @@ folder, and a Cfx.re server license key.
    exec secrets.cfg
    ```
 
-   There is intentionally no RCON field in Settings: FXServer and Workbench
+   There is intentionally no RCON field in Settings: FXServer and QB Studio
    both read the selected local configuration, so there is only one password
    to maintain. Exclude `secrets.cfg` from Git.
 
    A stock wildcard bind may still make FXServer reachable through other
-   network interfaces depending on Windows Firewall/router settings. Workbench
+   network interfaces depending on Windows Firewall/router settings. QB Studio
    only uses it to discover the port and still sends RCON to loopback. Use a
    local development profile that is never port-forwarded or publicly hosted.
 4. In txAdmin, make sure one control profile points its `server.dataPath` to
    that exact server-data folder.
-5. Open Workbench Settings and choose:
+5. Open QB Studio Settings and choose:
 
    - the `txData` root;
    - the server-data workspace—not the txAdmin control-profile folder;
    - `FXServer.exe` or `cfx-server.exe` from the downloaded server artifact;
-   - optionally, `FiveM.exe` for the separate client launcher.
+   - optionally, `FiveM.exe` or `RedM.exe` for the separate client launcher.
 
 6. Select **Save & Connect**, then use **Start server** in the top bar. Legacy
    FXServer can select a matching named txAdmin profile automatically; current
@@ -86,11 +86,11 @@ folder, and a Cfx.re server license key.
    `txData` root per server. The server runs in the background so it does not
    leave another console window open. While that exact configured process is
    running, the button changes to **Stop server**; use it (or txAdmin) to stop
-   the local server before closing Workbench.
+   the local server before closing QB Studio.
 
 ### Create a new local workspace
 
-1. In Workbench Settings, choose the `txData` root, enter a workspace name and
+1. In QB Studio Settings, choose the `txData` root, enter a workspace name and
    port under **Local workspace**, select **Create**, then **Save**.
 2. In the new `YourName.base` folder, copy `secrets.cfg.example` to
    `secrets.cfg` and add your own values:
@@ -102,13 +102,13 @@ folder, and a Cfx.re server license key.
 
 3. In its `server.cfg`, change `# exec secrets.cfg` to `exec secrets.cfg`.
    `secrets.cfg` is already excluded from Git.
-4. Choose `FXServer.exe` or `cfx-server.exe` in Workbench Settings, save, then
+4. Choose `FXServer.exe` or `cfx-server.exe` in QB Studio Settings, save, then
    use **Start server**. In the txAdmin setup that opens, choose **Existing
    Server Data**, point it at the new `.base` folder and its `server.cfg`, then
    select **Save & Start Server**.
    The [official txAdmin setup guide](https://docs.fivem.net/docs/server-manual/setting-up-a-server-txadmin/)
    covers installing and opening txAdmin.
-5. Return to Workbench and select **Save** in Settings again—or restart the
+5. Return to QB Studio and select **Save** in Settings again—or restart the
    app—so it rescans the updated configuration and txAdmin attachment.
 
 ## How the local connection works
@@ -117,7 +117,7 @@ folder, and a Cfx.re server license key.
 | --- | --- |
 | Editor, files, and GitHub import | Selected server-data workspace only |
 | Start local server | Selected Cfx.re server executable, txData root, and workspace |
-| Launch client | Selected `FiveM.exe` |
+| Launch client | Selected `FiveM.exe` or `RedM.exe` |
 | Resource list/start/stop/restart | Running FXServer plus matching `rcon_password` |
 | Read-only console | Exactly one txAdmin control profile attached to the workspace, with an `fxserver*.log` file |
 | AI assistant | Optional configured model provider; no server resource required |
@@ -139,7 +139,7 @@ is the safe default; Latest is an explicit preview-track choice for legacy
 FXServer. Both legacy `FXServer.exe` and Enhanced `cfx-server.exe` artifacts
 are supported.
 
-Use **Stop server** (or stop it in txAdmin) before selecting **Install update**. Workbench
+Use **Stop server** (or stop it in txAdmin) before selecting **Install update**. QB Studio
 downloads from the [official Cfx.re server page](https://docs.fivem.net/docs/server-download/),
 checks the expected HTTPS host, size, archive paths, file count, extracted
 size, and per-file CRC, then extracts to a sibling staging folder. Only after
@@ -151,16 +151,16 @@ automatically if the swap fails.
 replacement.
 
 Cfx.re does not currently publish a separate checksum or signature with these
-Windows artifacts, so Workbench does not claim publisher-signature
+Windows artifacts, so QB Studio does not claim publisher-signature
 verification. It records its own SHA-256 after download for the local install
 record.
 
 Early releases are unsigned, so Windows may show an “Unknown publisher” or
-SmartScreen warning. Download only from the `GhzGarage/GhzWorkbench` release
+SmartScreen warning. Download only from the `qbcore-framework/qb-studio` release
 page and verify the GitHub build attestation:
 
 ```powershell
-gh attestation verify <installer> -R GhzGarage/GhzWorkbench --signer-workflow GhzGarage/GhzWorkbench/.github/workflows/release.yml
+gh attestation verify <installer> -R qbcore-framework/qb-studio --signer-workflow qbcore-framework/qb-studio/.github/workflows/release.yml
 ```
 
 The release workflow also records a CycloneDX SBOM attestation without adding
@@ -181,7 +181,7 @@ npm run dist
 For development without installing the app, run:
 
 ```powershell
-npm run dev -w ghz-workbench
+npm run dev -w qb-studio
 ```
 
 Conventional commits on `main` are automatically versioned by semantic-release
@@ -189,6 +189,6 @@ and published as GitHub Releases.
 
 ## License and trademarks
 
-MIT licensed. Ghz Workbench is an independent, unofficial project and is not
-approved, sponsored, or endorsed by Cfx.re, Rockstar Games, or Take-Two
-Interactive. Product names are used only to describe compatibility.
+MIT licensed and maintained by QBCore Framework. QB Studio is not approved,
+sponsored, or endorsed by Cfx.re, Rockstar Games, or Take-Two Interactive.
+Those product names are used only to describe compatibility.

@@ -15,7 +15,7 @@ export interface RuntimeIdentityConfig {
 export function buildRuntimeIdentity(version: string, config: RuntimeIdentityConfig) {
   return {
     contractVersion: "3",
-    mcp: { name: "ghz-workbench-runtime", version },
+    mcp: { name: "qb-studio-runtime", version },
     runtime: {
       serverData: {
         workspacePath: config.serverDataWorkspace || null,

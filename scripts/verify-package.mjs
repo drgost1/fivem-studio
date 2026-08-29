@@ -11,9 +11,9 @@ import { extractFile, listPackage } from "@electron/asar";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = path.join(root, "release");
 const installers = fs.existsSync(releaseDir)
-  ? fs.readdirSync(releaseDir).filter((name) => /^Ghz-Workbench-Setup-.*\.exe$/i.test(name))
+  ? fs.readdirSync(releaseDir).filter((name) => /^QB-Studio-Setup-.*\.exe$/i.test(name))
   : [];
-if (installers.length !== 1) throw new Error(`Expected exactly one Ghz Workbench installer, found ${installers.length}.`);
+if (installers.length !== 1) throw new Error(`Expected exactly one QB Studio installer, found ${installers.length}.`);
 const [installer] = installers;
 if (fs.statSync(path.join(releaseDir, installer)).size < 10 * 1024 * 1024) {
   throw new Error("The installer is unexpectedly small.");
@@ -24,8 +24,8 @@ if (!fs.existsSync(runtime) || fs.statSync(runtime).size < 100_000) {
   throw new Error("The packaged loopback runtime is missing or incomplete.");
 }
 
-const packagedExe = path.join(releaseDir, "win-unpacked", "Ghz Workbench.exe");
-if (!fs.existsSync(packagedExe)) throw new Error("The unpacked Ghz Workbench executable is missing.");
+const packagedExe = path.join(releaseDir, "win-unpacked", "QB Studio.exe");
+if (!fs.existsSync(packagedExe)) throw new Error("The unpacked QB Studio executable is missing.");
 
 const appArchive = path.join(releaseDir, "win-unpacked", "resources", "app.asar");
 if (!fs.existsSync(appArchive)) throw new Error("The packaged Electron app archive is missing.");
@@ -149,7 +149,7 @@ async function verifyRuntimeContract() {
       });
     });
 
-    const client = new Client({ name: "ghz-workbench-package-verifier", version: "1.0.0" });
+    const client = new Client({ name: "qb-studio-package-verifier", version: "1.0.0" });
     try {
       const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
         requestInit: { headers: { Authorization: `Bearer ${token}` } },

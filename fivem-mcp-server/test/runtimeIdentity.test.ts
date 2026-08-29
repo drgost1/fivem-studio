@@ -14,7 +14,7 @@ test("runtime identity is versioned, secret-free, and signals configured capabil
     rconConfigured: true,
   });
 
-  assert.deepEqual(identity.mcp, { name: "ghz-workbench-runtime", version: "0.4.0" });
+  assert.deepEqual(identity.mcp, { name: "qb-studio-runtime", version: "0.4.0" });
   assert.equal(identity.contractVersion, "3");
   assert.equal(identity.runtime.serverData.workspacePath, "C:\\txData\\FiveMBasicServerEnhanced_908F3A.base");
   assert.equal(identity.runtime.serverData.configPath, "C:\\txData\\FiveMBasicServerEnhanced_908F3A.base\\server.cfg");

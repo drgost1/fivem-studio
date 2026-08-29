@@ -96,7 +96,7 @@ function parseEndpoint(value: string): { host: string; port: number } {
   const host = normalizedHost === "0.0.0.0" ? "127.0.0.1" : normalizedHost === "::" ? "::1" : configuredHost;
   if (!isLoopbackHostname(host)) {
     throw new Error(
-      `The selected server.cfg binds FXServer to ${configuredHost}. Ghz Workbench only accepts numeric loopback endpoints or the standard 0.0.0.0/[::] wildcard binds.`,
+      `The selected server.cfg binds FXServer to ${configuredHost}. QB Studio only accepts numeric loopback endpoints or the standard 0.0.0.0/[::] wildcard binds.`,
     );
   }
   return { host, port };
@@ -270,7 +270,7 @@ export async function ensureManagedRuntime(config: StudioConfig): Promise<Manage
 
   const scriptPath = runtimeScriptPath();
   if (!fs.existsSync(scriptPath)) {
-    throw new Error("The bundled coding runtime is missing. Reinstall Ghz Workbench or run the runtime bundle build.");
+    throw new Error("The bundled coding runtime is missing. Reinstall QB Studio or run the runtime bundle build.");
   }
 
   const token = randomBytes(32).toString("base64url");

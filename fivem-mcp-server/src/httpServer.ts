@@ -44,7 +44,7 @@ export function startHttpServer(): http.Server {
 
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, server: "ghz-workbench-runtime" }));
+      res.end(JSON.stringify({ ok: true, server: "qb-studio-runtime" }));
       return;
     }
 
@@ -119,7 +119,7 @@ export function startHttpServer(): http.Server {
 
       await transport.handleRequest(req, res);
     } catch (err) {
-      console.error("ghz-workbench-runtime: error handling HTTP MCP request:", err);
+      console.error("qb-studio-runtime: error handling HTTP MCP request:", err);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "internal error" }));
@@ -140,7 +140,7 @@ export function startHttpServer(): http.Server {
       ? "an Authorization: Bearer token is required (MCP_TOKEN is set)"
       : "no auth required (loopback-only development mode)";
     console.error(
-      `ghz-workbench-runtime listening on http://${config.mcp.host}:${port}${MCP_PATH} (${authNote})`,
+      `qb-studio-runtime listening on http://${config.mcp.host}:${port}${MCP_PATH} (${authNote})`,
     );
     if (typeof process.send === "function") {
       process.send({ type: "ready", port, protocolVersion: 1 });

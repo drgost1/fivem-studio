@@ -106,7 +106,7 @@ test("recursive config loading preserves RCON override order", () => {
 });
 
 test("discovers a txAdmin control profile separately from its server-data workspace", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghz-workbench-txdata-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-txdata-"));
   try {
     const workspace = path.join(root, "local-dev.base");
     const control = path.join(root, "default");

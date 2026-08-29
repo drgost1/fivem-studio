@@ -75,7 +75,7 @@ test("repository search builds an encoded name query and maps bounded public res
   assert.equal(observed.url.pathname, "/search/repositories");
   assert.equal(observed.url.searchParams.get("q"), "qb-core in:name");
   assert.equal(observed.url.searchParams.get("per_page"), "6");
-  assert.equal((observed.init?.headers as Record<string, string>)["User-Agent"], "ghz-workbench");
+  assert.equal((observed.init?.headers as Record<string, string>)["User-Agent"], "qb-studio");
   assert.deepEqual(results, [
     {
       owner: "qbcore-framework",

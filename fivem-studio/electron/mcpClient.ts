@@ -1,4 +1,4 @@
-// Ghz Workbench's dashboard and coding agent share the same narrow loopback
+// QB Studio's dashboard and coding agent share the same narrow loopback
 // runtime protocol, so console and resource lifecycle state stay in sync.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -101,7 +101,7 @@ export async function mcpConnect(
     const transport = new StreamableHTTPClientTransport(parseLoopbackHttpUrl(url, "MCP URL"), {
       requestInit: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
     });
-    newClient = new Client({ name: "ghz-workbench", version: "0.0.0-development" });
+    newClient = new Client({ name: "qb-studio", version: "0.0.0-development" });
     newClient.onclose = () => {
       // Only react if this is still the active client — a reconnect closes the old one.
       if (client === newClient) {
@@ -210,7 +210,7 @@ export async function mcpCallTool(name: string, args: Record<string, unknown>): 
     if (!match.ok) {
       throw new Error(
         `${match.reason ?? "The active workspace does not match the connected Cfx.re runtime."} ` +
-          "Runtime mutations are blocked until Settings points Ghz Workbench at the same server-data workspace and local RCON endpoint.",
+          "Runtime mutations are blocked until Settings points QB Studio at the same server-data workspace and local RCON endpoint.",
       );
     }
   }
@@ -275,7 +275,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
 
   const config = loadConfig();
   if (!config.txDataPath || !config.selectedProfile) {
-    return { ok: false, reason: "No local server-data workspace is selected in Ghz Workbench." };
+    return { ok: false, reason: "No local server-data workspace is selected in QB Studio." };
   }
 
   const normalize = (value: string) => {
@@ -288,7 +288,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
     return {
       ok: false,
       reason:
-        `Ghz Workbench is editing ${selectedWorkspace}, but the runtime controls ` +
+        `QB Studio is editing ${selectedWorkspace}, but the runtime controls ` +
         `${identity.runtime.serverData.workspacePath}.`,
     };
   }
@@ -297,7 +297,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
     return {
       ok: false,
       reason:
-        `Ghz Workbench expects ${selectedConfigPath}, but the runtime identifies ` +
+        `QB Studio expects ${selectedConfigPath}, but the runtime identifies ` +
         `${identity.runtime.serverData.configPath} as its server.cfg.`,
     };
   }

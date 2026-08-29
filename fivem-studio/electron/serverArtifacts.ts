@@ -539,7 +539,7 @@ async function fetchWithValidatedRedirects(
       method,
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { "User-Agent": "Ghz-Workbench-Artifact-Updater" },
+      headers: { "User-Agent": "QB-Studio-Artifact-Updater" },
     });
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers.get("location");

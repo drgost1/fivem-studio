@@ -36,13 +36,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Attest installer provenance
-        if: ${{ hashFiles('release/Ghz-Workbench-Setup-*.exe') != '' }}
+        if: ${{ hashFiles('release/QB-Studio-Setup-*.exe') != '' }}
         uses: actions/attest@v4
         with:
-          subject-path: release/Ghz-Workbench-Setup-*.exe
+          subject-path: release/QB-Studio-Setup-*.exe
       - name: Attest installer SBOM
-        if: ${{ hashFiles('release/Ghz-Workbench-Setup-*.exe') != '' && hashFiles('release/bom.cdx.json') != '' }}
+        if: ${{ hashFiles('release/QB-Studio-Setup-*.exe') != '' && hashFiles('release/bom.cdx.json') != '' }}
         uses: actions/attest@v4
         with:
-          subject-path: release/Ghz-Workbench-Setup-*.exe
+          subject-path: release/QB-Studio-Setup-*.exe
           sbom-path: release/bom.cdx.json

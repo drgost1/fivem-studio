@@ -49,11 +49,11 @@ export default function TopBar({
       : "Coding runtime ready · read only";
   const availabilityNote = "The coding runtime does not confirm that FXServer is running.";
   const statusTitle = !connected
-    ? "Ghz Workbench could not reach its bundled coding runtime."
+    ? "QB Studio could not reach its bundled coding runtime."
     : `${workspaceMatch?.reason ?? (runtimeIdentity ? `${runtimeIdentity.mcp.name} ${runtimeIdentity.mcp.version}` : "Bundled coding runtime")}. ${availabilityNote}`;
   return (
     <div className="topbar">
-      <span className="brand">Ghz Workbench</span>
+      <span className="brand">QB Studio</span>
       <div className="spacer" />
       <div className="status-pill" title={statusTitle}>
         <span className={`status-dot ${runtimeReady ? "connected" : connected ? "limited" : "disconnected"}`} />

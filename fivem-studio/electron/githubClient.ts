@@ -39,7 +39,7 @@ type GithubFetch = (input: string | URL, init?: RequestInit) => Promise<Response
 
 const GITHUB_HEADERS = {
   Accept: "application/vnd.github+json",
-  "User-Agent": "ghz-workbench",
+  "User-Agent": "qb-studio",
   "X-GitHub-Api-Version": "2022-11-28",
 };
 const GITHUB_REQUEST_TIMEOUT_MS = 10_000;

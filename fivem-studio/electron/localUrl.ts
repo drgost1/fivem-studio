@@ -1,5 +1,5 @@
 /** Network policy shared by config persistence and the MCP client.
- * Ghz Workbench is intentionally a localhost development tool. */
+ * QB Studio is intentionally a localhost development tool. */
 
 export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -24,7 +24,7 @@ export function parseLoopbackHttpUrl(value: string, label = "URL"): URL {
   }
   if (!isLoopbackHostname(url.hostname)) {
     throw new Error(
-      `${label} must use a numeric loopback address (127.x.x.x or ::1). Ghz Workbench does not resolve hostnames for local control paths.`,
+      `${label} must use a numeric loopback address (127.x.x.x or ::1). QB Studio does not resolve hostnames for local control paths.`,
     );
   }
   if (url.username || url.password) throw new Error(`${label} must not contain embedded credentials.`);

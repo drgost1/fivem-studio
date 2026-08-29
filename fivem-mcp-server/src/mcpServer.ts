@@ -6,7 +6,7 @@ import { registerConsoleTools } from "./tools/console.js";
 import { registerResourceTools } from "./tools/resources.js";
 import { registerIdentityTools } from "./tools/identity.js";
 
-export const SERVER_NAME = "ghz-workbench-runtime";
+export const SERVER_NAME = "qb-studio-runtime";
 export const SERVER_VERSION = "0.0.0-development";
 
 /**

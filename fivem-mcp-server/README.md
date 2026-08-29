@@ -1,6 +1,6 @@
-# Ghz Workbench runtime
+# QB Studio runtime
 
-This package is the private loopback sidecar bundled with Ghz Workbench. It is
+This package is the private loopback sidecar bundled with QB Studio. It is
 not a server administration product and is not intended to run on a remote or
 live server.
 

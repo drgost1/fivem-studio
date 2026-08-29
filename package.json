@@ -1,22 +1,22 @@
 {
-  "name": "ghz-workbench-monorepo",
+  "name": "qb-studio-monorepo",
   "version": "0.0.0-development",
   "private": true,
-  "description": "Build and release workspace for Ghz Workbench.",
-  "author": "GhzGarage",
+  "description": "Build and release workspace for QB Studio.",
+  "author": "QBCore Framework",
   "license": "MIT",
-  "repository": "https://github.com/GhzGarage/GhzWorkbench",
+  "repository": "https://github.com/qbcore-framework/qb-studio",
   "workspaces": [
     "fivem-studio",
     "fivem-mcp-server"
   ],
   "scripts": {
-    "build:runtime": "npm run bundle -w @ghzgarage/workbench-runtime",
-    "build:app": "npm run build -w ghz-workbench",
+    "build:runtime": "npm run bundle -w @qbcore-framework/qb-studio-runtime",
+    "build:app": "npm run build -w qb-studio",
     "build": "npm run build:app",
-    "typecheck": "npm run typecheck -w @ghzgarage/workbench-runtime && npm run typecheck -w ghz-workbench",
-    "test": "npm run test -w @ghzgarage/workbench-runtime && npm run test -w ghz-workbench",
-    "dist": "npm run dist -w ghz-workbench",
+    "typecheck": "npm run typecheck -w @qbcore-framework/qb-studio-runtime && npm run typecheck -w qb-studio",
+    "test": "npm run test -w @qbcore-framework/qb-studio-runtime && npm run test -w qb-studio",
+    "dist": "npm run dist -w qb-studio",
     "verify:package": "node scripts/verify-package.mjs",
     "release": "semantic-release"
   },

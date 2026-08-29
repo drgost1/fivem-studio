@@ -1,15 +1,15 @@
 {
-  "name": "@ghzgarage/workbench-runtime",
+  "name": "@qbcore-framework/qb-studio-runtime",
   "version": "0.0.0-development",
-  "description": "Private loopback runtime for Ghz Workbench console logs and resource reloads.",
-  "author": "GhzGarage",
+  "description": "Private loopback runtime for QB Studio console logs and resource reloads.",
+  "author": "QBCore Framework",
   "license": "MIT",
-  "repository": "https://github.com/GhzGarage/GhzWorkbench",
+  "repository": "https://github.com/qbcore-framework/qb-studio",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "ghz-workbench-runtime": "dist/index.js"
+    "qb-studio-runtime": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

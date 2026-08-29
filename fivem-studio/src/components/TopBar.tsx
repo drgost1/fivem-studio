@@ -5,7 +5,11 @@ interface TopBarProps {
   runtimeIdentity: RuntimeIdentity | null;
   workspaceMatch: RuntimeWorkspaceMatch | null;
   onOpenSettings: () => void;
+  onLaunchServer: () => void;
   onLaunchFivem: () => void;
+  fxServerExePath: string | null;
+  serverConfigured: boolean;
+  serverLaunching: boolean;
   fivemExePath: string | null;
 }
 
@@ -14,7 +18,11 @@ export default function TopBar({
   runtimeIdentity,
   workspaceMatch,
   onOpenSettings,
+  onLaunchServer,
   onLaunchFivem,
+  fxServerExePath,
+  serverConfigured,
+  serverLaunching,
   fivemExePath,
 }: TopBarProps) {
   const runtimeReady = connected && workspaceMatch?.ok === true;
@@ -35,6 +43,20 @@ export default function TopBar({
         <span className={`status-dot ${runtimeReady ? "connected" : connected ? "limited" : "disconnected"}`} />
         {statusLabel}
       </div>
+      <button
+        className="btn"
+        onClick={onLaunchServer}
+        disabled={!fxServerExePath || !serverConfigured || serverLaunching}
+        title={
+          !fxServerExePath
+            ? "Set FXServer.exe or cfx-server.exe in Settings"
+            : !serverConfigured
+              ? "Choose a txData workspace in Settings"
+              : fxServerExePath
+        }
+      >
+        {serverLaunching ? "Starting…" : "▶ Start server"}
+      </button>
       <button className="btn" onClick={onLaunchFivem} disabled={!fivemExePath} title={fivemExePath ?? "Set FiveM.exe path in Settings"}>
         ▶ Launch client
       </button>

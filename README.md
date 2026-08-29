@@ -13,6 +13,8 @@ RCON, arbitrary Lua execution, spawning, teleporting, or screenshots.
 
 - Monaco code editor with safe, conflict-aware saves
 - txData workspace browser and minimal local-workspace creator
+- Separate one-click launchers for the local Cfx.re server and FiveM client
+- Recommended/Latest server-artifact updates with staging and rollback backup
 - Read-only console plus approved resource refresh controls for coding loops
 - GitHub resource imports without a separate file browser
 - AI assistant scoped to project files and coding-oriented runtime tools
@@ -24,8 +26,9 @@ GitHub imports require [Git for Windows](https://git-scm.com/download/win).
 
 Download the latest Windows installer from
 [Releases](https://github.com/GhzGarage/GhzWorkbench/releases) and run it once.
-Ghz Workbench does not install or start FXServer/txAdmin for you, and it does
-not require any resource to be added to your server.
+Ghz Workbench does not require any resource to be added to your server. Point
+it at an existing Cfx.re Windows server artifact and it can start that local
+server, launch the FiveM client separately, and update the artifact files.
 
 ## First run
 
@@ -51,9 +54,16 @@ folder, and a Cfx.re server license key.
    loaded with `exec`. There is no RCON field in the app; Workbench reads the
    active configuration directly.
 4. In txAdmin, make sure one control profile points its `server.dataPath` to
-   that exact server-data folder, then start FXServer.
-5. Open Workbench Settings, choose the `txData` root and the server-data
-   workspace—not the txAdmin control-profile folder—and select **Save**.
+   that exact server-data folder.
+5. Open Workbench Settings and choose:
+
+   - the `txData` root;
+   - the server-data workspace—not the txAdmin control-profile folder;
+   - `FXServer.exe` or `cfx-server.exe` from the downloaded server artifact;
+   - optionally, `FiveM.exe` for the separate client launcher.
+
+6. Select **Save & Connect**, then use **Start server** in the top bar. When a
+   matching txAdmin profile exists, Workbench selects it automatically.
 
 ### Create a new local workspace
 
@@ -69,8 +79,10 @@ folder, and a Cfx.re server license key.
 
 3. In its `server.cfg`, change `# exec secrets.cfg` to `exec secrets.cfg`.
    `secrets.cfg` is already excluded from Git.
-4. In txAdmin setup choose **Existing Server Data**, point it at the new
-   `.base` folder and its `server.cfg`, then select **Save & Start Server**.
+4. Choose `FXServer.exe` or `cfx-server.exe` in Workbench Settings, save, then
+   use **Start server**. In the txAdmin setup that opens, choose **Existing
+   Server Data**, point it at the new `.base` folder and its `server.cfg`, then
+   select **Save & Start Server**.
    The [official txAdmin setup guide](https://docs.fivem.net/docs/server-manual/setting-up-a-server-txadmin/)
    covers installing and opening txAdmin.
 5. Return to Workbench and select **Save** in Settings again—or restart the
@@ -81,6 +93,8 @@ folder, and a Cfx.re server license key.
 | Feature | Requirement |
 | --- | --- |
 | Editor, files, and GitHub import | Selected server-data workspace only |
+| Start local server | Selected Cfx.re server executable, txData root, and workspace |
+| Launch client | Selected `FiveM.exe` |
 | Resource list/start/stop/restart | Running FXServer plus matching `rcon_password` |
 | Read-only console | Exactly one txAdmin control profile attached to the workspace, with an `fxserver*.log` file |
 | AI assistant | Optional configured model provider; no server resource required |
@@ -94,6 +108,29 @@ FXServer after configuration changes, then save Settings again. If the console
 is unavailable, verify the control profile's `server.dataPath` matches the
 selected workspace exactly and that txAdmin has started the server at least
 once.
+
+## Server artifact updates
+
+In Settings, save the server executable path and select **Check**. Recommended
+is the safe default; Latest is an explicit preview-track choice for legacy
+FXServer. Both legacy `FXServer.exe` and Enhanced `cfx-server.exe` artifacts
+are supported.
+
+Stop the local server in txAdmin before selecting **Install update**. Workbench
+downloads from the [official Cfx.re server page](https://docs.fivem.net/docs/server-download/),
+checks the expected HTTPS host, size, archive paths, file count, extracted
+size, and per-file CRC, then extracts to a sibling staging folder. Only after
+that structural validation does it swap the artifact directory. A durable
+recovery journal restores or completes the swap after an app/PC interruption.
+The previous directory is kept as a sibling backup and is restored
+automatically if the swap fails.
+`txData`, resources, configs, secrets, and databases are never part of that
+replacement.
+
+Cfx.re does not currently publish a separate checksum or signature with these
+Windows artifacts, so Workbench does not claim publisher-signature
+verification. It records its own SHA-256 after download for the local install
+record.
 
 Early releases are unsigned, so Windows may show an “Unknown publisher” or
 SmartScreen warning. Download only from the `GhzGarage/GhzWorkbench` release

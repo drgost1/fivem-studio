@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ProfileInfo, StudioConfig } from "../global";
+import type { ArtifactStatus, ProfileInfo, StudioConfig } from "../global";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
 
 interface SettingsModalProps {
@@ -29,6 +29,10 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   const [workspacePort, setWorkspacePort] = useState("30120");
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [artifactStatus, setArtifactStatus] = useState<ArtifactStatus | null>(null);
+  const [artifactBusy, setArtifactBusy] = useState<"checking" | "updating" | null>(null);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
+  const [artifactMessage, setArtifactMessage] = useState<string | null>(null);
 
   /** Asks the endpoint what it actually serves, rather than making the user guess a model id. */
   async function loadModels() {
@@ -71,6 +75,8 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
   const preset = matchPreset(draft.agentProvider, draft.openaiBaseUrl);
   const isAnthropic = draft.agentProvider === "anthropic";
+  const enhancedServer = draft.fxServerExePath?.toLowerCase().endsWith("cfx-server.exe") === true;
+  const serverPathIsSaved = Boolean(draft.fxServerExePath && draft.fxServerExePath === config.fxServerExePath);
 
   /** Picking a provider fills in its endpoint and a starting model; both stay editable. */
   function applyPreset(id: string) {
@@ -140,6 +146,71 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     if (exe) setDraft((d) => ({ ...d, fivemExePath: exe }));
   }
 
+  async function pickFxServerExe() {
+    try {
+      const exe = await window.api.dialog.chooseFxServerExe();
+      if (exe) {
+        setDraft((d) => ({
+          ...d,
+          fxServerExePath: exe,
+          artifactTrack: exe.toLowerCase().endsWith("cfx-server.exe") ? "recommended" : d.artifactTrack,
+        }));
+      }
+    } catch (err) {
+      setArtifactError((err as Error).message);
+    }
+  }
+
+  async function checkArtifacts() {
+    setArtifactBusy("checking");
+    setArtifactError(null);
+    setArtifactMessage(null);
+    try {
+      const status = await window.api.artifacts.check(draft.artifactTrack);
+      setArtifactStatus(status);
+      if (status.recoveryNotice) setArtifactMessage(status.recoveryNotice);
+    } catch (err) {
+      setArtifactStatus(null);
+      setArtifactError((err as Error).message || "Could not check Cfx.re artifacts.");
+    } finally {
+      setArtifactBusy(null);
+    }
+  }
+
+  async function updateArtifacts() {
+    if (!artifactStatus) return;
+    const target = draft.fxServerExePath ? draft.fxServerExePath.replace(/[\\/][^\\/]+$/, "") : "the artifact folder";
+    if (
+      !confirm(
+        `Install Cfx.re build ${artifactStatus.build} into ${target}?\n\n` +
+          "The local server must be stopped. Workbench will replace only the artifact folder, keep the previous folder as a backup, and never modify txData.",
+      )
+    ) {
+      return;
+    }
+    setArtifactBusy("updating");
+    setArtifactError(null);
+    setArtifactMessage(null);
+    try {
+      const result = await window.api.artifacts.update(draft.artifactTrack);
+      setArtifactStatus(result);
+      setArtifactMessage(
+        `Installed build ${result.build}. Previous artifacts are preserved at ${result.backupPath}.` +
+          (result.warning ? ` ${result.warning}` : ""),
+      );
+    } catch (err) {
+      setArtifactError((err as Error).message || "Could not update Cfx.re artifacts.");
+    } finally {
+      setArtifactBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    setArtifactStatus(null);
+    setArtifactError(null);
+    setArtifactMessage(null);
+  }, [draft.fxServerExePath, draft.artifactTrack]);
+
   async function createWorkspace() {
     if (!draft.txDataPath) {
       setSaveError("Choose a txData folder before creating a local workspace.");
@@ -193,7 +264,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={() => artifactBusy === null && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="settings-title">Settings</h3>
 
@@ -287,6 +358,98 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         <div className="field-hint" style={{ marginBottom: 10 }}>
           The coding runtime is bundled, uses a fresh private token and ephemeral loopback port each launch, and is not configurable for remote servers.
         </div>
+
+        <div className="settings-divider">Local server & client</div>
+
+        <label className="field-label">Server artifact executable</label>
+        <div className="field-row">
+          <input value={draft.fxServerExePath ?? ""} readOnly placeholder="FXServer.exe or cfx-server.exe" />
+          <button className="btn" type="button" onClick={() => void pickFxServerExe()} disabled={artifactBusy !== null}>
+            Browse…
+          </button>
+        </div>
+        <div className="field-hint">
+          This enables <strong>Start server</strong> in the top bar. Workbench starts txAdmin from this executable and passes the selected
+          txData root; when the workspace is already attached, it also selects the matching txAdmin profile.
+        </div>
+
+        <label className="field-label">Artifact update track</label>
+        <div className="field-row artifact-controls">
+          <select
+            value={enhancedServer ? "recommended" : draft.artifactTrack}
+            onChange={(e) => setDraft((d) => ({ ...d, artifactTrack: e.target.value as "recommended" | "latest" }))}
+            disabled={enhancedServer || artifactBusy !== null}
+            title={enhancedServer ? "Cfx.re currently publishes one Windows Enhanced artifact track." : undefined}
+          >
+            <option value="recommended">Recommended</option>
+            <option value="latest">Latest (preview)</option>
+          </select>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => void checkArtifacts()}
+            disabled={!serverPathIsSaved || artifactBusy !== null}
+          >
+            {artifactBusy === "checking" ? "Checking…" : "Check"}
+          </button>
+          <button
+            className="btn primary"
+            type="button"
+            onClick={() => void updateArtifacts()}
+            disabled={!serverPathIsSaved || !artifactStatus || artifactStatus.installedBuild === artifactStatus.build || artifactBusy !== null}
+          >
+            {artifactBusy === "updating" ? "Updating…" : "Install update"}
+          </button>
+        </div>
+        {!serverPathIsSaved && draft.fxServerExePath && (
+          <div className="field-hint">Save Settings once before checking or installing artifacts for this path.</div>
+        )}
+        {draft.artifactTrack === "latest" && !enhancedServer && (
+          <div className="field-hint" style={{ color: "var(--yellow)" }}>
+            Latest is newer, but Cfx.re has not marked it Recommended. Use it only when you need a recent server change.
+          </div>
+        )}
+        {artifactStatus && (
+          <div className="artifact-status" role="status">
+            <strong>Cfx.re {artifactStatus.track} build {artifactStatus.build}</strong>
+            <span>
+              {artifactStatus.installedBuild === null
+                ? "Installed build unknown (this installation has not yet been updated by Workbench)."
+                : artifactStatus.installedBuild === artifactStatus.build
+                  ? "This managed build is installed."
+                  : `Workbench last installed build ${artifactStatus.installedBuild}.`}
+            </span>
+            <span>
+              {artifactStatus.archiveSize ? `${(artifactStatus.archiveSize / 1024 / 1024).toFixed(1)} MB` : "Size unavailable"}
+              {artifactStatus.publishedAt ? ` · ${new Date(artifactStatus.publishedAt).toLocaleDateString()}` : ""}
+            </span>
+          </div>
+        )}
+        {artifactError && <div className="error-text" role="alert">{artifactError}</div>}
+        {artifactMessage && <div className="field-hint artifact-success">{artifactMessage}</div>}
+        <div className="field-hint">
+          Updates come from the {" "}
+          <a
+            href="https://docs.fivem.net/docs/server-download/"
+            onClick={(e) => {
+              e.preventDefault();
+              void window.api.shell.openExternal("https://docs.fivem.net/docs/server-download/");
+            }}
+          >
+            official Cfx.re server download page
+          </a>
+          . The archive is staged, path-checked, and CRC-checked before the artifact directory is swapped. Cfx.re does not publish a
+          separate signature/checksum for these Windows artifacts. txData is never inside the update target.
+        </div>
+
+        <label className="field-label">FiveM client executable</label>
+        <div className="field-row">
+          <input value={draft.fivemExePath ?? ""} readOnly placeholder="FiveM.exe" />
+          <button className="btn" type="button" onClick={pickExe}>
+            Browse…
+          </button>
+        </div>
+        <div className="field-hint">This enables the separate <strong>Launch client</strong> button in the top bar.</div>
 
         <div className="settings-divider">Agent Chat</div>
 
@@ -415,19 +578,11 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           </>
         )}
 
-        <label className="field-label">FiveM.exe path (for the Launch button)</label>
-        <div className="field-row">
-          <input value={draft.fivemExePath ?? ""} readOnly placeholder="Not set" />
-          <button className="btn" onClick={pickExe}>
-            Browse…
-          </button>
-        </div>
-
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
+          <button className="btn" onClick={onClose} disabled={artifactBusy !== null}>
             Cancel
           </button>
-          <button className="btn primary" onClick={save} disabled={busy}>
+          <button className="btn primary" onClick={save} disabled={busy || artifactBusy !== null}>
             {busy ? "Connecting…" : "Save & Connect"}
           </button>
         </div>

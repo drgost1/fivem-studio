@@ -30,10 +30,20 @@ import { setEditorContext, setOnFileWritten, type EditorContext } from "./projec
 import { assertSafeBasename, resolveInsideRoot } from "./pathSafety";
 import { resolveToolApproval } from "./toolApproval";
 import { createLocalWorkspace } from "./workspaceCreator";
-import { ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
+import { discoverTxAdminControlProfile, ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
 import { parseProviderUrl } from "./localUrl";
+import {
+  checkArtifactUpdate,
+  installArtifactUpdate,
+  launchLocalServer,
+  recoverInterruptedArtifactUpdate,
+  resolveArtifactTarget,
+  type ArtifactTrack,
+} from "./serverArtifacts";
 
 let mainWindow: BrowserWindow | null = null;
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) app.quit();
 
 // How many editor tabs currently hold unsaved edits, pushed from the renderer —
 // used to guard against quitting Studio and silently losing them.
@@ -44,6 +54,9 @@ let allowCloseWithUnsavedChanges = false;
 // arbitrary-directory listing API.
 let pendingTxDataPath: string | null = null;
 let pendingFivemExePath: string | null = null;
+let pendingFxServerExePath: string | null = null;
+let artifactUpdateInProgress = false;
+let artifactRecoveryNotice: string | null = null;
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -117,6 +130,26 @@ function scopedFiveMExe(value: unknown): string | null {
     throw new Error("Choose the FiveM executable using Browse before saving it.");
   }
   return requested;
+}
+
+function scopedFxServerExe(value: unknown, txDataPath?: string | null): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const requested = requireString(value, "Local server executable");
+  const current = loadConfig().fxServerExePath;
+  if (requested !== current && requested !== pendingFxServerExePath) {
+    throw new Error("Choose the local server executable using Browse before saving it.");
+  }
+  resolveArtifactTarget(requested, txDataPath);
+  return requested;
+}
+
+function requireArtifactTrack(value: unknown): ArtifactTrack {
+  if (value !== "recommended" && value !== "latest") throw new Error("Artifact track must be recommended or latest.");
+  return value;
+}
+
+function artifactStatePath(): string {
+  return path.join(app.getPath("userData"), "artifact-install.json");
 }
 
 function createWindow() {
@@ -215,11 +248,28 @@ setOnFileWritten((absolutePath) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:fileWritten", absolutePath);
 });
 
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return;
   // The default File/Edit/View/Window/Help menu is generic Electron boilerplate —
   // Studio has its own branded toolbar (TopBar) providing the equivalent actions,
   // so the native menu bar is just redundant chrome sitting above it.
   Menu.setApplicationMenu(null);
+
+  const startupConfig = loadConfig();
+  if (startupConfig.fxServerExePath) {
+    try {
+      artifactRecoveryNotice = recoverInterruptedArtifactUpdate(startupConfig.fxServerExePath, artifactStatePath());
+    } catch (error) {
+      artifactRecoveryNotice = `Artifact recovery needs attention: ${(error as Error).message}`;
+    }
+  }
 
   registerIpcHandlers();
   createWindow();
@@ -242,6 +292,7 @@ function registerIpcHandlers() {
   // --- config ---
   ipcMain.handle("config:get", () => loadConfig());
   ipcMain.handle("config:set", async (_e, config: unknown) => {
+    if (artifactUpdateInProgress) throw new Error("Wait for the server artifact update to finish before changing Settings.");
     if (typeof config !== "object" || config === null || Array.isArray(config)) throw new Error("Configuration must be an object.");
     const candidate = config as Record<string, unknown>;
     const previous = loadConfig();
@@ -255,6 +306,7 @@ function registerIpcHandlers() {
     if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
     if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
     scopedFiveMExe(candidate.fivemExePath);
+    scopedFxServerExe(candidate.fxServerExePath, typeof candidate.txDataPath === "string" ? candidate.txDataPath : null);
     return saveConfig(config);
   });
 
@@ -318,6 +370,17 @@ function registerIpcHandlers() {
     return pendingFivemExePath;
   });
 
+  ipcMain.handle("dialog:chooseFxServerExe", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "Cfx.re server executable", extensions: ["exe"] }],
+    });
+    if (result.canceled) return null;
+    resolveArtifactTarget(result.filePaths[0], null);
+    pendingFxServerExePath = result.filePaths[0];
+    return pendingFxServerExePath;
+  });
+
   // --- bundled coding runtime ---
   ipcMain.handle("mcp:connect", async () => {
     const managed = await ensureManagedRuntime(loadConfig());
@@ -353,6 +416,44 @@ function registerIpcHandlers() {
     if (process.platform === "win32" && path.extname(configured).toLowerCase() !== ".exe") throw new Error("FiveM executable must be an .exe file.");
     spawn(configured, [], { detached: true, stdio: "ignore" }).unref();
     return { ok: true };
+  });
+
+  // --- local Cfx.re server launch and artifact maintenance ---
+  ipcMain.handle("server:launch", async () => {
+    if (artifactUpdateInProgress) throw new Error("Wait for the server artifact update to finish before starting the server.");
+    const config = loadConfig();
+    if (!config.fxServerExePath) throw new Error("Choose FXServer.exe or cfx-server.exe in Settings first.");
+    if (!config.txDataPath || !config.selectedProfile) throw new Error("Choose a txData workspace in Settings first.");
+    const workspaceRoot = activeProfileRoot();
+    const controlProfile = discoverTxAdminControlProfile(config.txDataPath, workspaceRoot);
+    const recoveryNotice = recoverInterruptedArtifactUpdate(config.fxServerExePath, artifactStatePath());
+    const launched = await launchLocalServer(config.fxServerExePath, config.txDataPath, controlProfile);
+    return { ...launched, recoveryNotice: recoveryNotice ?? undefined };
+  });
+
+  ipcMain.handle("artifacts:check", (_e, track: unknown) => {
+    if (artifactUpdateInProgress) throw new Error("A server artifact update is already running.");
+    const config = loadConfig();
+    if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
+    return checkArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
+  });
+
+  ipcMain.handle("artifacts:update", async (_e, track: unknown) => {
+    if (artifactUpdateInProgress) throw new Error("A server artifact update is already running.");
+    const config = loadConfig();
+    if (!config.fxServerExePath) throw new Error("Choose and save a local server executable first.");
+    artifactUpdateInProgress = true;
+    try {
+      return await installArtifactUpdate(config.fxServerExePath, config.txDataPath, requireArtifactTrack(track), artifactStatePath());
+    } finally {
+      artifactUpdateInProgress = false;
+    }
+  });
+
+  ipcMain.handle("artifacts:recoveryNotice", () => {
+    const notice = artifactRecoveryNotice;
+    artifactRecoveryNotice = null;
+    return notice;
   });
 
   ipcMain.handle("app:setDirtyCount", (_e, count: unknown) => {

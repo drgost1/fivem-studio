@@ -38,6 +38,7 @@ const api = {
   dialog: {
     chooseFolder: () => ipcRenderer.invoke("dialog:chooseFolder"),
     chooseExe: () => ipcRenderer.invoke("dialog:chooseExe"),
+    chooseFxServerExe: () => ipcRenderer.invoke("dialog:chooseFxServerExe"),
   },
   mcp: {
     connect: () => ipcRenderer.invoke("mcp:connect"),
@@ -56,6 +57,14 @@ const api = {
   },
   fivem: {
     launch: (exePath: string) => ipcRenderer.invoke("fivem:launch", exePath),
+  },
+  server: {
+    launch: () => ipcRenderer.invoke("server:launch"),
+  },
+  artifacts: {
+    check: (track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", track),
+    update: (track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", track),
+    recoveryNotice: () => ipcRenderer.invoke("artifacts:recoveryNotice"),
   },
   app: {
     setDirtyCount: (count: number) => ipcRenderer.invoke("app:setDirtyCount", count),

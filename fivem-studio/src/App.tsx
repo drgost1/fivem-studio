@@ -22,6 +22,8 @@ const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
   fivemExePath: null,
+  fxServerExePath: null,
+  artifactTrack: "recommended",
   agentProvider: "openai",
   openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
   openaiModel: "gemini-3.7-flash",
@@ -38,6 +40,8 @@ export default function App() {
   const [runtimeIdentity, setRuntimeIdentity] = useState<RuntimeIdentity | null>(null);
   const [workspaceMatch, setWorkspaceMatch] = useState<RuntimeWorkspaceMatch | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [serverLaunching, setServerLaunching] = useState(false);
+  const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
@@ -76,6 +80,7 @@ export default function App() {
       .then((saved) => {
         setConfig(saved);
         setConfigLoaded(true);
+        void window.api.artifacts.recoveryNotice().then((notice) => notice && setArtifactNotice(notice));
         if (saved.txDataPath && saved.selectedProfile) {
           void connect();
         } else {
@@ -312,6 +317,20 @@ export default function App() {
     }
   }
 
+  async function launchServer() {
+    if (!config.fxServerExePath || !config.txDataPath || !config.selectedProfile || serverLaunching) return;
+    setServerLaunching(true);
+    try {
+      const result = await window.api.server.launch();
+      if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
+      if (result.alreadyRunning) alert(`That local server is already running (process ${result.pid}).`);
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setServerLaunching(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <TopBar
@@ -319,7 +338,11 @@ export default function App() {
         runtimeIdentity={runtimeIdentity}
         workspaceMatch={workspaceMatch}
         onOpenSettings={() => setSettingsOpen(true)}
+        onLaunchServer={launchServer}
         onLaunchFivem={launchFivem}
+        fxServerExePath={config.fxServerExePath}
+        serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
+        serverLaunching={serverLaunching}
         fivemExePath={config.fivemExePath}
       />
 
@@ -328,6 +351,14 @@ export default function App() {
           Choose a local txData root and server-data workspace before coding.
           <button className="btn small" onClick={() => setSettingsOpen(true)}>
             Open Settings
+          </button>
+        </div>
+      )}
+      {artifactNotice && (
+        <div className="warning-banner setup-banner" role="status">
+          {artifactNotice}
+          <button className="btn small" onClick={() => setArtifactNotice(null)}>
+            Dismiss
           </button>
         </div>
       )}

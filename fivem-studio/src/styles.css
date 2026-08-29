@@ -764,7 +764,7 @@ button.tree-node {
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 8px;
-  width: 480px;
+  width: 540px;
   max-width: 90vw;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
@@ -796,6 +796,28 @@ button.tree-node {
   min-width: 0;
   width: auto;
   margin-bottom: 0;
+}
+.modal .artifact-controls select {
+  flex: 1;
+  min-width: 0;
+}
+.artifact-status {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+}
+.artifact-status strong {
+  color: var(--text);
+}
+.artifact-success {
+  color: var(--green);
+  overflow-wrap: anywhere;
 }
 .modal-actions {
   display: flex;

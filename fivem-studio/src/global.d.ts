@@ -4,6 +4,8 @@ export interface StudioConfig {
   txDataPath: string | null;
   selectedProfile: string | null;
   fivemExePath: string | null;
+  fxServerExePath: string | null;
+  artifactTrack: "recommended" | "latest";
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
   openaiModel: string;
@@ -138,6 +140,26 @@ export interface CloneResult {
   error?: string;
 }
 
+export interface ArtifactStatus {
+  flavor: "legacy" | "enhanced";
+  track: "recommended" | "latest";
+  build: number;
+  displayName: string;
+  downloadUrl: string;
+  archiveSize: number | null;
+  publishedAt: string | null;
+  installedBuild: number | null;
+  updateAvailable: boolean | null;
+  recoveryNotice?: string;
+}
+
+export interface ArtifactUpdateResult extends ArtifactStatus {
+  sha256: string;
+  backupPath: string;
+  installedAt: string;
+  warning?: string;
+}
+
 // Mirrors electron/preload.ts's exposeInMainWorld("api", ...) shape.
 // Kept as a hand-written duplicate (not a cross-import from electron/)
 // since the renderer and electron main process are separate TS projects
@@ -172,6 +194,7 @@ declare global {
       dialog: {
         chooseFolder(): Promise<string | null>;
         chooseExe(): Promise<string | null>;
+        chooseFxServerExe(): Promise<string | null>;
       };
       mcp: {
         connect(): Promise<McpConnectResult>;
@@ -191,6 +214,14 @@ declare global {
       };
       fivem: {
         launch(exePath: string): Promise<{ ok: boolean }>;
+      };
+      server: {
+        launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; recoveryNotice?: string }>;
+      };
+      artifacts: {
+        check(track: "recommended" | "latest"): Promise<ArtifactStatus>;
+        update(track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
+        recoveryNotice(): Promise<string | null>;
       };
       app: {
         setDirtyCount(count: number): Promise<void>;

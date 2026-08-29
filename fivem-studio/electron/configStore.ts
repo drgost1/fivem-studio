@@ -11,6 +11,8 @@ export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
   selectedProfile: string | null; // which txData/<profile> to browse/edit
   fivemExePath: string | null; // path to FiveM.exe, for the "Launch FiveM" button
+  fxServerExePath: string | null; // path to FXServer.exe/cfx-server.exe, kept separate from the game client
+  artifactTrack: "recommended" | "latest";
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
   // OpenAI-compatible endpoint — local runtimes and hosted providers alike.
@@ -23,6 +25,8 @@ const DEFAULTS: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
   fivemExePath: null,
+  fxServerExePath: null,
+  artifactTrack: "recommended",
   // Defaults to Google's free tier rather than a paid key or a local model the
   // user may not have installed — the least-friction way to a working agent.
   agentProvider: "openai",
@@ -82,6 +86,8 @@ function normalizeConfig(value: unknown): StudioConfig {
     txDataPath: nullablePath(raw.txDataPath),
     selectedProfile: safeProfile(raw.selectedProfile),
     fivemExePath: nullablePath(raw.fivemExePath),
+    fxServerExePath: nullablePath(raw.fxServerExePath),
+    artifactTrack: raw.artifactTrack === "latest" ? "latest" : "recommended",
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),
     openaiModel: stringOr(raw.openaiModel, DEFAULTS.openaiModel, 256),

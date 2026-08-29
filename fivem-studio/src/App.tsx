@@ -16,6 +16,17 @@ export interface OpenFile {
   dirty: boolean;
 }
 
+export interface FileChangeReview {
+  id: number;
+  path: string;
+  kind: "agent" | "conflict";
+  originalContent: string;
+  modifiedContent: string;
+  originalLabel: string;
+  modifiedLabel: string;
+  diskRevision: string;
+}
+
 type SidebarTab = "resources" | "github";
 
 const DEFAULT_CONFIG: StudioConfig = {
@@ -95,6 +106,9 @@ export default function App() {
   const [selection, setSelection] = useState({ selectedText: "", startLine: 0, endLine: 0 });
   const [editorProblems, setEditorProblems] = useState<Record<string, EditorProblem[]>>({});
   const [editorReveal, setEditorReveal] = useState<{ path: string; line: number; column: number; nonce: number } | null>(null);
+  const [changeReviews, setChangeReviews] = useState<Record<string, FileChangeReview>>({});
+  const [reviewPath, setReviewPath] = useState<string | null>(null);
+  const reviewNonce = useRef(0);
   const activeServerPath = serverExeFor(config, config.activeCfxTarget);
   const activeClientPath = clientExeFor(config, config.activeCfxTarget);
   const activeTargetLabel = cfxTargetLabel(config.activeCfxTarget);
@@ -251,26 +265,42 @@ export default function App() {
     });
   }, [activePath, centerTab, selection]);
 
-  // The agent can edit files directly. Reload a clean open buffer so the editor
-  // shows the new content; leave a dirty one alone rather than discarding the
-  // user's unsaved work, and say so instead of silently picking a winner.
+  // The agent can edit files directly. Reload a clean open buffer and retain a
+  // reviewable before/after snapshot. If the user also has unsaved edits, leave
+  // both versions untouched and open an explicit conflict review.
   useEffect(() => {
     return window.api.agent.onFileWritten(async (absolutePath) => {
       setTreeRefreshKey((k) => k + 1);
       const open = openFiles.find((f) => f.path === absolutePath);
       if (!open) return;
-      if (open.dirty) {
-        alert(
-          `The agent edited ${absolutePath.split(/[/\\]/).pop()}, but you have unsaved changes in that tab.\n\n` +
-            `Your version is untouched on screen. A normal save will be refused until you reopen the file and merge the two versions.`,
-        );
-        return;
-      }
       try {
         const snapshot = await window.api.fs.readFile(absolutePath);
-        setOpenFiles((files) =>
-          files.map((f) => (f.path === absolutePath ? { ...f, ...snapshot, dirty: false } : f)),
-        );
+        if (snapshot.content === open.content) {
+          if (!open.dirty) {
+            setOpenFiles((files) => files.map((f) => f.path === absolutePath ? { ...f, revision: snapshot.revision } : f));
+          }
+          return;
+        }
+        const review: FileChangeReview = {
+          id: ++reviewNonce.current,
+          path: absolutePath,
+          kind: open.dirty ? "conflict" : "agent",
+          originalContent: open.content,
+          modifiedContent: snapshot.content,
+          originalLabel: open.dirty ? "Your unsaved editor version" : "Before agent change",
+          modifiedLabel: open.dirty ? "Agent version on disk" : "Agent change now in editor",
+          diskRevision: snapshot.revision,
+        };
+        setChangeReviews((current) => ({ ...current, [absolutePath]: review }));
+        if (open.dirty) {
+          setActivePath(absolutePath);
+          setCenterTab("editor");
+          setReviewPath(absolutePath);
+        } else {
+          setOpenFiles((files) => files.map((f) =>
+            f.path === absolutePath ? { ...f, ...snapshot, dirty: false } : f,
+          ));
+        }
       } catch {
         // file may have been removed again — the tree refresh above covers it
       }
@@ -307,6 +337,8 @@ export default function App() {
       setCenterTab("viewport");
       setEditorProblems({});
       setEditorReveal(null);
+      setChangeReviews({});
+      setReviewPath(null);
     }
     setTreeRefreshKey((k) => k + 1);
     if (saved.txDataPath && saved.selectedProfile) {
@@ -385,6 +417,13 @@ export default function App() {
       return;
     }
     setOpenFiles((files) => files.filter((f) => f.path !== path));
+    setChangeReviews((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+    if (reviewPath === path) setReviewPath(null);
     setEditorProblems((current) => {
       if (!(path in current)) return current;
       const next = { ...current };
@@ -419,6 +458,13 @@ export default function App() {
       return remapped ? { ...f, path: remapped } : f;
     }));
     setActivePath((p) => (p ? (remapPath(p, oldPath, newPath) ?? p) : p));
+    setReviewPath((p) => (p ? (remapPath(p, oldPath, newPath) ?? p) : p));
+    setChangeReviews((current) => Object.fromEntries(
+      Object.entries(current).map(([reviewedPath, review]) => {
+        const remapped = remapPath(reviewedPath, oldPath, newPath) ?? reviewedPath;
+        return [remapped, { ...review, path: remapPath(review.path, oldPath, newPath) ?? review.path }];
+      }),
+    ));
     setEditorProblems((current) => Object.fromEntries(
       Object.entries(current).map(([problemPath, problems]) => {
         const remapped = remapPath(problemPath, oldPath, newPath) ?? problemPath;
@@ -435,6 +481,10 @@ export default function App() {
     const affected = (p: string) => p === deletedPath || p.startsWith(deletedPath + "\\") || p.startsWith(deletedPath + "/");
     const remaining = openFiles.filter((f) => !affected(f.path));
     setOpenFiles(remaining);
+    setChangeReviews((current) => Object.fromEntries(
+      Object.entries(current).filter(([reviewedPath]) => !affected(reviewedPath)),
+    ));
+    if (reviewPath && affected(reviewPath)) setReviewPath(null);
     setEditorProblems((current) => Object.fromEntries(
       Object.entries(current).filter(([problemPath]) => !affected(problemPath)),
     ));
@@ -471,7 +521,71 @@ export default function App() {
     } catch (err) {
       const message = `Could not save ${path.split(/[/\\]/).pop()}: ${(err as Error).message}`;
       setSaveError(message);
+      if ((err as Error).message.includes("changed on disk")) {
+        try {
+          const disk = await window.api.fs.readFile(path);
+          const review: FileChangeReview = {
+            id: ++reviewNonce.current,
+            path,
+            kind: "conflict",
+            originalContent: content,
+            modifiedContent: disk.content,
+            originalLabel: "Your unsaved editor version",
+            modifiedLabel: "Current version on disk",
+            diskRevision: disk.revision,
+          };
+          setChangeReviews((current) => ({ ...current, [path]: review }));
+          setReviewPath(path);
+          setActivePath(path);
+          setCenterTab("editor");
+        } catch {
+          // Preserve the original save failure when the changed file also vanished.
+        }
+      }
       throw new Error(message);
+    }
+  }
+
+  function openChangeReview(path: string) {
+    if (!changeReviews[path]) return;
+    setActivePath(path);
+    setCenterTab("editor");
+    setReviewPath(path);
+  }
+
+  function clearChangeReview(path: string) {
+    setChangeReviews((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+    setReviewPath((current) => current === path ? null : current);
+  }
+
+  async function useDiskVersion(review: FileChangeReview) {
+    try {
+      const latest = await window.api.fs.readFile(review.path);
+      setOpenFiles((files) => files.map((file) => file.path === review.path ? {
+        ...file,
+        ...latest,
+        dirty: false,
+      } : file));
+      setSaveError(null);
+      clearChangeReview(review.path);
+    } catch (error) {
+      setSaveError(`Could not reload ${review.path.split(/[/\\]/).pop()}: ${(error as Error).message}`);
+    }
+  }
+
+  async function saveEditorVersion(review: FileChangeReview) {
+    const open = openFiles.find((file) => file.path === review.path);
+    if (!open) return;
+    try {
+      await saveFile(review.path, open.content, review.diskRevision);
+      clearChangeReview(review.path);
+    } catch {
+      // saveFile refreshed the conflict review if the disk changed again.
     }
   }
 
@@ -666,6 +780,8 @@ export default function App() {
               editorPreferences={config.editor}
               editorProblems={editorProblems}
               editorReveal={editorReveal}
+              changeReviews={changeReviews}
+              reviewPath={reviewPath}
               centerTab={centerTab}
               onSelectCenterTab={setCenterTab}
               openFiles={openFiles}
@@ -680,6 +796,11 @@ export default function App() {
               onProblemsChange={handleEditorProblems}
               onRevealProblem={revealEditorProblem}
               onOpenEditorLocation={(path, line, column) => void openEditorLocation(path, line, column)}
+              onOpenReview={openChangeReview}
+              onCloseReview={() => setReviewPath(null)}
+              onDismissReview={(review) => clearChangeReview(review.path)}
+              onUseDiskVersion={(review) => void useDiskVersion(review)}
+              onSaveEditorVersion={(review) => void saveEditorVersion(review)}
             />
           </Panel>
 

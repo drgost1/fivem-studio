@@ -424,6 +424,14 @@ button.tree-node {
   line-height: 15px;
   text-align: center;
 }
+.editor-tab .change-badge {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+}
+.editor-tab .change-badge.conflict {
+  color: var(--yellow);
+}
 .editor-tab .close {
   color: var(--text-dim);
   padding: 0 2px;
@@ -454,6 +462,81 @@ button.tree-node {
 .editor-surface {
   flex: 1;
   min-height: 0;
+}
+.change-review-surface,
+.change-review,
+.change-review-editor {
+  min-height: 0;
+}
+.change-review-surface {
+  display: flex;
+  flex: 1;
+}
+.change-review {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+.change-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.change-review-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+.change-review-copy span {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-review-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.change-review-actions button {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-1);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.change-review-actions button:hover {
+  border-color: var(--accent);
+}
+.change-review-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.change-review-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-1);
+  font-size: 10px;
+}
+.change-review-labels span:last-child {
+  padding-left: 12px;
+}
+.change-review-editor {
+  flex: 1;
 }
 .problems-panel {
   flex: 0 0 min(180px, 30%);
@@ -533,7 +616,8 @@ button.tree-node {
   cursor: pointer;
 }
 .editor-statusbar button:hover,
-.editor-statusbar button.has-problems {
+.editor-statusbar button.has-problems,
+.editor-statusbar button.has-review {
   color: var(--text);
 }
 .lua-service-status.ready {

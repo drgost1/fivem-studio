@@ -43,6 +43,10 @@ import "monaco-editor/features/smartSelect/register";
 import "monaco-editor/features/snippet/register";
 import "monaco-editor/features/stickyScroll/register";
 import "monaco-editor/features/suggest/register";
+// Monaco 0.56's narrow suggest feature entry point registers inline
+// completions only. The controller owns the familiar completion popup,
+// trigger-character handling, and Ctrl+Space command.
+import "monaco-editor/editor/contrib/suggest/browser/suggestController";
 import "monaco-editor/features/tokenization/register";
 import "monaco-editor/features/toggleHighContrast/register";
 import "monaco-editor/features/unicodeHighlighter/register";

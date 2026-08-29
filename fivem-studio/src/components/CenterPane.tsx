@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { OpenFile } from "../App";
+import type { FileChangeReview, OpenFile } from "../App";
 import type { EditorPreferences, EditorProblem, WindowCandidate } from "../global";
 import type { LuaServiceStatus } from "../luaLanguageService";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
 const CodeEditor = lazy(() => import("./CodeEditor"));
+const ChangeReview = lazy(() => import("./ChangeReview"));
 
 function languageForPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
@@ -71,6 +72,8 @@ interface CenterPaneProps {
   editorPreferences: EditorPreferences;
   editorProblems: Record<string, EditorProblem[]>;
   editorReveal: { path: string; line: number; column: number; nonce: number } | null;
+  changeReviews: Record<string, FileChangeReview>;
+  reviewPath: string | null;
   centerTab: CenterTab;
   onSelectCenterTab: (tab: CenterTab) => void;
   openFiles: OpenFile[];
@@ -83,6 +86,11 @@ interface CenterPaneProps {
   onProblemsChange: (path: string, problems: EditorProblem[]) => void;
   onRevealProblem: (problem: EditorProblem) => void;
   onOpenEditorLocation: (path: string, line: number, column: number) => void;
+  onOpenReview: (path: string) => void;
+  onCloseReview: () => void;
+  onDismissReview: (review: FileChangeReview) => void;
+  onUseDiskVersion: (review: FileChangeReview) => void;
+  onSaveEditorVersion: (review: FileChangeReview) => void;
 }
 
 export default function CenterPane({
@@ -97,6 +105,8 @@ export default function CenterPane({
   editorPreferences,
   editorProblems,
   editorReveal,
+  changeReviews,
+  reviewPath,
   centerTab,
   onSelectCenterTab,
   openFiles,
@@ -109,8 +119,14 @@ export default function CenterPane({
   onProblemsChange,
   onRevealProblem,
   onOpenEditorLocation,
+  onOpenReview,
+  onCloseReview,
+  onDismissReview,
+  onUseDiskVersion,
+  onSaveEditorVersion,
 }: CenterPaneProps) {
   const activeFile = openFiles.find((f) => f.path === activePath);
+  const activeReview = activeFile && reviewPath === activeFile.path ? changeReviews[activeFile.path] : undefined;
   const labels = tabLabels(openFiles);
   const openPathKey = openFiles.map((file) => file.path).join("\0");
   // Content edits replace OpenFile objects, but the Monaco lifecycle depends
@@ -184,6 +200,11 @@ export default function CenterPane({
                   {editorProblems[f.path].length}
                 </span>
               )}
+              {changeReviews[f.path] && (
+                <span className={`change-badge ${changeReviews[f.path].kind}`} aria-label="Changes available to review">
+                  Δ
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -227,7 +248,7 @@ export default function CenterPane({
         <div className="editor-workbench" style={{ flex: 1, minHeight: 0, display: centerTab === "editor" ? "flex" : "none" }}>
           {activeFile ? (
             <>
-              <div className="editor-surface">
+              <div className="editor-surface" style={{ display: activeReview ? "none" : "block" }}>
                 <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
                   <CodeEditor
                     file={activeFile}
@@ -245,7 +266,22 @@ export default function CenterPane({
                   />
                 </Suspense>
               </div>
-              {problemsOpen && (
+              {activeReview && (
+                <div className="change-review-surface">
+                  <Suspense fallback={<div className="editor-empty">Loading change review…</div>}>
+                    <ChangeReview
+                      review={activeReview.kind === "conflict" ? { ...activeReview, originalContent: activeFile.content } : activeReview}
+                      language={languageForPath(activeReview.path)}
+                      preferences={editorPreferences}
+                      onBack={onCloseReview}
+                      onDismiss={() => onDismissReview(activeReview)}
+                      onUseDisk={() => onUseDiskVersion(activeReview)}
+                      onSaveEditor={() => onSaveEditorVersion(activeReview)}
+                    />
+                  </Suspense>
+                </div>
+              )}
+              {problemsOpen && !activeReview && (
                 <section className="problems-panel" aria-label="Problems">
                   {problems.length === 0 ? (
                     <div className="problems-empty">No problems detected in open files.</div>
@@ -276,6 +312,11 @@ export default function CenterPane({
                   >
                     Lua: {luaService.status}
                   </span>
+                )}
+                {changeReviews[activeFile.path] && !activeReview && (
+                  <button type="button" className="has-review" onClick={() => onOpenReview(activeFile.path)}>
+                    Review changes
+                  </button>
                 )}
                 <button
                   type="button"

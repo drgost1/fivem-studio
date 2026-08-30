@@ -6,8 +6,12 @@ import test from "node:test";
 
 import { detectConventionalClientInstalls, detectConventionalExecutables } from "./clientInstallDiscovery";
 
+function makeCanonicalTempDir(prefix: string): string {
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
+
 test("client discovery finds only conventional FiveM, Enhanced, and RedM launchers", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-client-discovery-"));
+  const root = makeCanonicalTempDir("qb-studio-client-discovery-");
   try {
     const legacy = path.join(root, "FiveM", "FiveM.exe");
     const enhanced = path.join(root, "FiveM Enhanced", "FiveM.exe");
@@ -26,7 +30,7 @@ test("client discovery finds only conventional FiveM, Enhanced, and RedM launche
 });
 
 test("executable discovery probes conventional server folders without recursive scanning", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-executable-discovery-"));
+  const root = makeCanonicalTempDir("qb-studio-executable-discovery-");
   try {
     const txData = path.join(root, "txData");
     const legacy = path.join(root, "FiveMServer", "FXServer.exe");
@@ -51,7 +55,7 @@ test("executable discovery probes conventional server folders without recursive 
 });
 
 test("artifact records restore target-specific server paths", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-artifact-discovery-"));
+  const root = makeCanonicalTempDir("qb-studio-artifact-discovery-");
   try {
     const artifactRoot = path.join(root, "custom-location");
     const executable = path.join(artifactRoot, "cfx-server.exe");
@@ -67,8 +71,8 @@ test("artifact records restore target-specific server paths", () => {
 });
 
 test("client discovery returns empty findings for missing or linked candidates", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-client-discovery-link-"));
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-client-discovery-outside-"));
+  const root = makeCanonicalTempDir("qb-studio-client-discovery-link-");
+  const outside = makeCanonicalTempDir("qb-studio-client-discovery-outside-");
   try {
     fs.writeFileSync(path.join(outside, "FiveM.exe"), "launcher");
     try {

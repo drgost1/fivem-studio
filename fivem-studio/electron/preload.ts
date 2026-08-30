@@ -93,6 +93,7 @@ const api = {
   resources: {
     listStatuses: () => ipcRenderer.invoke("resources:listStatuses"),
     context: (filePath: string) => ipcRenderer.invoke("resources:context", filePath),
+    dependencyGraph: () => ipcRenderer.invoke("resources:dependencyGraph"),
   },
   github: {
     fetchRepoInfo: (input: string) => ipcRenderer.invoke("github:fetchRepoInfo", input),

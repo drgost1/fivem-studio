@@ -21,6 +21,7 @@ import type {
   ResolvedTheme,
   RecentWorkspaceSummary,
   ResourceContext,
+  ResourceDependencyGraph,
   ResourceStatusResult,
   RuntimeIdentity,
   RuntimeWorkspaceMatch,
@@ -133,6 +134,7 @@ export default function App() {
     resources: [],
     serverStateAvailable: false,
   });
+  const [dependencyGraph, setDependencyGraph] = useState<ResourceDependencyGraph>({ nodes: [] });
   const [resourceAction, setResourceAction] = useState<string | null>(null);
   const [resourceNotice, setResourceNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [activeResourceContext, setActiveResourceContext] = useState<ResourceContext | null>(null);
@@ -408,6 +410,18 @@ export default function App() {
     });
   }, [config.txDataPath, config.selectedProfile]);
 
+  useEffect(() => {
+    if (!resolved.resourcesPath) {
+      setDependencyGraph({ nodes: [] });
+      return;
+    }
+    let cancelled = false;
+    void window.api.resources.dependencyGraph()
+      .then((graph) => { if (!cancelled) setDependencyGraph(graph); })
+      .catch(() => { if (!cancelled) setDependencyGraph({ nodes: [] }); });
+    return () => { cancelled = true; };
+  }, [resolved.resourcesPath, treeRefreshKey]);
+
   // Bump the tree refresh token whenever the watcher reports a change.
   useEffect(() => {
     return window.api.fs.onChanged(() => {
@@ -666,7 +680,13 @@ export default function App() {
     source: "manual" | "save" = "manual",
   ): Promise<boolean> {
     if (!runtimeWritable || resourceAction) return false;
-    if (kind === "stop" && !confirm(t("resource.confirmStop", { resource: name }))) return false;
+    if (kind === "stop") {
+      const dependents = dependencyGraph.nodes.find((node) => node.name.toLowerCase() === name.toLowerCase())?.dependents ?? [];
+      const message = dependents.length > 0
+        ? t("resource.confirmStopDependents", { resource: name, dependents: dependents.join(", ") })
+        : t("resource.confirmStop", { resource: name });
+      if (!confirm(message)) return false;
+    }
 
     setResourceAction(`${kind}:${name}`);
     setResourceNotice(null);
@@ -1100,6 +1120,7 @@ export default function App() {
               onSendCrashTriage={(text) => setAgentPrompt({ text, nonce: Date.now() })}
               onConsoleOutputChange={(output) => { latestConsoleOutput.current = output; }}
               onAgentPrompt={(text) => setAgentPrompt({ text, nonce: Date.now() })}
+              dependencyGraph={dependencyGraph}
               onSelectFileTab={setActivePath}
               onCloseFileTab={closeTab}
               onChange={updateContent}

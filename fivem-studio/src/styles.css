@@ -704,6 +704,82 @@ button.tree-node {
   margin-left: auto;
   flex: 0 0 auto;
 }
+.editor-resource-bar .btn + .btn {
+  margin-left: 0;
+}
+.manifest-form {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+.manifest-form-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.manifest-form-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.manifest-form-header span {
+  color: var(--text-2);
+  font-size: 10px;
+}
+.manifest-form-header .btn {
+  margin-left: auto;
+}
+.manifest-form-body {
+  overflow: auto;
+  padding: 12px;
+}
+.manifest-form-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1);
+}
+.manifest-form-section h3 {
+  margin: 0 0 10px;
+  color: var(--text-1);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.manifest-scalar-grid,
+.manifest-list-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.manifest-list-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.manifest-form label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.manifest-form textarea {
+  resize: vertical;
+  font-family: var(--mono);
+  line-height: 1.45;
+}
+.manifest-form-error {
+  padding: 12px;
+  color: var(--error);
+}
 .editor-monaco-surface {
   flex: 1;
   min-height: 0;
@@ -1337,6 +1413,55 @@ button.tree-node {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+}
+.dependency-graph {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.dependency-graph-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 8px;
+  color: var(--text-2);
+  font-size: 10px;
+}
+.dependency-graph-heading h3 {
+  margin: 0 0 2px;
+  color: var(--text-1);
+  font-size: 12px;
+}
+.dependency-node-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 7px;
+}
+.dependency-node {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 10px;
+}
+.dependency-node-name {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.dependency-node strong {
+  color: var(--text-1);
+}
+.dependency-warning {
+  color: var(--warn);
 }
 .data-table th,
 .data-table td {

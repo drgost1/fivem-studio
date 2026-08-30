@@ -68,6 +68,8 @@ import { newestCrashReport } from "./crashTriage";
 import { loadWindowState, saveWindowState } from "./windowState";
 import { listRecentWorkspaces, recordRecentWorkspace, resolveRecentWorkspace } from "./recentWorkspaces";
 import { consumeWhatsNew } from "./whatsNew";
+import { buildResourceDependencyGraph } from "./dependencyGraph";
+import { assertFxServerPortAvailable } from "./portPreflight";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -780,6 +782,7 @@ function registerIpcHandlers() {
   });
   ipcMain.handle("resources:listStatuses", () => mcpListResourceStatuses());
   ipcMain.handle("resources:context", (_e, filePath: unknown) => activeResourceContext(filePath));
+  ipcMain.handle("resources:dependencyGraph", () => buildResourceDependencyGraph(activeResourcesRoot()));
 
   // --- GitHub import ---
   ipcMain.handle("github:fetchRepoInfo", (_e, input: unknown) => fetchRepoInfo(requireString(input, "GitHub repository", 2048)));
@@ -853,6 +856,12 @@ function registerIpcHandlers() {
       const workspaceRoot = activeProfileRoot();
       const controlProfile = discoverTxAdminControlProfile(config.txDataPath, workspaceRoot);
       const recoveryNotice = recoverInterruptedArtifactUpdate(executable, artifactStatePath(target));
+      const selectedArtifact = resolveArtifactTarget(executable, config.txDataPath);
+      const alreadyRunning = await findRunningServerPids(selectedArtifact.executablePath);
+      if (alreadyRunning.length === 0) {
+        const endpoint = parseLocalServerConfig(loadLocalServerConfig(workspaceRoot));
+        await assertFxServerPortAvailable(endpoint.host, endpoint.port);
+      }
       const launched = await launchLocalServer(executable, config.txDataPath, controlProfile);
       return { ...launched, target, recoveryNotice: recoveryNotice ?? undefined };
     }),

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileChangeReview, OpenFile } from "../App";
 import { languageForPath } from "../editorLanguage";
-import type { CrashTriageContext, EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, WindowCandidate } from "../global";
+import type { CrashTriageContext, EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, ResourceDependencyGraph, WindowCandidate } from "../global";
 import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
 import { countNewConsoleLines, filterConsoleOutput, newestErrorBlock, type ConsoleSeverity } from "../consoleText";
@@ -10,6 +10,8 @@ export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
 const CodeEditor = lazy(() => import("./CodeEditor"));
 const ChangeReview = lazy(() => import("./ChangeReview"));
+const ManifestFormEditor = lazy(() => import("./ManifestFormEditor"));
+import { parseManifestForm } from "../../electron/manifestModel";
 
 /**
  * Tab labels, disambiguated by parent folder when bare filenames collide — near-universal
@@ -62,6 +64,7 @@ interface CenterPaneProps {
   onSendCrashTriage: (text: string) => void;
   onConsoleOutputChange: (output: string) => void;
   onAgentPrompt: (text: string) => void;
+  dependencyGraph: ResourceDependencyGraph;
   onSelectFileTab: (path: string) => void;
   onCloseFileTab: (path: string) => void;
   onChange: (path: string, content: string) => void;
@@ -106,6 +109,7 @@ export default function CenterPane({
   onSendCrashTriage,
   onConsoleOutputChange,
   onAgentPrompt,
+  dependencyGraph,
   onSelectFileTab,
   onCloseFileTab,
   onChange,
@@ -128,6 +132,7 @@ export default function CenterPane({
   // only on the tab paths. Keep this array stable while the tab set is stable.
   const openPaths = useMemo(() => openFiles.map((file) => file.path), [openPathKey]);
   const [problemsOpen, setProblemsOpen] = useState(false);
+  const [rawManifestPaths, setRawManifestPaths] = useState<Set<string>>(() => new Set());
   const [luaService, setLuaService] = useState<{ status: LuaServiceStatus; message?: string }>({ status: "stopped" });
   const handleLuaStatusChange = useCallback((status: LuaServiceStatus, message?: string) => {
     setLuaService((current) => current.status === status && current.message === message ? current : { status, message });
@@ -137,6 +142,9 @@ export default function CenterPane({
     .sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column);
   const errorCount = problems.filter((problem) => problem.severity === "error").length;
   const warningCount = problems.filter((problem) => problem.severity === "warning").length;
+  const isManifest = activeFile?.path.split(/[/\\]/).pop()?.toLowerCase() === "fxmanifest.lua";
+  const manifestParse = isManifest && activeFile ? parseManifestForm(activeFile.content) : null;
+  const manifestRaw = Boolean(activeFile && (rawManifestPaths.has(activeFile.path) || manifestParse?.ok === false));
 
   return (
     <div className="pane" style={{ height: "100%" }}>
@@ -243,6 +251,8 @@ export default function CenterPane({
             runtimeReadable={runtimeReadable}
             runtimeWritable={runtimeWritable}
             resourceLifecycleAvailable={resourceLifecycleAvailable}
+            dependencyGraph={dependencyGraph}
+            onOpenManifest={(path) => onOpenEditorLocation(path, 1, 1)}
           />
         </div>
         <div className="editor-workbench" style={{ flex: 1, minHeight: 0, display: centerTab === "editor" ? "flex" : "none" }}>
@@ -258,6 +268,30 @@ export default function CenterPane({
                         ? t("editor.resourceStopped", { resource: activeResourceContext.name })
                         : t(`resource.state.${activeResourceState ?? "unknown"}`)}
                     </span>
+                    {isManifest && activeFile && (
+                      <>
+                        <button
+                          type="button"
+                          className={`btn small ${!manifestRaw ? "primary" : ""}`}
+                          disabled={manifestParse?.ok === false}
+                          title={manifestParse?.ok === false ? t("manifest.rawRequired", { reason: manifestParse.reason }) : undefined}
+                          onClick={() => setRawManifestPaths((current) => {
+                            const next = new Set(current);
+                            next.delete(activeFile.path);
+                            return next;
+                          })}
+                        >
+                          {t("manifest.viewForm")}
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn small ${manifestRaw ? "primary" : ""}`}
+                          onClick={() => setRawManifestPaths((current) => new Set(current).add(activeFile.path))}
+                        >
+                          {t("manifest.viewRaw")}
+                        </button>
+                      </>
+                    )}
                     {activeResourceState === "started" && (
                       <button
                         type="button"
@@ -282,7 +316,9 @@ export default function CenterPane({
                 )}
                 <div className="editor-monaco-surface">
                   <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
-                    <CodeEditor
+                    {isManifest && !manifestRaw ? (
+                      <ManifestFormEditor file={activeFile} onChange={onChange} onSave={onSave} />
+                    ) : <CodeEditor
                       file={activeFile}
                       openPaths={openPaths}
                       language={languageForPath(activeFile.path)}
@@ -297,7 +333,8 @@ export default function CenterPane({
                       onOpenLocation={onOpenEditorLocation}
                       onLuaStatusChange={handleLuaStatusChange}
                       onAgentPrompt={onAgentPrompt}
-                    />
+                      resourceNames={dependencyGraph.nodes.map((node) => node.name)}
+                    />}
                   </Suspense>
                 </div>
               </div>
@@ -694,11 +731,15 @@ function ResourcesSection({
   runtimeReadable,
   runtimeWritable,
   resourceLifecycleAvailable,
+  dependencyGraph,
+  onOpenManifest,
 }: {
   connected: boolean;
   runtimeReadable: boolean;
   runtimeWritable: boolean;
   resourceLifecycleAvailable: boolean | null;
+  dependencyGraph: ResourceDependencyGraph;
+  onOpenManifest: (path: string) => void;
 }) {
   const [output, setOutput] = useState("");
   const [resourceName, setResourceName] = useState("");
@@ -725,7 +766,13 @@ function ResourcesSection({
       setError("Enter or select a resource name first.");
       return;
     }
-    if (kind === "stop" && !confirm(`Stop resource "${trimmed}"?`)) return;
+    if (kind === "stop") {
+      const dependents = dependencyGraph.nodes.find((node) => node.name.toLowerCase() === trimmed.toLowerCase())?.dependents ?? [];
+      const confirmation = dependents.length > 0
+        ? t("resource.confirmStopDependents", { resource: trimmed, dependents: dependents.join(", ") })
+        : t("resource.confirmStop", { resource: trimmed });
+      if (!confirm(confirmation)) return;
+    }
     setAction(`${kind}:${trimmed}`);
     setError(null);
     setMessage(null);
@@ -770,6 +817,34 @@ function ResourcesSection({
       {output && <pre className="operation-result">{output}</pre>}
       {!connected && <div className="operations-empty">Choose a workspace to start the bundled local runtime.</div>}
       {!output && !loading && !error && runtimeReadable && <div className="operations-empty">Refresh to compare workspace resources with the local server's started resources.</div>}
+      <section className="dependency-graph" aria-labelledby="dependency-graph-heading">
+        <div className="dependency-graph-heading">
+          <div>
+            <h3 id="dependency-graph-heading">{t("dependencies.title")}</h3>
+            <span>{t("dependencies.help")}</span>
+          </div>
+          <span>{t("dependencies.count", { count: dependencyGraph.nodes.length })}</span>
+        </div>
+        {dependencyGraph.nodes.length === 0 ? (
+          <div className="operations-empty">{t("dependencies.empty")}</div>
+        ) : (
+          <div className="dependency-node-list">
+            {dependencyGraph.nodes.map((node) => (
+              <article className="dependency-node" key={node.rootPath}>
+                <button type="button" className="dependency-node-name" onClick={() => onOpenManifest(node.manifestPath)}>
+                  {node.name}
+                </button>
+                <div><strong>{t("dependencies.requires")}</strong> {node.dependencies.join(", ") || t("dependencies.none")}</div>
+                <div><strong>{t("dependencies.usedBy")}</strong> {node.dependents.join(", ") || t("dependencies.none")}</div>
+                {node.missingDependencies.length > 0 && (
+                  <div className="dependency-warning">{t("dependencies.missing", { dependencies: node.missingDependencies.join(", ") })}</div>
+                )}
+                {node.manifestWarning && <div className="dependency-warning">{t("dependencies.dynamic", { reason: node.manifestWarning })}</div>}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </section>
   );
 }

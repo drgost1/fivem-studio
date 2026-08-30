@@ -24,7 +24,35 @@ interface CodeEditorProps {
   onOpenLocation: (path: string, line: number, column: number) => void;
   onLuaStatusChange: (status: LuaServiceStatus, message?: string) => void;
   onAgentPrompt: (text: string) => void;
+  resourceNames: string[];
 }
+
+const SERVER_CFG_DOCS: Record<string, { detail: string; insertText: string }> = {
+  sv_maxclients: {
+    detail: "Maximum simultaneous client slots accepted by FXServer.",
+    insertText: "sv_maxclients ${1:48}",
+  },
+  sv_licenseKey: {
+    detail: "Cfx.re server license key. Keep the real value in an exec-loaded credential file.",
+    insertText: "sv_licenseKey \"${1:key}\"",
+  },
+  endpoint_add_tcp: {
+    detail: "Adds the TCP game endpoint. Local development commonly uses port 30120.",
+    insertText: "endpoint_add_tcp \"${1:127.0.0.1}:${2:30120}\"",
+  },
+  endpoint_add_udp: {
+    detail: "Adds the UDP game endpoint. It normally matches the TCP endpoint port.",
+    insertText: "endpoint_add_udp \"${1:127.0.0.1}:${2:30120}\"",
+  },
+  sv_hostname: {
+    detail: "Human-readable server name shown by Cfx.re clients.",
+    insertText: "sv_hostname \"${1:QB Studio Development}\"",
+  },
+  ensure: {
+    detail: "Starts a resource if stopped, or restarts it if already running.",
+    insertText: "ensure ${1:resource-name}",
+  },
+};
 
 function severityName(severity: number): EditorProblem["severity"] {
   // Monaco's marker severities are bit flags ordered Hint=1 through Error=8.
@@ -49,6 +77,7 @@ export default function CodeEditor({
   onOpenLocation,
   onLuaStatusChange,
   onAgentPrompt,
+  resourceNames,
 }: CodeEditorProps) {
   const monacoInstance = useMonaco();
   const luaStatus = useLuaLanguageService(luaActive, preferences.luaIntelligence);
@@ -60,6 +89,7 @@ export default function CodeEditor({
   const onOpenLocationRef = useRef(onOpenLocation);
   const onAgentPromptRef = useRef(onAgentPrompt);
   const preferencesRef = useRef(preferences);
+  const resourceNamesRef = useRef(resourceNames);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const editorDisposablesRef = useRef<monaco.IDisposable[]>([]);
   const trackedPathsRef = useRef(new Set<string>());
@@ -71,6 +101,7 @@ export default function CodeEditor({
   onOpenLocationRef.current = onOpenLocation;
   onAgentPromptRef.current = onAgentPrompt;
   preferencesRef.current = preferences;
+  resourceNamesRef.current = resourceNames;
 
   const handleChange = useCallback((value: string | undefined) => {
     onChangeRef.current(fileRef.current.path, value ?? "");
@@ -215,6 +246,53 @@ export default function CodeEditor({
           contextMenuGroupId: "9_cutcopypaste",
           contextMenuOrder: 5,
           run: () => promptForSelection("Add appropriate error handling around the selected code. Preserve existing behavior and explain the failure cases you cover before editing."),
+        }));
+        const isServerCfg = (model: monaco.editor.ITextModel) => model.uri.path.split("/").pop()?.toLowerCase() === "server.cfg";
+        editorDisposablesRef.current.push(monaco.languages.registerCompletionItemProvider("ini", {
+          triggerCharacters: [" "],
+          provideCompletionItems(model: monaco.editor.ITextModel, position: monaco.Position) {
+            if (!isServerCfg(model)) return { suggestions: [] };
+            const line = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+            const word = model.getWordUntilPosition(position);
+            const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+            const ensureLine = /^\s*ensure\s+/i.test(line);
+            if (ensureLine) {
+              return {
+                suggestions: resourceNamesRef.current.map((name) => ({
+                  label: name,
+                  kind: monaco.languages.CompletionItemKind.Module,
+                  detail: "Workspace resource",
+                  insertText: name,
+                  range,
+                })),
+              };
+            }
+            return {
+              suggestions: Object.entries(SERVER_CFG_DOCS).map(([label, value]) => ({
+                label,
+                kind: monaco.languages.CompletionItemKind.Property,
+                detail: value.detail,
+                documentation: { value: value.detail },
+                insertText: value.insertText,
+                insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                range,
+              })),
+            };
+          },
+        }));
+        editorDisposablesRef.current.push(monaco.languages.registerHoverProvider("ini", {
+          provideHover(model: monaco.editor.ITextModel, position: monaco.Position) {
+            if (!isServerCfg(model)) return null;
+            const line = model.getLineContent(position.lineNumber);
+            const command = line.trim().split(/\s+/, 1)[0];
+            const documentation = SERVER_CFG_DOCS[command];
+            if (documentation) return { contents: [{ value: `**${command}**` }, { value: documentation.detail }] };
+            const ensured = line.match(/^\s*ensure\s+(\S+)/i)?.[1];
+            if (ensured && resourceNamesRef.current.some((name) => name.toLowerCase() === ensured.toLowerCase())) {
+              return { contents: [{ value: `**${ensured}**` }, { value: "Workspace resource started by this configuration line." }] };
+            }
+            return null;
+          },
         }));
         editorDisposablesRef.current.push(monaco.editor.registerEditorOpener({
           openCodeEditor(

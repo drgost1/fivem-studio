@@ -91,6 +91,20 @@ export interface ResourceStatusResult {
   serverStateAvailable: boolean;
 }
 
+export interface ResourceDependencyNode {
+  name: string;
+  rootPath: string;
+  manifestPath: string;
+  dependencies: string[];
+  dependents: string[];
+  missingDependencies: string[];
+  manifestWarning?: string;
+}
+
+export interface ResourceDependencyGraph {
+  nodes: ResourceDependencyNode[];
+}
+
 export interface ProfileInfo {
   name: string;
   hasServerCfg: boolean;
@@ -473,6 +487,7 @@ declare global {
       resources: {
         listStatuses(): Promise<ResourceStatusResult>;
         context(filePath: string): Promise<ResourceContext | null>;
+        dependencyGraph(): Promise<ResourceDependencyGraph>;
       };
       github: {
         fetchRepoInfo(input: string): Promise<RepoInfo>;

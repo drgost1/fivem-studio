@@ -23,6 +23,7 @@ export interface StudioConfig {
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
   notifyOnServerExit: boolean;
+  agentSpendWarningUsd: number;
   editor: EditorPreferences;
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
@@ -63,6 +64,7 @@ const DEFAULTS: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
+  agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -152,9 +154,14 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
 }
 
 const UI_SCALES = new Set([0.8, 0.9, 1, 1.1, 1.25, 1.5]);
+const SPEND_WARNING_USD = new Set([0, 1, 2, 5, 10, 20]);
 
 function uiScaleOrDefault(value: unknown): number {
   return typeof value === "number" && UI_SCALES.has(value) ? value : DEFAULTS.uiScale;
+}
+
+function spendWarningOrDefault(value: unknown): number {
+  return typeof value === "number" && SPEND_WARNING_USD.has(value) ? value : DEFAULTS.agentSpendWarningUsd;
 }
 
 function editorPreferences(value: unknown): EditorPreferences {
@@ -212,6 +219,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
     redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
     consoleRefreshIntervalMs: consoleRefreshIntervalOrDefault(raw.consoleRefreshIntervalMs),
     notifyOnServerExit: booleanOr(raw.notifyOnServerExit, DEFAULTS.notifyOnServerExit),
+    agentSpendWarningUsd: spendWarningOrDefault(raw.agentSpendWarningUsd),
     editor: editorPreferences(raw.editor),
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),

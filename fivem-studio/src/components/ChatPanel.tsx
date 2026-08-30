@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { languageForPath } from "../editorLanguage";
 import type { AgentEvent, AgentFilePreview, ResolvedTheme, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
 import { matchPreset } from "../providerPresets";
+import { t } from "../i18n";
 
 const ChangeDiff = lazy(() => import("./ChangeDiff"));
 
@@ -95,14 +96,26 @@ interface ChatPanelProps {
   /** Live editor selection, if any — shown as a chip so it's never a surprise what gets sent. */
   selection: { path: string | null; selectedText: string; startLine: number; endLine: number } | null;
   suggestedPrompt: { text: string; nonce: number } | null;
+  activePath: string | null;
+  activeResourceName: string | null;
 }
 
-export default function ChatPanel({ connected, config, resolvedTheme, workspaceMatch, selection, suggestedPrompt }: ChatPanelProps) {
+export default function ChatPanel({
+  connected,
+  config,
+  resolvedTheme,
+  workspaceMatch,
+  selection,
+  suggestedPrompt,
+  activePath,
+  activeResourceName,
+}: ChatPanelProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState<boolean | null>(null);
   const [usage, setUsage] = useState<SessionUsage | null>(null);
+  const [spendWarningDismissed, setSpendWarningDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -148,6 +161,8 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
     setDraft(suggestedPrompt.text);
     inputRef.current?.focus();
   }, [suggestedPrompt]);
+
+  useEffect(() => setSpendWarningDismissed(false), [config.agentSpendWarningUsd]);
 
   function applyEvent(prev: Entry[], event: AgentEvent): Entry[] {
     switch (event.type) {
@@ -235,6 +250,7 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
       await window.api.agent.reset();
       setEntries([]);
       setUsage(null);
+      setSpendWarningDismissed(false);
     } catch (err) {
       setEntries((prev) => [...prev, { kind: "error", text: (err as Error).message || "Could not start a new chat." }]);
     }
@@ -255,6 +271,15 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
       {/* Held back until a turn finishes, so a streaming first reply doesn't
           flash "didn't report" before its usage chunk arrives at the end. */}
       {(usage || (entries.length > 0 && !busy)) && <UsageBar usage={usage} />}
+      {usage && config.agentSpendWarningUsd > 0 && usage.costUsd >= config.agentSpendWarningUsd && !spendWarningDismissed && (
+        <div className="agent-spend-warning" role="status">
+          <span>{t("agent.spendWarning.notice", {
+            cost: formatCost(usage.costUsd),
+            threshold: `$${config.agentSpendWarningUsd.toFixed(2)}`,
+          })}</span>
+          <button type="button" className="banner-dismiss" onClick={() => setSpendWarningDismissed(true)} aria-label={t("common.dismiss")}>×</button>
+        </div>
+      )}
 
       <div className="chat-messages" ref={scrollRef}>
         {ready === false && (
@@ -274,11 +299,48 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
             Resource lifecycle changes are unavailable because the workspace and local runtime do not match. Project tools and console output still work.
           </div>
         )}
-        {entries.length === 0 && ready && connected && (
-          <div className="chat-message system">
-            Using <strong>{backendLabel}</strong>. Ask the agent to inspect code, check recent console output, or restart a
-            resource after an approved change.
-          </div>
+        {entries.length === 0 && ready && (
+          <>
+            <div className="chat-message system">
+              Using <strong>{backendLabel}</strong>. Ask the agent to inspect code, check recent console output, or restart a
+              resource after an approved change.
+            </div>
+            <div className="agent-starters" role="group" aria-label={t("agent.starters.label")}>
+              <button
+                type="button"
+                className="agent-starter-chip"
+                disabled={!connected}
+                onClick={() => {
+                  setDraft(`Read the recent console output and explain why my last restart${activeResourceName ? ` of ${activeResourceName}` : ""} failed. Identify the cause before proposing changes.`);
+                  inputRef.current?.focus();
+                }}
+              >
+                {t("agent.starter.restart")}
+              </button>
+              <button
+                type="button"
+                className="agent-starter-chip"
+                disabled={!activePath}
+                onClick={() => {
+                  setDraft(`Explain the currently open file${activePath ? ` (${activePath.split(/[/\\]/).pop()})` : ""}, including how it fits into the resource and any risky assumptions.`);
+                  inputRef.current?.focus();
+                }}
+              >
+                {t("agent.starter.explain")}
+              </button>
+              <button
+                type="button"
+                className="agent-starter-chip"
+                disabled={!activeResourceName}
+                onClick={() => {
+                  setDraft(`Add a command to ${activeResourceName ?? "the active resource"}. First inspect the resource's existing command patterns and ask me for the command behavior if it is ambiguous.`);
+                  inputRef.current?.focus();
+                }}
+              >
+                {t("agent.starter.command")}
+              </button>
+            </div>
+          </>
         )}
 
         {entries.map((entry, i) => {

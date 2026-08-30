@@ -64,6 +64,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
+  agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -1098,6 +1099,7 @@ export default function App() {
               onDismissCrashTriage={() => setCrashTriage(null)}
               onSendCrashTriage={(text) => setAgentPrompt({ text, nonce: Date.now() })}
               onConsoleOutputChange={(output) => { latestConsoleOutput.current = output; }}
+              onAgentPrompt={(text) => setAgentPrompt({ text, nonce: Date.now() })}
               onSelectFileTab={setActivePath}
               onCloseFileTab={closeTab}
               onChange={updateContent}
@@ -1127,6 +1129,8 @@ export default function App() {
               workspaceMatch={workspaceMatch}
               selection={selection.selectedText ? { ...selection, path: activePath } : null}
               suggestedPrompt={agentPrompt}
+              activePath={activePath}
+              activeResourceName={activeResourceContext?.name ?? null}
             />
           </Panel>
         </Group>

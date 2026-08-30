@@ -851,6 +851,18 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
         <div className="settings-divider">Agent Chat</div>
 
+        <label className="field-label">{t("agent.spendWarning")}</label>
+        <select
+          value={draft.agentSpendWarningUsd}
+          onChange={(event) => setDraft((current) => ({ ...current, agentSpendWarningUsd: Number(event.target.value) }))}
+        >
+          <option value={0}>{t("agent.spendWarning.off")}</option>
+          {[1, 2, 5, 10, 20].map((threshold) => (
+            <option key={threshold} value={threshold}>${threshold.toFixed(2)}</option>
+          ))}
+        </select>
+        <div className="field-hint">{t("agent.spendWarning.help")}</div>
+
         <label className="field-label">Provider</label>
         <div style={{ marginBottom: 6 }}>
           <select value={preset.id} onChange={(e) => applyPreset(e.target.value)}>

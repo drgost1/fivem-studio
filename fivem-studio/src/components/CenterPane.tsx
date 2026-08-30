@@ -61,6 +61,7 @@ interface CenterPaneProps {
   onDismissCrashTriage: () => void;
   onSendCrashTriage: (text: string) => void;
   onConsoleOutputChange: (output: string) => void;
+  onAgentPrompt: (text: string) => void;
   onSelectFileTab: (path: string) => void;
   onCloseFileTab: (path: string) => void;
   onChange: (path: string, content: string) => void;
@@ -104,6 +105,7 @@ export default function CenterPane({
   onDismissCrashTriage,
   onSendCrashTriage,
   onConsoleOutputChange,
+  onAgentPrompt,
   onSelectFileTab,
   onCloseFileTab,
   onChange,
@@ -294,6 +296,7 @@ export default function CenterPane({
                       onProblemsChange={onProblemsChange}
                       onOpenLocation={onOpenEditorLocation}
                       onLuaStatusChange={handleLuaStatusChange}
+                      onAgentPrompt={onAgentPrompt}
                     />
                   </Suspense>
                 </div>

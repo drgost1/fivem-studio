@@ -7,6 +7,7 @@ import { notifyLuaDocumentSaved, useLuaLanguageService, type LuaServiceStatus } 
 import type { OpenFile } from "../App";
 import type { EditorPreferences, EditorProblem, ResolvedTheme } from "../global";
 import { monacoThemeName } from "../theme";
+import { t } from "../i18n";
 
 interface CodeEditorProps {
   file: OpenFile;
@@ -22,6 +23,7 @@ interface CodeEditorProps {
   onProblemsChange: (path: string, problems: EditorProblem[]) => void;
   onOpenLocation: (path: string, line: number, column: number) => void;
   onLuaStatusChange: (status: LuaServiceStatus, message?: string) => void;
+  onAgentPrompt: (text: string) => void;
 }
 
 function severityName(severity: number): EditorProblem["severity"] {
@@ -46,6 +48,7 @@ export default function CodeEditor({
   onProblemsChange,
   onOpenLocation,
   onLuaStatusChange,
+  onAgentPrompt,
 }: CodeEditorProps) {
   const monacoInstance = useMonaco();
   const luaStatus = useLuaLanguageService(luaActive, preferences.luaIntelligence);
@@ -55,6 +58,7 @@ export default function CodeEditor({
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onProblemsChangeRef = useRef(onProblemsChange);
   const onOpenLocationRef = useRef(onOpenLocation);
+  const onAgentPromptRef = useRef(onAgentPrompt);
   const preferencesRef = useRef(preferences);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const editorDisposablesRef = useRef<monaco.IDisposable[]>([]);
@@ -65,6 +69,7 @@ export default function CodeEditor({
   onSelectionChangeRef.current = onSelectionChange;
   onProblemsChangeRef.current = onProblemsChange;
   onOpenLocationRef.current = onOpenLocation;
+  onAgentPromptRef.current = onAgentPrompt;
   preferencesRef.current = preferences;
 
   const handleChange = useCallback((value: string | undefined) => {
@@ -178,6 +183,38 @@ export default function CodeEditor({
         editorDisposablesRef.current.push(editor.onDidChangeCursorSelection((event) => {
           const selected = editor.getModel()?.getValueInRange(event.selection) ?? "";
           onSelectionChangeRef.current(selected, event.selection.startLineNumber, event.selection.endLineNumber);
+        }));
+        const promptForSelection = (instruction: string) => {
+          const selection = editor.getSelection();
+          const selected = selection ? editor.getModel()?.getValueInRange(selection).trim() : "";
+          if (!selection || !selected) return;
+          const current = fileRef.current;
+          onSelectionChangeRef.current(selected, selection.startLineNumber, selection.endLineNumber);
+          onAgentPromptRef.current(`${instruction} The selection is in ${current.path.split(/[/\\]/).pop()}, lines ${selection.startLineNumber}–${selection.endLineNumber}.`);
+        };
+        editorDisposablesRef.current.push(editor.addAction({
+          id: "qb-studio.ask-agent-selection",
+          label: t("agent.selection.ask"),
+          precondition: "editorHasSelection",
+          contextMenuGroupId: "9_cutcopypaste",
+          contextMenuOrder: 3,
+          run: () => promptForSelection("Help me with the selected code. Ask a concise clarifying question if the desired outcome is ambiguous."),
+        }));
+        editorDisposablesRef.current.push(editor.addAction({
+          id: "qb-studio.explain-selection",
+          label: t("agent.selection.explain"),
+          precondition: "editorHasSelection",
+          contextMenuGroupId: "9_cutcopypaste",
+          contextMenuOrder: 4,
+          run: () => promptForSelection("Explain the selected code, its role in this resource, and any important FiveM, RedM, or QBCore behavior it relies on."),
+        }));
+        editorDisposablesRef.current.push(editor.addAction({
+          id: "qb-studio.error-handling-selection",
+          label: t("agent.selection.errorHandling"),
+          precondition: "editorHasSelection",
+          contextMenuGroupId: "9_cutcopypaste",
+          contextMenuOrder: 5,
+          run: () => promptForSelection("Add appropriate error handling around the selected code. Preserve existing behavior and explain the failure cases you cover before editing."),
         }));
         editorDisposablesRef.current.push(monaco.editor.registerEditorOpener({
           openCodeEditor(

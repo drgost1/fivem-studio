@@ -16,6 +16,7 @@ export interface StudioConfig {
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
   notifyOnServerExit: boolean;
+  agentSpendWarningUsd: number;
   editor: EditorPreferences;
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;

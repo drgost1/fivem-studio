@@ -82,6 +82,14 @@ test("unexpected server-exit notifications default on and accept an explicit pre
   assert.equal(normalizeConfig({ notifyOnServerExit: "false" }).notifyOnServerExit, true);
 });
 
+test("agent spend warnings are configurable and bounded", () => {
+  assert.equal(normalizeConfig({}).agentSpendWarningUsd, 5);
+  for (const threshold of [0, 1, 2, 5, 10, 20]) {
+    assert.equal(normalizeConfig({ agentSpendWarningUsd: threshold }).agentSpendWarningUsd, threshold);
+  }
+  assert.equal(normalizeConfig({ agentSpendWarningUsd: -1 }).agentSpendWarningUsd, 5);
+});
+
 test("editor preferences are bounded and migrate from missing settings", () => {
   assert.deepEqual(normalizeConfig({}).editor, {
     fontSize: 13,

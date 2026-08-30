@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import Editor, { useMonaco } from "@monaco-editor/react";
 import * as monaco from "monaco-editor/editor";
 
-import "../monacoSetup";
+import { ensureUserTheme } from "../monacoSetup";
 import { notifyLuaDocumentSaved, useLuaLanguageService, type LuaServiceStatus } from "../luaLanguageService";
 import type { OpenFile } from "../App";
 import type { EditorPreferences, EditorProblem, ResolvedTheme } from "../global";
-import { monacoThemeName } from "../theme";
 import { t } from "../i18n";
 
 interface CodeEditorProps {
@@ -212,7 +211,7 @@ export default function CodeEditor({
       path={editorPath}
       language={language}
       value={file.content}
-      theme={monacoThemeName(resolvedTheme)}
+      theme={ensureUserTheme(resolvedTheme)}
       keepCurrentModel
       onChange={handleChange}
       onMount={(editor, monaco) => {

@@ -98,6 +98,7 @@ interface ChatPanelProps {
   suggestedPrompt: { text: string; nonce: number } | null;
   activePath: string | null;
   activeResourceName: string | null;
+  onActivityChange: (active: boolean) => void;
 }
 
 export default function ChatPanel({
@@ -109,6 +110,7 @@ export default function ChatPanel({
   suggestedPrompt,
   activePath,
   activeResourceName,
+  onActivityChange,
 }: ChatPanelProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
@@ -163,6 +165,8 @@ export default function ChatPanel({
   }, [suggestedPrompt]);
 
   useEffect(() => setSpendWarningDismissed(false), [config.agentSpendWarningUsd]);
+
+  useEffect(() => () => onActivityChange(false), [onActivityChange]);
 
   function applyEvent(prev: Entry[], event: AgentEvent): Entry[] {
     switch (event.type) {
@@ -257,7 +261,15 @@ export default function ChatPanel({
   }
 
   return (
-    <div className="pane" style={{ height: "100%" }}>
+    <div
+      className="pane"
+      style={{ height: "100%" }}
+      onFocusCapture={() => onActivityChange(true)}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) onActivityChange(false);
+      }}
+    >
       <div className="pane-header">
         <span>Agent Chat</span>
         <div style={{ flex: 1 }} />

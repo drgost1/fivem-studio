@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { ThemePreference } from "../global";
+import type { ThemePack, ThemePreference } from "../global";
+import { activateTheme } from "../theme";
 import { ConsolePanel } from "./CenterPane";
 
 export default function PopoutConsole() {
@@ -8,6 +9,7 @@ export default function PopoutConsole() {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(2_000);
   const [themePreference, setThemePreference] = useState<ThemePreference>("system");
+  const [themePacks, setThemePacks] = useState<ThemePack[]>([]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -23,12 +25,13 @@ export default function PopoutConsole() {
 
   useEffect(() => {
     let cancelled = false;
-    void window.api.config.get().then(async (config) => {
+    void Promise.all([window.api.config.get(), window.api.theme.listPacks()]).then(async ([config, packs]) => {
       if (cancelled) return;
       setRefreshIntervalMs(config.consoleRefreshIntervalMs);
       setThemePreference(config.theme);
+      setThemePacks(packs);
       const resolved = config.theme === "system" ? await window.api.theme.system() : config.theme;
-      if (!cancelled) document.documentElement.dataset.theme = resolved;
+      if (!cancelled) activateTheme(resolved, packs);
     });
     void refreshStatus();
     const timer = window.setInterval(() => void refreshStatus(), 2_000);
@@ -39,8 +42,8 @@ export default function PopoutConsole() {
   }, [refreshStatus]);
 
   useEffect(() => window.api.theme.onSystemChanged((theme) => {
-    if (themePreference === "system") document.documentElement.dataset.theme = theme;
-  }), [themePreference]);
+    if (themePreference === "system") activateTheme(theme, themePacks);
+  }), [themePacks, themePreference]);
 
   useEffect(() => window.api.console.onRefreshIntervalChanged(setRefreshIntervalMs), []);
 

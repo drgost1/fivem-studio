@@ -27,6 +27,8 @@ test("theme preferences migrate to system and accept every supported explicit th
   for (const theme of ["system", "dark", "light", "high-contrast"] as const) {
     assert.equal(normalizeConfig({ theme }).theme, theme);
   }
+  assert.equal(normalizeConfig({ theme: "custom:qb-red" }).theme, "custom:qb-red");
+  assert.equal(normalizeConfig({ theme: "custom:../escape" }).theme, "system");
   assert.equal(normalizeConfig({ theme: "neon" }).theme, "system");
 });
 
@@ -80,6 +82,12 @@ test("unexpected server-exit notifications default on and accept an explicit pre
   assert.equal(normalizeConfig({}).notifyOnServerExit, true);
   assert.equal(normalizeConfig({ notifyOnServerExit: false }).notifyOnServerExit, false);
   assert.equal(normalizeConfig({ notifyOnServerExit: "false" }).notifyOnServerExit, true);
+});
+
+test("privacy-safe Discord presence defaults on and accepts an explicit preference", () => {
+  assert.equal(normalizeConfig({}).discordPresenceEnabled, true);
+  assert.equal(normalizeConfig({ discordPresenceEnabled: false }).discordPresenceEnabled, false);
+  assert.equal(normalizeConfig({ discordPresenceEnabled: "false" }).discordPresenceEnabled, true);
 });
 
 test("agent spend warnings are configurable and bounded", () => {

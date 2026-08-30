@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
+import { detectConventionalClientInstalls, detectConventionalExecutables } from "./clientInstallDiscovery";
 
 test("client discovery finds only conventional FiveM, Enhanced, and RedM launchers", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-client-discovery-"));
@@ -20,6 +20,47 @@ test("client discovery finds only conventional FiveM, Enhanced, and RedM launche
     fs.writeFileSync(path.join(root, "Custom", "FiveM.exe"), "untrusted");
 
     assert.deepEqual(detectConventionalClientInstalls(root), { legacy, enhanced, redm });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("executable discovery probes conventional server folders without recursive scanning", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-executable-discovery-"));
+  try {
+    const txData = path.join(root, "txData");
+    const legacy = path.join(root, "FiveMServer", "FXServer.exe");
+    const enhanced = path.join(root, "fivemserverenhanced", "cfx-server.exe");
+    const redm = path.join(root, "RedMServer", "FXServer.exe");
+    for (const target of [txData, path.dirname(legacy), path.dirname(enhanced), path.dirname(redm), path.join(root, "random", "nested")]) {
+      fs.mkdirSync(target, { recursive: true });
+    }
+    for (const target of [
+      path.join(path.dirname(legacy), "citizen", "system_resources"),
+      path.join(path.dirname(enhanced), "system_resources"),
+      path.join(path.dirname(redm), "citizen", "system_resources"),
+    ]) fs.mkdirSync(target, { recursive: true });
+    for (const target of [legacy, enhanced, redm, path.join(root, "random", "nested", "FXServer.exe")]) fs.writeFileSync(target, "server");
+    assert.deepEqual(detectConventionalExecutables({ txDataPath: txData }), {
+      clients: { legacy: null, enhanced: null, redm: null },
+      servers: { legacy, enhanced, redm },
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("artifact records restore target-specific server paths", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-artifact-discovery-"));
+  try {
+    const artifactRoot = path.join(root, "custom-location");
+    const executable = path.join(artifactRoot, "cfx-server.exe");
+    const state = path.join(root, "artifact-install-enhanced.json");
+    fs.mkdirSync(artifactRoot);
+    fs.mkdirSync(path.join(artifactRoot, "system_resources"));
+    fs.writeFileSync(executable, "server");
+    fs.writeFileSync(state, JSON.stringify({ schemaVersion: 1, artifactRoot, executableName: "cfx-server.exe" }));
+    assert.equal(detectConventionalExecutables({ artifactStatePaths: { enhanced: state } }).servers.enhanced, executable);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

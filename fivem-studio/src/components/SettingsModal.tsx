@@ -4,10 +4,13 @@ import type {
   ArtifactStatus,
   CfxTarget,
   DetectedClientInstalls,
+  DetectedExecutableInstalls,
   DevelopmentRconPreview,
   ProfileInfo,
   SetupDiagnostics,
   StudioConfig,
+  ThemePack,
+  ThemePreference,
 } from "../global";
 import { t } from "../i18n";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
@@ -15,6 +18,9 @@ import SetupChecklist from "./SetupChecklist";
 
 interface SettingsModalProps {
   config: StudioConfig;
+  themePacks: ThemePack[];
+  onThemePreview: (preference: ThemePreference) => void;
+  onReloadThemePacks: () => Promise<ThemePack[]>;
   onSave: (config: StudioConfig) => Promise<void>;
   onClose: () => void;
 }
@@ -39,7 +45,7 @@ function clientExeFor(config: StudioConfig, target: CfxTarget): string | null {
   return config.redmClientExePath;
 }
 
-export default function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
+export default function SettingsModal({ config, themePacks, onThemePreview, onReloadThemePacks, onSave, onClose }: SettingsModalProps) {
   const [draft, setDraft] = useState<StudioConfig>(config);
   const [busy, setBusy] = useState(false);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -66,10 +72,13 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   const [artifactMessage, setArtifactMessage] = useState<string | null>(null);
   const [artifactProgress, setArtifactProgress] = useState<ArtifactProgress | null>(null);
   const [detectedClients, setDetectedClients] = useState<DetectedClientInstalls>({ legacy: null, enhanced: null, redm: null });
+  const [detectedServers, setDetectedServers] = useState<DetectedClientInstalls>({ legacy: null, enhanced: null, redm: null });
+  const [detectingExecutable, setDetectingExecutable] = useState<string | null>(null);
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [diagnosticsEpoch, setDiagnosticsEpoch] = useState(0);
   const [rconPreview, setRconPreview] = useState<DevelopmentRconPreview | null>(null);
   const [rconBusy, setRconBusy] = useState(false);
+  const [themeBusy, setThemeBusy] = useState<"import" | "reload" | null>(null);
 
   /** Asks the endpoint what it actually serves, rather than making the user guess a model id. */
   async function loadModels() {
@@ -125,20 +134,72 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
   useEffect(() => {
     let cancelled = false;
-    window.api.installs.detectClients().then((found) => {
+    window.api.installs.detectAll(config.txDataPath).then((found) => {
       if (cancelled) return;
-      setDetectedClients(found);
+      setDetectedClients(found.clients);
+      setDetectedServers(found.servers);
       setDraft((current) => ({
         ...current,
-        legacyFivemExePath: current.legacyFivemExePath ?? found.legacy,
-        enhancedFivemExePath: current.enhancedFivemExePath ?? found.enhanced,
-        redmClientExePath: current.redmClientExePath ?? found.redm,
+        legacyFivemExePath: current.legacyFivemExePath ?? found.clients.legacy,
+        enhancedFivemExePath: current.enhancedFivemExePath ?? found.clients.enhanced,
+        redmClientExePath: current.redmClientExePath ?? found.clients.redm,
+        legacyFxServerExePath: current.legacyFxServerExePath ?? found.servers.legacy,
+        enhancedFxServerExePath: current.enhancedFxServerExePath ?? found.servers.enhanced,
+        redmFxServerExePath: current.redmFxServerExePath ?? found.servers.redm,
       }));
     }).catch(() => {
       // Browse remains the complete fallback when conventional discovery fails.
     });
     return () => { cancelled = true; };
   }, []);
+
+  function applyDetectedExecutables(current: StudioConfig, found: DetectedExecutableInstalls): StudioConfig {
+    return {
+      ...current,
+      legacyFivemExePath: current.legacyFivemExePath ?? found.clients.legacy,
+      enhancedFivemExePath: current.enhancedFivemExePath ?? found.clients.enhanced,
+      redmClientExePath: current.redmClientExePath ?? found.clients.redm,
+      legacyFxServerExePath: current.legacyFxServerExePath ?? found.servers.legacy,
+      enhancedFxServerExePath: current.enhancedFxServerExePath ?? found.servers.enhanced,
+      redmFxServerExePath: current.redmFxServerExePath ?? found.servers.redm,
+    };
+  }
+
+  async function autoDetect(target?: CfxTarget, kind?: "client" | "server") {
+    const key = target && kind ? `${target}-${kind}` : "all";
+    setDetectingExecutable(key);
+    setArtifactError(null);
+    try {
+      const found = await window.api.installs.detectAll(draft.txDataPath);
+      setDetectedClients(found.clients);
+      setDetectedServers(found.servers);
+      if (!target || !kind) {
+        setDraft((current) => applyDetectedExecutables(current, found));
+        const count = [...Object.values(found.clients), ...Object.values(found.servers)].filter(Boolean).length;
+        if (count === 0) setArtifactError("No conventional Cfx.re executables were found. Use Browse for custom locations.");
+        return;
+      }
+      const executable = kind === "client" ? found.clients[target] : found.servers[target];
+      if (!executable) {
+        setArtifactError(`No conventional ${cfxTargetLabel(target)} ${kind} executable was found. Use Browse for a custom location.`);
+        return;
+      }
+      setDraft((current) => {
+        if (kind === "client") {
+          if (target === "legacy") return { ...current, legacyFivemExePath: executable };
+          if (target === "enhanced") return { ...current, enhancedFivemExePath: executable };
+          return { ...current, redmClientExePath: executable };
+        }
+        if (target === "legacy") return { ...current, legacyFxServerExePath: executable };
+        if (target === "enhanced") return { ...current, enhancedFxServerExePath: executable };
+        return { ...current, redmFxServerExePath: executable };
+      });
+    } catch (error) {
+      setArtifactError((error as Error).message || "Could not auto-detect Cfx.re executables.");
+    } finally {
+      setDetectingExecutable(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -409,6 +470,35 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setLocalKeyDraft("");
   }
 
+  async function importThemePack() {
+    setThemeBusy("import");
+    setSaveError(null);
+    try {
+      const imported = await window.api.theme.importPack();
+      if (!imported) return;
+      await onReloadThemePacks();
+      const preference = `custom:${imported.id}` as ThemePreference;
+      setDraft((current) => ({ ...current, theme: preference }));
+      onThemePreview(preference);
+    } catch (error) {
+      setSaveError((error as Error).message || "Could not import the theme pack.");
+    } finally {
+      setThemeBusy(null);
+    }
+  }
+
+  async function reloadThemes() {
+    setThemeBusy("reload");
+    setSaveError(null);
+    try {
+      await onReloadThemePacks();
+    } catch (error) {
+      setSaveError((error as Error).message || "Could not reload theme packs.");
+    } finally {
+      setThemeBusy(null);
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={() => artifactBusy === null && !rconBusy && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
@@ -420,17 +510,40 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         <label className="field-label">{t("appearance.theme")}</label>
         <select
           value={draft.theme}
-          onChange={(event) => setDraft((current) => ({
-            ...current,
-            theme: event.target.value as StudioConfig["theme"],
-          }))}
+          onChange={(event) => {
+            const theme = event.target.value as StudioConfig["theme"];
+            setDraft((current) => ({ ...current, theme }));
+            onThemePreview(theme);
+          }}
         >
           <option value="system">{t("appearance.theme.system")}</option>
           <option value="dark">{t("appearance.theme.dark")}</option>
           <option value="light">{t("appearance.theme.light")}</option>
           <option value="high-contrast">{t("appearance.theme.highContrast")}</option>
+          {draft.theme.startsWith("custom:") && !themePacks.some((pack) => `custom:${pack.id}` === draft.theme) && (
+            <option value={draft.theme}>Missing custom theme</option>
+          )}
+          {themePacks.map((pack) => (
+            <option key={pack.id} value={`custom:${pack.id}`}>
+              {pack.name}{pack.author ? ` — ${pack.author}` : ""}
+            </option>
+          ))}
         </select>
-        <div className="field-hint">{t("appearance.themeHelp")}</div>
+        <div className="field-hint">{t("appearance.themeHelp")} Selecting a theme previews it immediately; Cancel restores the saved theme.</div>
+        <div className="field-row" style={{ marginBottom: 8 }}>
+          <button className="btn" type="button" onClick={() => void importThemePack()} disabled={themeBusy !== null}>
+            {themeBusy === "import" ? "Importing…" : "Import theme…"}
+          </button>
+          <button className="btn" type="button" onClick={() => void reloadThemes()} disabled={themeBusy !== null}>
+            {themeBusy === "reload" ? "Reloading…" : "Reload themes"}
+          </button>
+          <button className="btn" type="button" onClick={() => void window.api.theme.openPackFolder()}>
+            Open themes folder
+          </button>
+        </div>
+        <div className="field-hint">
+          Theme packs are JSON files stored outside the app release. Only allowlisted hexadecimal UI and editor colors are accepted; scripts, CSS, URLs, and linked files are rejected.
+        </div>
         <label className="field-label">{t("appearance.uiScale")}</label>
         <select
           value={draft.uiScale}
@@ -457,6 +570,21 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           </select>
         </label>
         <div className="field-hint">{t("console.notifyExitHelp")}</div>
+
+        <div className="settings-divider">Discord</div>
+        <label className="field-label">
+          Rich Presence
+          <select
+            value={draft.discordPresenceEnabled ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({ ...current, discordPresenceEnabled: event.target.value === "on" }))}
+          >
+            <option value="on">{t("common.on")} — recommended</option>
+            <option value="off">{t("common.off")}</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Enabled by default. Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
+        </div>
 
         <SetupChecklist
           diagnostics={setupDiagnostics}
@@ -598,6 +726,15 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
         <div className="settings-divider">Local server & client</div>
 
+        <div className="field-row" style={{ marginBottom: 8 }}>
+          <button className="btn" type="button" onClick={() => void autoDetect()} disabled={detectingExecutable !== null || artifactBusy !== null}>
+            {detectingExecutable === "all" ? "Detecting…" : "Auto-detect all executables"}
+          </button>
+        </div>
+        <div className="field-hint">
+          Checks only conventional install folders and QB Studio artifact records. Custom locations always remain available through Browse; entire drives are never scanned.
+        </div>
+
         <label className="field-label">Active Cfx.re target</label>
         <select
           value={draft.activeCfxTarget}
@@ -631,6 +768,14 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
                   <button
                     className="btn"
                     type="button"
+                    onClick={() => void autoDetect(target, "server")}
+                    disabled={detectingExecutable !== null || artifactBusy !== null}
+                  >
+                    {detectingExecutable === `${target}-server` ? "Detecting…" : "Auto"}
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
                     onClick={() => void pickFxServerExe(target)}
                     disabled={artifactBusy !== null}
                   >
@@ -640,12 +785,18 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
                 <label className="field-label">{target === "redm" ? "RedM" : "FiveM"} client executable</label>
                 <div className="field-row">
                   <input value={clientPath ?? ""} readOnly placeholder={clientExecutable} />
+                  <button className="btn" type="button" onClick={() => void autoDetect(target, "client")} disabled={detectingExecutable !== null || artifactBusy !== null}>
+                    {detectingExecutable === `${target}-client` ? "Detecting…" : "Auto"}
+                  </button>
                   <button className="btn" type="button" onClick={() => void pickExe(target)} disabled={artifactBusy !== null}>
                     Browse…
                   </button>
                 </div>
                 {clientPath && detectedClients[target] === clientPath && (
                   <div className="field-hint artifact-success">{t("setup.detected")}</div>
+                )}
+                {serverPath && detectedServers[target] === serverPath && (
+                  <div className="field-hint artifact-success">Server executable auto-detected — confirm with Save & Connect.</div>
                 )}
               </section>
             );

@@ -6,6 +6,7 @@ import type { CrashTriageContext, EditorBookmark, EditorPreferences, EditorProbl
 import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
 import { countNewConsoleLines, filterConsoleOutput, newestErrorBlock, type ConsoleSeverity } from "../consoleText";
+import { appendConsoleSnapshot } from "../../electron/consoleViewModel";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
@@ -567,23 +568,63 @@ export function ConsolePanel({
   const [error, setError] = useState<string | null>(null);
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+  const [viewCleared, setViewCleared] = useState(false);
   const requestRef = useRef<Promise<void> | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const latestOutputRef = useRef("");
+  const latestRawOutputRef = useRef("");
+  const clearActiveRef = useRef(false);
+  const clearOnNextRefreshRef = useRef(false);
   const pausedRef = useRef(false);
   const frozenOutputRef = useRef("");
 
   const acceptOutput = useCallback((next: string) => {
-    latestOutputRef.current = next;
+    let visible = next;
+    if (clearOnNextRefreshRef.current) {
+      clearOnNextRefreshRef.current = false;
+      clearActiveRef.current = true;
+      visible = "";
+    } else if (clearActiveRef.current) {
+      visible = appendConsoleSnapshot(latestRawOutputRef.current, next, latestOutputRef.current);
+    }
+    latestRawOutputRef.current = next;
+    latestOutputRef.current = visible;
     onOutputChange(next);
     if (pausedRef.current) {
-      setBufferedLines(countNewConsoleLines(frozenOutputRef.current, next));
+      setBufferedLines(countNewConsoleLines(frozenOutputRef.current, visible));
       return;
     }
-    frozenOutputRef.current = next;
-    setOutput(next);
+    frozenOutputRef.current = visible;
+    setOutput(visible);
+    setViewCleared(clearActiveRef.current && visible === "");
   }, [onOutputChange]);
+
+  const clearView = useCallback(() => {
+    if (latestRawOutputRef.current) {
+      clearActiveRef.current = true;
+    } else {
+      clearOnNextRefreshRef.current = true;
+    }
+    latestOutputRef.current = "";
+    frozenOutputRef.current = "";
+    setOutput("");
+    setViewCleared(true);
+    setBufferedLines(0);
+    stickToBottomRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.api.console.clearGeneration().then((generation) => {
+      if (!cancelled && generation > 0) clearView();
+    });
+    const unsubscribe = window.api.console.onClearViewChanged(() => clearView());
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [clearView]);
 
   const refresh = useCallback((showLoading: boolean): Promise<void> => {
     if (requestRef.current) return requestRef.current;
@@ -667,7 +708,7 @@ export function ConsolePanel({
   }
 
   async function copyLastError() {
-    const block = newestErrorBlock(latestOutputRef.current || output);
+    const block = newestErrorBlock(output);
     if (!block) {
       setCopyNotice(t("console.noError"));
       return;
@@ -701,6 +742,14 @@ export function ConsolePanel({
       <div className="console-toolbar">
         <button className="btn small" onClick={() => void refresh(true)} disabled={loading || !connected || available !== true}>
           {loading ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          className="btn small"
+          type="button"
+          onClick={() => void window.api.console.clearView()}
+          title={t("console.clearViewHelp")}
+        >
+          {t("console.clearView")}
         </button>
         <button className={`btn small ${paused ? "active" : ""}`} onClick={togglePaused} aria-pressed={paused}>
           {paused ? t("console.resume") : t("console.pause")}
@@ -791,6 +840,8 @@ export function ConsolePanel({
       >
         {visibleOutput || (output
           ? `(${t("console.noMatches")})`
+          : viewCleared
+            ? `(${t("console.viewCleared")})`
           : available === false
             ? "(console not attached yet)"
             : refreshIntervalMs === 0

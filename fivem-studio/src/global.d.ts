@@ -16,6 +16,7 @@ export interface StudioConfig {
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
   notifyOnServerExit: boolean;
+  discordPresenceEnabled: boolean;
   agentSpendWarningUsd: number;
   editor: EditorPreferences;
   agentProvider: "anthropic" | "openai";
@@ -65,8 +66,23 @@ export interface RecentWorkspaceSummary {
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
-export type ThemePreference = "system" | "dark" | "light" | "high-contrast";
-export type ResolvedTheme = Exclude<ThemePreference, "system">;
+export type BuiltInThemePreference = "system" | "dark" | "light" | "high-contrast";
+export type ThemePreference = BuiltInThemePreference | `custom:${string}`;
+export type ThemeBase = Exclude<BuiltInThemePreference, "system">;
+export type ResolvedTheme = ThemeBase | `custom:${string}`;
+
+export interface ThemePack {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  author: string | null;
+  base: ThemeBase;
+  colors: Record<string, string>;
+  editor: {
+    colors: Record<string, string>;
+    tokens: Record<string, string>;
+  };
+}
 
 export interface DirEntry {
   name: string;
@@ -355,6 +371,11 @@ export interface RevertResult {
 }
 
 export type DetectedClientInstalls = Record<CfxTarget, string | null>;
+export type DetectedServerInstalls = Record<CfxTarget, string | null>;
+export interface DetectedExecutableInstalls {
+  clients: DetectedClientInstalls;
+  servers: DetectedServerInstalls;
+}
 
 export interface SetupDiagnostics {
   txDataRoot: boolean;
@@ -458,11 +479,19 @@ declare global {
       };
       console: {
         openPopout(): Promise<void>;
+        clearView(): Promise<number>;
+        clearGeneration(): Promise<number>;
         setRefreshInterval(intervalMs: number): Promise<number>;
         onRefreshIntervalChanged(callback: (intervalMs: number) => void): () => void;
+        onClearViewChanged(callback: (generation: number) => void): () => void;
       };
       theme: {
         system(): Promise<"dark" | "light">;
+        listPacks(): Promise<ThemePack[]>;
+        importPack(): Promise<ThemePack | null>;
+        openPackFolder(): Promise<void>;
+        preview(preference: ThemePreference): Promise<void>;
+        clearPreview(): Promise<void>;
         onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
       };
       recents: {
@@ -471,6 +500,7 @@ declare global {
       };
       installs: {
         detectClients(): Promise<DetectedClientInstalls>;
+        detectAll(txDataPath?: string | null): Promise<DetectedExecutableInstalls>;
       };
       setup: {
         diagnostics(
@@ -565,6 +595,10 @@ declare global {
       };
       app: {
         setDirtyCount(count: number): Promise<void>;
+        setDiscordActivity(context: {
+          view: "startup" | "viewport" | "console" | "resources" | "editor" | "review" | "assistant" | "setup" | "settings";
+          filePath: string | null;
+        }): Promise<void>;
         checkForUpdate(): Promise<AppUpdateStatus | null>;
         consumeWhatsNew(): Promise<WhatsNewState | null>;
       };

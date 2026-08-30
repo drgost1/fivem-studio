@@ -23,6 +23,7 @@ export interface StudioConfig {
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
   notifyOnServerExit: boolean;
+  discordPresenceEnabled: boolean;
   agentSpendWarningUsd: number;
   editor: EditorPreferences;
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
@@ -44,7 +45,8 @@ export interface EditorPreferences {
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
-export type ThemePreference = "system" | "dark" | "light" | "high-contrast";
+export type BuiltInThemePreference = "system" | "dark" | "light" | "high-contrast";
+export type ThemePreference = BuiltInThemePreference | `custom:${string}`;
 
 export const CFX_TARGETS: readonly CfxTarget[] = ["legacy", "enhanced", "redm"];
 
@@ -64,6 +66,7 @@ const DEFAULTS: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
+  discordPresenceEnabled: true,
   agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
@@ -153,6 +156,12 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function themePreferenceOrDefault(value: unknown): ThemePreference {
+  if (value === "system" || value === "dark" || value === "light" || value === "high-contrast") return value;
+  if (typeof value === "string" && /^custom:[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(value)) return value as ThemePreference;
+  return DEFAULTS.theme;
+}
+
 const UI_SCALES = new Set([0.8, 0.9, 1, 1.1, 1.25, 1.5]);
 const SPEND_WARNING_USD = new Set([0, 1, 2, 5, 10, 20]);
 
@@ -200,8 +209,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
   return {
     txDataPath: nullablePath(raw.txDataPath),
     selectedProfile: safeProfile(raw.selectedProfile),
-    theme:
-      raw.theme === "dark" || raw.theme === "light" || raw.theme === "high-contrast" ? raw.theme : "system",
+    theme: themePreferenceOrDefault(raw.theme),
     uiScale: uiScaleOrDefault(raw.uiScale),
     activeCfxTarget,
     legacyFivemExePath:
@@ -219,6 +227,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
     redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
     consoleRefreshIntervalMs: consoleRefreshIntervalOrDefault(raw.consoleRefreshIntervalMs),
     notifyOnServerExit: booleanOr(raw.notifyOnServerExit, DEFAULTS.notifyOnServerExit),
+    discordPresenceEnabled: booleanOr(raw.discordPresenceEnabled, DEFAULTS.discordPresenceEnabled),
     agentSpendWarningUsd: spendWarningOrDefault(raw.agentSpendWarningUsd),
     editor: editorPreferences(raw.editor),
     agentProvider: provider,

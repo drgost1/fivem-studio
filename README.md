@@ -16,8 +16,11 @@ screenshots.
 - QBCore, FiveM, and RedM Lua intelligence powered by a bundled, verified Lua language server
 - txData workspace browser and minimal local-workspace creator
 - Separate one-click launchers and paths for FiveM Legacy, FiveM Enhanced, and RedM
+- Bounded Auto detection for all three client launchers and server artifacts, with Browse for custom locations
 - Recommended/Latest server-artifact updates with staging and rollback backup
-- Read-only console with foreground-only configurable auto-refresh, plus approved resource refresh controls for coding loops
+- Read-only console with foreground-only configurable auto-refresh, synchronized non-destructive Clear view, and approved resource refresh controls for coding loops
+- Default-enabled, privacy-safe Discord Rich Presence that can be disabled in Settings
+- Built-in themes plus validated user JSON theme packs with instant Settings preview
 - GitHub repository and organization search with resource imports
 - AI assistant scoped to project files and coding-oriented runtime tools
 - Bundled private runtime: no separate Node or MCP server to launch
@@ -155,6 +158,62 @@ while Studio is idle on non-code tabs.
 
 Editor font size, word wrap, minimap, sticky scroll, format-on-save, and Lua
 intelligence mode are configurable in Settings.
+
+## Discord presence
+
+Discord Rich Presence is enabled by default and uses Discord's local desktop RPC
+connection—there is no bot, OAuth login, token, or Discord credential in QB
+Studio. The activity shows the current app area (for example, browsing resources,
+monitoring the console, reviewing changes, or working with the assistant) and
+the broad active target: FiveM Legacy, FiveM Enhanced, or RedM. While editing or
+reviewing, it also shows the active file's basename and a derived language label,
+such as `Editing client.lua` and `FiveM Enhanced · Lua`. Full paths, workspace,
+profile, server and resource names, file contents, console output, Git data, and
+chat contents are never included. The logo tooltip identifies the running QB
+Studio version, and fixed **Visit QBCore** and **Download QB Studio** buttons link
+to the official website and latest release. Turn **Rich Presence** off in
+Settings to clear the activity and stop the local connection. If the Discord
+desktop app is not running, QB Studio continues normally and retries quietly.
+Discord only displays activity buttons to other users, so they will not appear
+when viewing your own presence.
+
+## User theme packs
+
+Use **Settings → Appearance → Import theme** to install a theme, or **Open
+themes folder** to edit installed packs and **Reload themes** to apply saved
+changes without downloading another QB Studio release. Selecting a theme
+previews the app chrome and Monaco editors immediately; **Cancel** restores the
+saved theme and **Save & Connect** keeps it.
+
+Theme packs are data-only JSON. QB Studio accepts schema version 1, a lowercase
+ID, a built-in base, and allowlisted hexadecimal color values. It rejects CSS,
+scripts, URLs, unknown color keys, oversized files, and links. A minimal pack is:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "qb-red",
+  "name": "QB Red",
+  "author": "QBCore",
+  "base": "dark",
+  "colors": {
+    "accent": "#d9232e",
+    "accent-hover": "#ff4b55",
+    "accent-wash": "#3a1518"
+  },
+  "editor": {
+    "colors": {
+      "editor.selectionBackground": "#6b2028"
+    },
+    "tokens": {
+      "keyword": "#ff6670"
+    }
+  }
+}
+```
+
+The import error identifies unsupported keys, so pack authors can start small
+and add only the colors they want to override.
 
 ## Server artifact updates
 

@@ -5,6 +5,8 @@
 // "Loading..." forever with no network.
 import * as monaco from "monaco-editor/editor";
 import { loader } from "@monaco-editor/react";
+import type { ResolvedTheme, ThemePack } from "./global";
+import { installedThemePack } from "./userThemeRegistry";
 
 // Monaco 0.56 exposes supported, tree-shakeable entry points. Keep the
 // productivity/accessibility features Studio uses without registering every
@@ -129,6 +131,46 @@ function tokenRules(colors: {
     { token: "operator", foreground: colors.operator },
     { token: "delimiter", foreground: colors.operator },
   ];
+}
+
+const USER_THEME_TOKEN_DEFAULTS = {
+  dark: {
+    comment: "6B7A87", keyword: "C48FD6", string: "96C97C", number: "E0A667", function: "62AEE8",
+    global: "4FC0B0", property: "DCC98A", variable: "D5DDE4", operator: "8A96A2",
+  },
+  light: {
+    comment: "7A8590", keyword: "8B3FA8", string: "2F7A3E", number: "A65B18", function: "1F6FB8",
+    global: "0E7B71", property: "7A5F16", variable: "2A3138", operator: "6B7681",
+  },
+  "high-contrast": {
+    comment: "B9C8D4", keyword: "FF9CFF", string: "B7FF9A", number: "FFD08A", function: "72D3FF",
+    global: "64FFE3", property: "FFF08A", variable: "FFFFFF", operator: "D7E2EA",
+  },
+} as const;
+
+/** Register one validated data-only theme. Electron has already constrained all
+ * values to allowlisted hexadecimal colors, so no CSS or script is evaluated. */
+export function defineUserTheme(pack: ThemePack): string {
+  const name = `qb-studio-custom-${pack.id}`;
+  const fallback = USER_THEME_TOKEN_DEFAULTS[pack.base];
+  const tokens = Object.fromEntries(Object.entries(pack.editor.tokens).map(([key, value]) => [key, value.replace(/^#/, "")])) as Partial<typeof fallback>;
+  monaco.editor.defineTheme(name, {
+    base: pack.base === "light" ? "vs" : pack.base === "high-contrast" ? "hc-black" : "vs-dark",
+    inherit: true,
+    rules: tokenRules({ ...fallback, ...tokens }),
+    colors: pack.editor.colors,
+  });
+  return name;
+}
+
+export function ensureUserTheme(theme: ResolvedTheme): string {
+  if (theme.startsWith("custom:")) {
+    const pack = installedThemePack(theme.slice("custom:".length));
+    if (pack) return defineUserTheme(pack);
+  }
+  if (theme === "light") return "qb-studio-light";
+  if (theme === "high-contrast") return "qb-studio-high-contrast";
+  return "qb-studio-dark";
 }
 
 monaco.editor.defineTheme("qb-studio-dark", {

@@ -10,15 +10,27 @@ const api = {
   },
   console: {
     openPopout: () => ipcRenderer.invoke("console:openPopout"),
+    clearView: () => ipcRenderer.invoke("console:clearView"),
+    clearGeneration: () => ipcRenderer.invoke("console:clearGeneration"),
     setRefreshInterval: (intervalMs: number) => ipcRenderer.invoke("console:setRefreshInterval", intervalMs),
     onRefreshIntervalChanged: (callback: (intervalMs: number) => void) => {
       const listener = (_e: unknown, intervalMs: number) => callback(intervalMs);
       ipcRenderer.on("console:refreshIntervalChanged", listener);
       return () => ipcRenderer.removeListener("console:refreshIntervalChanged", listener);
     },
+    onClearViewChanged: (callback: (generation: number) => void) => {
+      const listener = (_e: unknown, generation: number) => callback(generation);
+      ipcRenderer.on("console:clearViewChanged", listener);
+      return () => ipcRenderer.removeListener("console:clearViewChanged", listener);
+    },
   },
   theme: {
     system: () => ipcRenderer.invoke("theme:system"),
+    listPacks: () => ipcRenderer.invoke("theme:listPacks"),
+    importPack: () => ipcRenderer.invoke("theme:importPack"),
+    openPackFolder: () => ipcRenderer.invoke("theme:openPackFolder"),
+    preview: (preference: string) => ipcRenderer.invoke("theme:preview", preference),
+    clearPreview: () => ipcRenderer.invoke("theme:clearPreview"),
     onSystemChanged: (callback: (theme: "dark" | "light") => void) => {
       const listener = (_e: unknown, theme: "dark" | "light") => callback(theme);
       ipcRenderer.on("theme:systemChanged", listener);
@@ -31,6 +43,7 @@ const api = {
   },
   installs: {
     detectClients: () => ipcRenderer.invoke("installs:detectClients"),
+    detectAll: (txDataPath?: string | null) => ipcRenderer.invoke("installs:detectAll", txDataPath),
   },
   setup: {
     diagnostics: (
@@ -143,6 +156,7 @@ const api = {
   },
   app: {
     setDirtyCount: (count: number) => ipcRenderer.invoke("app:setDirtyCount", count),
+    setDiscordActivity: (context: { view: string; filePath: string | null }) => ipcRenderer.invoke("app:setDiscordActivity", context),
     checkForUpdate: () => ipcRenderer.invoke("app:checkForUpdate"),
     consumeWhatsNew: () => ipcRenderer.invoke("app:consumeWhatsNew"),
   },

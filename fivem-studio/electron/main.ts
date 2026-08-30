@@ -62,7 +62,7 @@ import {
 import { checkForAppUpdate } from "./appUpdate";
 import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
 import { RevertStore, type RevertMode } from "./revertStore";
-import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
+import { detectConventionalClientInstalls, detectConventionalExecutables } from "./clientInstallDiscovery";
 import { WorkspaceSearchService } from "./workspaceSearch";
 import { newestCrashReport } from "./crashTriage";
 import { loadWindowState, saveWindowState } from "./windowState";
@@ -74,6 +74,8 @@ import { BookmarkStore } from "./bookmarkStore";
 import { compareResources } from "./resourceCompare";
 import { duplicateResource } from "./resourceDuplicate";
 import { importResourceFolder } from "./resourceImport";
+import { DiscordPresence } from "./discordPresence";
+import { ThemePackStore, customThemeId, themeBaseForPreference } from "./themePacks";
 
 let mainWindow: BrowserWindow | null = null;
 let consoleWindow: BrowserWindow | null = null;
@@ -96,6 +98,10 @@ const luaLanguageServer = new LuaLanguageServerProcess();
 let revertStore: RevertStore | null = null;
 let workspaceSearch: WorkspaceSearchService | null = null;
 let bookmarkStore: BookmarkStore | null = null;
+let themePackStore: ThemePackStore | null = null;
+const discordPresence = new DiscordPresence();
+let consoleClearGeneration = 0;
+let previewThemePreference: ThemePreference | null = null;
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -311,9 +317,15 @@ function resolvedSystemTheme(): "dark" | "light" {
   return nativeTheme.shouldUseDarkColors ? "dark" : "light";
 }
 
+function requireThemePackStore(): ThemePackStore {
+  if (!themePackStore) throw new Error("Theme packs are not ready yet.");
+  return themePackStore;
+}
+
 function applyNativeTheme(theme: ThemePreference): void {
-  nativeTheme.themeSource = theme === "system" ? "system" : theme === "light" ? "light" : "dark";
-  const resolved = theme === "system" ? resolvedSystemTheme() : theme;
+  const base = themeBaseForPreference(theme, requireThemePackStore());
+  nativeTheme.themeSource = base === "system" ? "system" : base === "light" ? "light" : "dark";
+  const resolved = base === "system" ? resolvedSystemTheme() : base;
   mainWindow?.setBackgroundColor(resolved === "light" ? "#F7F5F2" : "#101317");
   consoleWindow?.setBackgroundColor(resolved === "light" ? "#F7F5F2" : "#101317");
 }
@@ -321,7 +333,8 @@ function applyNativeTheme(theme: ThemePreference): void {
 function createWindow() {
   const startupConfig = loadConfig();
   const configuredTheme = startupConfig.theme;
-  const windowTheme = configuredTheme === "system" ? resolvedSystemTheme() : configuredTheme;
+  const configuredBase = themeBaseForPreference(configuredTheme, requireThemePackStore());
+  const windowTheme = configuredBase === "system" ? resolvedSystemTheme() : configuredBase;
   const statePath = path.join(app.getPath("userData"), "window-state.json");
   const storedState = loadWindowState(statePath, screen.getAllDisplays().map((display) => display.workArea));
   mainWindow = new BrowserWindow({
@@ -442,7 +455,8 @@ function openConsoleWindow(): void {
     return;
   }
   const startupConfig = loadConfig();
-  const windowTheme = startupConfig.theme === "system" ? resolvedSystemTheme() : startupConfig.theme;
+  const configuredBase = themeBaseForPreference(startupConfig.theme, requireThemePackStore());
+  const windowTheme = configuredBase === "system" ? resolvedSystemTheme() : configuredBase;
   consoleWindow = new BrowserWindow({
     width: 980,
     height: 620,
@@ -513,11 +527,13 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   const startupConfig = loadConfig();
+  themePackStore = new ThemePackStore(path.join(app.getPath("userData"), "themes"));
   try { recordRecentWorkspace(recentWorkspacesPath(), startupConfig); } catch { /* non-critical app history */ }
   applyNativeTheme(startupConfig.theme);
   nativeTheme.on("updated", () => {
     const systemTheme = resolvedSystemTheme();
-    if (loadConfig().theme === "system") {
+    const activeTheme = previewThemePreference ?? loadConfig().theme;
+    if (themeBaseForPreference(activeTheme, requireThemePackStore()) === "system") {
       mainWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
       consoleWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
     }
@@ -544,6 +560,7 @@ app.whenReady().then(() => {
 
   registerIpcHandlers();
   createWindow();
+  discordPresence.update(startupConfig.discordPresenceEnabled, startupConfig.activeCfxTarget, app.getVersion());
 
   app.on("activate", () => {
     if (!mainWindow) createWindow();
@@ -557,13 +574,24 @@ app.on("window-all-closed", () => {
   windowEmbed.detach();
   stopManagedRuntime();
   luaLanguageServer.stop();
+  discordPresence.stop();
   if (process.platform !== "darwin") app.quit();
 });
+
+app.on("before-quit", () => discordPresence.stop());
 
 function registerIpcHandlers() {
   // --- config ---
   ipcMain.handle("config:get", () => loadConfig());
   ipcMain.handle("console:openPopout", () => openConsoleWindow());
+  ipcMain.handle("console:clearView", () => {
+    consoleClearGeneration += 1;
+    for (const window of [mainWindow, consoleWindow]) {
+      if (window && !window.isDestroyed()) window.webContents.send("console:clearViewChanged", consoleClearGeneration);
+    }
+    return consoleClearGeneration;
+  });
+  ipcMain.handle("console:clearGeneration", () => consoleClearGeneration);
   ipcMain.handle("console:setRefreshInterval", (_e, value: unknown) => {
     const interval = requireFiniteNumber(value, "Console refresh interval");
     if (![0, 1_000, 2_000, 5_000, 10_000, 30_000].includes(interval)) throw new Error("Unsupported console refresh interval.");
@@ -588,6 +616,10 @@ function registerIpcHandlers() {
       }
       if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
       if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
+      if (typeof candidate.theme === "string" && candidate.theme.startsWith("custom:")) {
+        const themeId = customThemeId(candidate.theme as ThemePreference);
+        if (!themeId || !requireThemePackStore().find(themeId)) throw new Error("Install that custom theme before saving it.");
+      }
       requireCfxTarget(candidate.activeCfxTarget);
       scopedClientExe(candidate.legacyFivemExePath, "legacy");
       scopedClientExe(candidate.enhancedFivemExePath, "enhanced");
@@ -597,13 +629,45 @@ function registerIpcHandlers() {
       scopedFxServerExe(candidate.enhancedFxServerExePath, "enhanced", txDataPath);
       scopedFxServerExe(candidate.redmFxServerExePath, "redm", txDataPath);
       const saved = saveConfig(config);
+      previewThemePreference = null;
       try { recordRecentWorkspace(recentWorkspacesPath(), saved); } catch { /* non-critical app history */ }
       applyNativeTheme(saved.theme);
+      discordPresence.update(saved.discordPresenceEnabled, saved.activeCfxTarget, app.getVersion());
       mainWindow?.webContents.setZoomFactor(saved.uiScale);
       return saved;
     }),
   );
   ipcMain.handle("theme:system", () => resolvedSystemTheme());
+  ipcMain.handle("theme:listPacks", () => requireThemePackStore().list());
+  ipcMain.handle("theme:preview", (_e, preferenceValue: unknown) => {
+    const preference = requireString(preferenceValue, "Theme preference", 64) as ThemePreference;
+    const id = customThemeId(preference);
+    if (!id && preference !== "system" && preference !== "dark" && preference !== "light" && preference !== "high-contrast") {
+      throw new Error("Unsupported theme preference.");
+    }
+    if (preference.startsWith("custom:") && (!id || !requireThemePackStore().find(id))) {
+      throw new Error("That custom theme is no longer installed.");
+    }
+    previewThemePreference = preference;
+    applyNativeTheme(preference);
+  });
+  ipcMain.handle("theme:clearPreview", () => {
+    previewThemePreference = null;
+    applyNativeTheme(loadConfig().theme);
+  });
+  ipcMain.handle("theme:importPack", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "QB Studio theme pack", extensions: ["json"] }],
+    });
+    if (result.canceled) return null;
+    return requireThemePackStore().import(result.filePaths[0]);
+  });
+  ipcMain.handle("theme:openPackFolder", async () => {
+    const directory = requireThemePackStore().directory();
+    fs.mkdirSync(directory, { recursive: true });
+    await shell.openPath(directory);
+  });
   ipcMain.handle("recents:list", () => listRecentWorkspaces(recentWorkspacesPath()));
   ipcMain.handle("recents:select", async (_e, idValue: unknown, allowDiscard: unknown) => {
     if (dirtyFileCount > 0 && allowDiscard !== true) throw new Error("Save or explicitly discard open editor changes before switching workspaces.");
@@ -631,6 +695,23 @@ function registerIpcHandlers() {
       : { legacy: null, enhanced: null, redm: null };
     for (const target of CFX_TARGETS) {
       if (detected[target]) pendingClientExePaths[target] = detected[target];
+    }
+    return detected;
+  });
+  ipcMain.handle("installs:detectAll", (_e, txDataValue: unknown) => {
+    const config = loadConfig();
+    const txDataPath = txDataValue === null || txDataValue === undefined || txDataValue === ""
+      ? config.txDataPath
+      : scopedTxDataPath(txDataValue);
+    const detected = detectConventionalExecutables({
+      localAppData: process.env.LOCALAPPDATA,
+      userProfile: process.env.USERPROFILE,
+      txDataPath,
+      artifactStatePaths: Object.fromEntries(CFX_TARGETS.map((target) => [target, artifactStatePath(target)])),
+    });
+    for (const target of CFX_TARGETS) {
+      if (detected.clients[target]) pendingClientExePaths[target] = detected.clients[target];
+      if (detected.servers[target]) pendingFxServerExePaths[target] = detected.servers[target];
     }
     return detected;
   });
@@ -1010,6 +1091,9 @@ function registerIpcHandlers() {
   ipcMain.handle("app:setDirtyCount", (_e, count: unknown) => {
     const valid = requireFiniteNumber(count, "Dirty file count");
     dirtyFileCount = Math.max(0, Math.min(10000, Math.floor(valid)));
+  });
+  ipcMain.handle("app:setDiscordActivity", (_e, context: unknown) => {
+    discordPresence.setContext(context);
   });
   ipcMain.handle("app:checkForUpdate", () => checkForAppUpdate(app.getVersion()));
   ipcMain.handle("app:consumeWhatsNew", () => {

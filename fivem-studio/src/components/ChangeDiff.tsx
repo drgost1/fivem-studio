@@ -1,8 +1,7 @@
 import { DiffEditor } from "@monaco-editor/react";
 
-import "../monacoSetup";
+import { ensureUserTheme } from "../monacoSetup";
 import type { ResolvedTheme } from "../global";
-import { monacoThemeName } from "../theme";
 
 interface ChangeDiffProps {
   id: string | number;
@@ -33,7 +32,7 @@ export default function ChangeDiff({
       language={language}
       originalModelPath={`${modelBase}/original.${language}`}
       modifiedModelPath={`${modelBase}/modified.${language}`}
-      theme={monacoThemeName(resolvedTheme)}
+      theme={ensureUserTheme(resolvedTheme)}
       options={{
         automaticLayout: true,
         readOnly: true,

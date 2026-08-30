@@ -13,6 +13,7 @@ import WhatsNewPanel from "./components/WhatsNewPanel";
 import BookmarksPanel from "./components/BookmarksPanel";
 import { t } from "./i18n";
 import { lastConsoleLines } from "./consoleText";
+import { activateTheme } from "./theme";
 import type {
   AppUpdateStatus,
   CfxTarget,
@@ -28,6 +29,8 @@ import type {
   RuntimeIdentity,
   RuntimeWorkspaceMatch,
   StudioConfig,
+  ThemePack,
+  ThemePreference,
   WhatsNewState,
 } from "./global";
 
@@ -50,6 +53,7 @@ export interface FileChangeReview {
 }
 
 type SidebarTab = "resources" | "search" | "bookmarks" | "github";
+type DiscordActivityView = "startup" | "viewport" | "console" | "resources" | "editor" | "review" | "assistant" | "setup" | "settings";
 
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
@@ -67,6 +71,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
+  discordPresenceEnabled: true,
   agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
@@ -105,6 +110,8 @@ function clientExeFor(config: StudioConfig, target: CfxTarget): string | null {
 export default function App() {
   const [config, setConfig] = useState<StudioConfig>(DEFAULT_CONFIG);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
+  const [themePacks, setThemePacks] = useState<ThemePack[]>([]);
+  const [themePreview, setThemePreview] = useState<ThemePreference | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -129,6 +136,7 @@ export default function App() {
   const latestConsoleOutput = useRef("");
   const [crashTriage, setCrashTriage] = useState<CrashTriageContext | null>(null);
   const [agentPrompt, setAgentPrompt] = useState<{ text: string; nonce: number } | null>(null);
+  const [assistantActive, setAssistantActive] = useState(false);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
@@ -188,13 +196,15 @@ export default function App() {
   resourceStatusScopeRef.current = resourceStatusScope;
 
   const connect = useCallback(async () => {
-    setConnectError(null);
     try {
       const result = await window.api.mcp.connect();
       setConnected(result.ok);
       setRuntimeIdentity(result.runtimeIdentity ?? null);
       setWorkspaceMatch(result.workspaceMatch ?? null);
-      if (!result.ok) setConnectError(result.error ?? "Could not connect");
+      // Keep the previous warning mounted during background retries. Clearing
+      // it before every attempt made the entire workspace jump every three
+      // seconds; a successful connection is the only truthful clear signal.
+      setConnectError(result.ok ? null : (result.error ?? "Could not connect"));
       return result.ok;
     } catch (err) {
       setConnected(false);
@@ -253,27 +263,49 @@ export default function App() {
     setConfig((current) => ({ ...current, consoleRefreshIntervalMs }));
   }), []);
 
+  const reloadThemePacks = useCallback(async () => {
+    const packs = await window.api.theme.listPacks();
+    setThemePacks(packs);
+    return packs;
+  }, []);
+
+  useEffect(() => {
+    void reloadThemePacks().catch(() => setThemePacks([]));
+  }, [reloadThemePacks]);
+
   useEffect(() => {
     let cancelled = false;
+    const preference = themePreview ?? config.theme;
     const applySystemTheme = (theme: "dark" | "light") => {
-      if (!cancelled && config.theme === "system") setResolvedTheme(theme);
+      if (!cancelled && preference === "system") setResolvedTheme(activateTheme(theme, themePacks));
     };
-    if (config.theme === "system") {
+    if (preference === "system") {
       void window.api.theme.system().then(applySystemTheme).catch(() => applySystemTheme("dark"));
     } else {
-      setResolvedTheme(config.theme);
+      setResolvedTheme(activateTheme(preference, themePacks));
     }
     const unsubscribe = window.api.theme.onSystemChanged(applySystemTheme);
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [config.theme]);
+  }, [config.theme, themePacks, themePreview]);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.documentElement.style.colorScheme = resolvedTheme === "light" ? "light" : "dark";
-  }, [resolvedTheme]);
+  const openSettings = useCallback(() => {
+    setThemePreview(null);
+    setSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setThemePreview(null);
+    setSettingsOpen(false);
+    void window.api.theme.clearPreview();
+  }, []);
+
+  const previewTheme = useCallback((preference: ThemePreference) => {
+    setThemePreview(preference);
+    void window.api.theme.preview(preference);
+  }, []);
 
   // This is intentionally notification-only. Installation remains an explicit
   // choice on the signed GitHub release page, and development builds skip the request.
@@ -540,6 +572,28 @@ export default function App() {
   useEffect(() => {
     window.api.app.setDirtyCount(openFiles.filter((f) => f.dirty).length);
   }, [openFiles]);
+
+  // Discord receives a deliberately small activity projection. The main
+  // process strips the path down to a bounded basename and derives language;
+  // no workspace, resource, editor content, or chat text crosses this bridge.
+  useEffect(() => {
+    if (!configLoaded) return;
+    let view: DiscordActivityView;
+    let filePath: string | null = null;
+    if (settingsOpen) {
+      view = !config.txDataPath || !config.selectedProfile ? "setup" : "settings";
+    } else if (assistantActive) {
+      view = "assistant";
+    } else if (centerTab === "editor") {
+      view = activePath && reviewPath === activePath && Boolean(changeReviews[activePath]) ? "review" : "editor";
+      filePath = activePath;
+    } else {
+      view = centerTab;
+    }
+    void window.api.app.setDiscordActivity({ view, filePath }).catch(() => {
+      // Presence is optional; editor/navigation behavior must never depend on it.
+    });
+  }, [activePath, assistantActive, centerTab, changeReviews, config.selectedProfile, config.txDataPath, configLoaded, reviewPath, settingsOpen]);
 
   useEffect(() => {
     const open = new Set(openFiles.map((file) => file.path));
@@ -1112,7 +1166,7 @@ export default function App() {
     id: "setup",
     tone: "warning",
     content: "Choose a local txData root and server-data workspace before coding.",
-    actions: <button className="btn small" onClick={() => setSettingsOpen(true)}>Open Settings</button>,
+    actions: <button className="btn small" onClick={openSettings}>Open Settings</button>,
   });
   if (!connected && connectError) statusItems.push({
     id: "connection",
@@ -1139,7 +1193,7 @@ export default function App() {
         connected={connected}
         runtimeIdentity={runtimeIdentity}
         workspaceMatch={workspaceMatch}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettings}
         onLaunchServer={launchServer}
         onStopServer={stopServer}
         onLaunchClient={launchCfxClient}
@@ -1327,6 +1381,7 @@ export default function App() {
               suggestedPrompt={agentPrompt}
               activePath={activePath}
               activeResourceName={activeResourceContext?.name ?? null}
+              onActivityChange={setAssistantActive}
             />
           </Panel>
         </Group>
@@ -1341,7 +1396,16 @@ export default function App() {
         </div>
       )}
 
-      {settingsOpen && <SettingsModal config={config} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          config={config}
+          themePacks={themePacks}
+          onThemePreview={previewTheme}
+          onReloadThemePacks={reloadThemePacks}
+          onSave={handleSaveSettings}
+          onClose={closeSettings}
+        />
+      )}
       {whatsNew && <WhatsNewPanel currentVersion={whatsNew.currentVersion} onClose={() => setWhatsNew(null)} />}
     </div>
   );

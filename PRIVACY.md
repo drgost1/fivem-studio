@@ -15,7 +15,9 @@ QBCore Framework does not operate a QB Studio cloud service or user database.
 QB Studio is a local development tool. Some features make network requests when
 the user invokes them or configures an external service. Stable builds also
 make one public GitHub release request at startup to provide a passive update
-notice, as described below.
+notice. Default-enabled Discord Rich Presence shares a deliberately narrow
+activity through the local Discord desktop client and can be disabled in
+Settings, as described below.
 
 ## Data stored on the device
 
@@ -62,6 +64,19 @@ policies of a provider selected by the user.
 
 ## Other network features
 
+- **Discord Rich Presence:** Enabled by default and disableable in Settings.
+  QB Studio connects to the locally running Discord desktop app without a bot,
+  OAuth login, token, or Discord credential. It supplies only the application
+  identity and version, the current app area, the broad active target (FiveM
+  Legacy, FiveM Enhanced, or RedM), and—while editing or reviewing—the active
+  file's basename and a language label derived from its extension. The basename
+  is visible to people who can view the user's Discord activity. QB Studio also
+  supplies fixed links to `qbcore.org` and its public latest-release page. It
+  never supplies full paths, workspace, profile, server or resource names, file
+  contents, source selections, console output, Git data, or AI chat contents.
+  Discord associates and distributes presence under the user's Discord account
+  and the [Discord Privacy Policy](https://discord.com/privacy). Disabling the
+  setting clears QB Studio's activity and closes its local Discord connection.
 - **QB Studio release check:** On startup, a stable build requests the latest
   public release metadata from the official GitHub repository. The request does
   not include project files, settings, or a persistent application identifier.

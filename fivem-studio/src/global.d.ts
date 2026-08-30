@@ -265,6 +265,34 @@ export interface RevertResult {
   skipped: RevertConflict[];
 }
 
+export type DetectedClientInstalls = Record<CfxTarget, string | null>;
+
+export interface SetupDiagnostics {
+  txDataRoot: boolean;
+  workspace: boolean;
+  serverExecutable: boolean;
+  clientExecutable: boolean;
+  txAdminAttachment: boolean;
+  rconCapability: boolean;
+  git: boolean;
+}
+
+export interface DevelopmentRconPreviewChange {
+  path: "server.cfg" | "secrets.cfg" | ".gitignore";
+  action: "create" | "update" | "unchanged";
+  description: "load-secret-file" | "write-redacted-password" | "ignore-secret-file";
+}
+
+export interface DevelopmentRconPreview {
+  hasExistingPassword: boolean;
+  changes: DevelopmentRconPreviewChange[];
+}
+
+export interface DevelopmentRconResult {
+  changedPaths: string[];
+  replacedExistingPassword: boolean;
+}
+
 // Mirrors electron/preload.ts's exposeInMainWorld("api", ...) shape.
 // Kept as a hand-written duplicate (not a cross-import from electron/)
 // since the renderer and electron main process are separate TS projects
@@ -279,6 +307,18 @@ declare global {
       theme: {
         system(): Promise<"dark" | "light">;
         onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
+      };
+      installs: {
+        detectClients(): Promise<DetectedClientInstalls>;
+      };
+      setup: {
+        diagnostics(
+          txDataPath: string | null,
+          profile: string | null,
+          target: CfxTarget,
+          clientPath: string | null,
+          serverPath: string | null,
+        ): Promise<SetupDiagnostics>;
       };
       revert: {
         list(): Promise<RevertBatchSummary[]>;
@@ -297,6 +337,8 @@ declare global {
         listProfiles(txDataPath: string): Promise<ProfileInfo[]>;
         resolveProfile(txDataPath: string, profile: string): Promise<ResolvedProfile>;
         createLocalWorkspace(txDataPath: string, name: string, port: number, target: CfxTarget): Promise<LocalWorkspace>;
+        previewDevelopmentRcon(txDataPath: string, profile: string): Promise<DevelopmentRconPreview>;
+        applyDevelopmentRcon(txDataPath: string, profile: string, allowOverwrite: boolean): Promise<DevelopmentRconResult>;
       };
       windowEmbed: {
         listCandidates(): Promise<WindowCandidate[]>;

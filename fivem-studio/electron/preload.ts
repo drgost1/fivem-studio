@@ -16,6 +16,18 @@ const api = {
       return () => ipcRenderer.removeListener("theme:systemChanged", listener);
     },
   },
+  installs: {
+    detectClients: () => ipcRenderer.invoke("installs:detectClients"),
+  },
+  setup: {
+    diagnostics: (
+      txDataPath: string | null,
+      profile: string | null,
+      target: "legacy" | "enhanced" | "redm",
+      clientPath: string | null,
+      serverPath: string | null,
+    ) => ipcRenderer.invoke("setup:diagnostics", txDataPath, profile, target, clientPath, serverPath),
+  },
   revert: {
     list: () => ipcRenderer.invoke("revert:list"),
     apply: (batchId: string, mode: "all" | "safe") => ipcRenderer.invoke("revert:apply", batchId, mode),
@@ -39,6 +51,10 @@ const api = {
     resolveProfile: (txDataPath: string, profile: string) => ipcRenderer.invoke("txdata:resolveProfile", txDataPath, profile),
     createLocalWorkspace: (txDataPath: string, name: string, port: number, target: "legacy" | "enhanced" | "redm") =>
       ipcRenderer.invoke("txdata:createLocalWorkspace", txDataPath, name, port, target),
+    previewDevelopmentRcon: (txDataPath: string, profile: string) =>
+      ipcRenderer.invoke("txdata:previewDevelopmentRcon", txDataPath, profile),
+    applyDevelopmentRcon: (txDataPath: string, profile: string, allowOverwrite: boolean) =>
+      ipcRenderer.invoke("txdata:applyDevelopmentRcon", txDataPath, profile, allowOverwrite),
   },
   windowEmbed: {
     listCandidates: () => ipcRenderer.invoke("windowEmbed:listCandidates"),

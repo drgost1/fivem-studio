@@ -4,8 +4,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { CfxTarget } from "./configStore";
+import { createTextFile, readTextFileSnapshot, writeTextFile, type FileSnapshot } from "./fsTree";
+import { resolveInsideRoot } from "./pathSafety";
 
 const MAX_WORKSPACE_NAME_LENGTH = 64;
 const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|clock\$)(?:\.|$)/i;
@@ -15,6 +17,22 @@ export interface LocalWorkspace {
   profileRoot: string;
   resourcesPath: string;
   serverCfgPath: string;
+}
+
+export interface DevelopmentRconPreviewChange {
+  path: "server.cfg" | "secrets.cfg" | ".gitignore";
+  action: "create" | "update" | "unchanged";
+  description: "load-secret-file" | "write-redacted-password" | "ignore-secret-file";
+}
+
+export interface DevelopmentRconPreview {
+  hasExistingPassword: boolean;
+  changes: DevelopmentRconPreviewChange[];
+}
+
+export interface DevelopmentRconResult {
+  changedPaths: string[];
+  replacedExistingPassword: boolean;
 }
 
 /** Normalize a user label into the conventional txData server-data `.base` folder name. */
@@ -85,6 +103,152 @@ function directoryEntryExists(target: string): boolean {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw err;
   }
+}
+
+const ACTIVE_RCON = /^\s*(?:set\s+)?rcon_password\s+.+$/i;
+const ACTIVE_SECRETS_EXEC = /^\s*exec\s+["']?secrets\.cfg["']?\s*(?:#.*)?$/i;
+const COMMENTED_SECRETS_EXEC = /^\s*#\s*exec\s+["']?secrets\.cfg["']?\s*$/i;
+
+function readOptionalSnapshot(filePath: string): FileSnapshot | null {
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${path.basename(filePath)} must be a regular file.`);
+    return readTextFileSnapshot(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function appendLine(content: string, line: string): string {
+  const trimmed = content.replace(/[\r\n]+$/, "");
+  return `${trimmed}${trimmed ? "\n" : ""}${line}\n`;
+}
+
+function rconWorkspaceFiles(profileRoot: string): {
+  serverPath: string;
+  secretsPath: string;
+  gitignorePath: string;
+  server: FileSnapshot;
+  secrets: FileSnapshot | null;
+  gitignore: FileSnapshot | null;
+} {
+  const rootStat = fs.lstatSync(profileRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("Workspace must be a real directory.");
+  const serverPath = resolveInsideRoot(profileRoot, "server.cfg");
+  const secretsPath = resolveInsideRoot(profileRoot, "secrets.cfg");
+  const gitignorePath = resolveInsideRoot(profileRoot, ".gitignore");
+  const server = readTextFileSnapshot(serverPath);
+  return {
+    serverPath,
+    secretsPath,
+    gitignorePath,
+    server,
+    secrets: readOptionalSnapshot(secretsPath),
+    gitignore: readOptionalSnapshot(gitignorePath),
+  };
+}
+
+export function previewDevelopmentRcon(profileRoot: string, hasExistingPassword: boolean): DevelopmentRconPreview {
+  const files = rconWorkspaceFiles(profileRoot);
+  const serverHasExec = files.server.content.split(/\r?\n/).some((line) => ACTIVE_SECRETS_EXEC.test(line));
+  const gitignoreHasSecrets = files.gitignore?.content.split(/\r?\n/).some((line) => line.trim().toLowerCase() === "secrets.cfg") ?? false;
+  return {
+    hasExistingPassword,
+    changes: [
+      {
+        path: ".gitignore",
+        action: files.gitignore ? (gitignoreHasSecrets ? "unchanged" : "update") : "create",
+        description: "ignore-secret-file",
+      },
+      {
+        path: "secrets.cfg",
+        action: files.secrets ? "update" : "create",
+        description: "write-redacted-password",
+      },
+      {
+        path: "server.cfg",
+        action: serverHasExec && !files.server.content.split(/\r?\n/).some((line) => ACTIVE_RCON.test(line)) ? "unchanged" : "update",
+        description: "load-secret-file",
+      },
+    ],
+  };
+}
+
+/** Generate and apply the credential entirely in the main process. Neither the
+ * actual password nor password-bearing file content is returned or captured in
+ * programmatic undo history. */
+export function applyDevelopmentRcon(
+  profileRoot: string,
+  hasExistingPassword: boolean,
+  allowOverwrite: boolean,
+): DevelopmentRconResult {
+  if (hasExistingPassword && !allowOverwrite) {
+    throw new Error("This workspace already has an RCON password. Explicit replacement confirmation is required.");
+  }
+  const files = rconWorkspaceFiles(profileRoot);
+  const password = randomBytes(32).toString("base64url");
+  const rconLine = `set rcon_password "${password}"`;
+
+  let gitignoreContent = files.gitignore?.content ?? "";
+  if (!gitignoreContent.split(/\r?\n/).some((line) => line.trim().toLowerCase() === "secrets.cfg")) {
+    gitignoreContent = appendLine(gitignoreContent, "secrets.cfg");
+  }
+
+  const secretLines = (files.secrets?.content ?? "").split(/\r?\n/);
+  const nextSecretLines: string[] = [];
+  let insertedRcon = false;
+  for (const line of secretLines) {
+    if (!ACTIVE_RCON.test(line)) {
+      nextSecretLines.push(line);
+      continue;
+    }
+    if (!insertedRcon) nextSecretLines.push(rconLine);
+    insertedRcon = true;
+  }
+  let secretsContent = nextSecretLines.join("\n").replace(/[\r\n]+$/, "");
+  if (!insertedRcon) secretsContent = appendLine(secretsContent, rconLine).replace(/\n$/, "");
+  secretsContent = `${secretsContent}\n`;
+
+  const serverLines: string[] = [];
+  let removedDirectRcon = false;
+  for (const line of files.server.content.split(/\r?\n/)) {
+    if (ACTIVE_SECRETS_EXEC.test(line) || COMMENTED_SECRETS_EXEC.test(line)) continue;
+    if (ACTIVE_RCON.test(line)) {
+      if (!removedDirectRcon) serverLines.push("# RCON credential is stored in secrets.cfg by QB Studio.");
+      removedDirectRcon = true;
+      continue;
+    }
+    serverLines.push(line);
+  }
+  const serverContent = appendLine(serverLines.join("\n"), "exec secrets.cfg");
+
+  // Preflight every participating path before writing the git protection,
+  // credential, and finally the exec directive in that order.
+  const latestServer = readTextFileSnapshot(files.serverPath);
+  if (latestServer.revision !== files.server.revision) throw new Error("server.cfg changed during the RCON preview. Review it again.");
+  for (const [filePath, snapshot] of [[files.gitignorePath, files.gitignore], [files.secretsPath, files.secrets]] as const) {
+    const current = readOptionalSnapshot(filePath);
+    if (current?.revision !== snapshot?.revision) throw new Error(`${path.basename(filePath)} changed during the RCON preview. Review it again.`);
+  }
+
+  const changedPaths: string[] = [];
+  if (gitignoreContent !== (files.gitignore?.content ?? "")) {
+    files.gitignore
+      ? writeTextFile(files.gitignorePath, gitignoreContent, files.gitignore.revision)
+      : createTextFile(files.gitignorePath, gitignoreContent);
+    changedPaths.push(".gitignore");
+  }
+  files.secrets
+    ? writeTextFile(files.secretsPath, secretsContent, files.secrets.revision)
+    : createTextFile(files.secretsPath, secretsContent);
+  changedPaths.push("secrets.cfg");
+  if (serverContent !== files.server.content) {
+    writeTextFile(files.serverPath, serverContent, files.server.revision);
+    changedPaths.push("server.cfg");
+  }
+
+  return { changedPaths, replacedExistingPassword: hasExistingPassword };
 }
 
 /**

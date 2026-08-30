@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
-import type { ArtifactStatus, CfxTarget, ProfileInfo, StudioConfig } from "../global";
+import type {
+  ArtifactStatus,
+  CfxTarget,
+  DetectedClientInstalls,
+  DevelopmentRconPreview,
+  ProfileInfo,
+  SetupDiagnostics,
+  StudioConfig,
+} from "../global";
 import { t } from "../i18n";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
+import SetupChecklist from "./SetupChecklist";
 
 interface SettingsModalProps {
   config: StudioConfig;
@@ -54,6 +63,11 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   const [artifactBusy, setArtifactBusy] = useState<"checking" | "updating" | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [artifactMessage, setArtifactMessage] = useState<string | null>(null);
+  const [detectedClients, setDetectedClients] = useState<DetectedClientInstalls>({ legacy: null, enhanced: null, redm: null });
+  const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
+  const [diagnosticsEpoch, setDiagnosticsEpoch] = useState(0);
+  const [rconPreview, setRconPreview] = useState<DevelopmentRconPreview | null>(null);
+  const [rconBusy, setRconBusy] = useState(false);
 
   /** Asks the endpoint what it actually serves, rather than making the user guess a model id. */
   async function loadModels() {
@@ -98,6 +112,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   const isAnthropic = draft.agentProvider === "anthropic";
   const activeTarget = draft.activeCfxTarget;
   const activeServerPath = serverExeFor(draft, activeTarget);
+  const activeClientPath = clientExeFor(draft, activeTarget);
   const savedActiveServerPath = serverExeFor(config, activeTarget);
   const artifactTrack = activeTarget === "enhanced"
     ? "recommended"
@@ -105,6 +120,48 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
       ? draft.redmArtifactTrack
       : draft.legacyArtifactTrack;
   const serverPathIsSaved = Boolean(activeServerPath && activeServerPath === savedActiveServerPath);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.api.installs.detectClients().then((found) => {
+      if (cancelled) return;
+      setDetectedClients(found);
+      setDraft((current) => ({
+        ...current,
+        legacyFivemExePath: current.legacyFivemExePath ?? found.legacy,
+        enhancedFivemExePath: current.enhancedFivemExePath ?? found.enhanced,
+        redmClientExePath: current.redmClientExePath ?? found.redm,
+      }));
+    }).catch(() => {
+      // Browse remains the complete fallback when conventional discovery fails.
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSetupDiagnostics(null);
+    window.api.setup.diagnostics(
+      draft.txDataPath,
+      draft.selectedProfile,
+      activeTarget,
+      activeClientPath,
+      activeServerPath,
+    ).then((result) => {
+      if (!cancelled) setSetupDiagnostics(result);
+    }).catch(() => {
+      if (!cancelled) setSetupDiagnostics({
+        txDataRoot: false,
+        workspace: false,
+        serverExecutable: false,
+        clientExecutable: false,
+        txAdminAttachment: false,
+        rconCapability: false,
+        git: false,
+      });
+    });
+    return () => { cancelled = true; };
+  }, [draft.txDataPath, draft.selectedProfile, activeTarget, activeClientPath, activeServerPath, diagnosticsEpoch]);
 
   /** Picking a provider fills in its endpoint and a starting model; both stay editable. */
   function applyPreset(id: string) {
@@ -219,7 +276,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     if (
       !confirm(
         `Install Cfx.re build ${artifactStatus.build} into ${target}?\n\n` +
-          "The local server must be stopped. Workbench will replace only the artifact folder, keep the previous folder as a backup, and never modify txData.",
+          "The local server must be stopped. QB Studio will replace only the artifact folder, keep the previous folder as a backup, and never modify txData.",
       )
     ) {
       return;
@@ -266,14 +323,54 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
       setProfiles(found);
       setProfilesError(null);
       setDraft((d) => ({ ...d, selectedProfile: created.name }));
-      setWorkspaceMessage(
-        `Created and selected ${created.name}. Save Settings, add secrets.cfg, attach this .base folder in txAdmin as Existing Server Data, start FXServer, then save Settings again to rescan.`,
-      );
+      setWorkspaceMessage(t("setup.workspace.created", { workspace: created.name }));
       setWorkspaceName("");
+      setDiagnosticsEpoch((epoch) => epoch + 1);
     } catch (err) {
       setSaveError((err as Error).message || "Could not create the local workspace.");
     } finally {
       setCreatingWorkspace(false);
+    }
+  }
+
+  function showWorkspaceControls() {
+    document.getElementById("local-workspace-settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function previewRconSetup() {
+    if (!draft.txDataPath || !draft.selectedProfile) {
+      setSaveError(t("setup.rcon.needWorkspace"));
+      showWorkspaceControls();
+      return;
+    }
+    setRconBusy(true);
+    setSaveError(null);
+    try {
+      setRconPreview(await window.api.txdata.previewDevelopmentRcon(draft.txDataPath, draft.selectedProfile));
+    } catch (error) {
+      setSaveError((error as Error).message || t("setup.rcon.needWorkspace"));
+    } finally {
+      setRconBusy(false);
+    }
+  }
+
+  async function applyRconSetup() {
+    if (!draft.txDataPath || !draft.selectedProfile || !rconPreview) return;
+    const allowOverwrite = rconPreview.hasExistingPassword
+      ? confirm(t("setup.rcon.confirmRotate"))
+      : false;
+    if (rconPreview.hasExistingPassword && !allowOverwrite) return;
+    setRconBusy(true);
+    setSaveError(null);
+    try {
+      await window.api.txdata.applyDevelopmentRcon(draft.txDataPath, draft.selectedProfile, allowOverwrite);
+      setRconPreview(null);
+      setWorkspaceMessage(t("setup.rcon.applied"));
+      setDiagnosticsEpoch((epoch) => epoch + 1);
+    } catch (error) {
+      setSaveError((error as Error).message || t("setup.rcon.applyError"));
+    } finally {
+      setRconBusy(false);
     }
   }
 
@@ -305,7 +402,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   }
 
   return (
-    <div className="modal-backdrop" onClick={() => artifactBusy === null && onClose()}>
+    <div className="modal-backdrop" onClick={() => artifactBusy === null && !rconBusy && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="settings-title">Settings</h3>
 
@@ -326,6 +423,59 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           <option value="high-contrast">{t("appearance.theme.highContrast")}</option>
         </select>
         <div className="field-hint">{t("appearance.themeHelp")}</div>
+
+        <SetupChecklist
+          diagnostics={setupDiagnostics}
+          targetLabel={cfxTargetLabel(activeTarget)}
+          actions={{
+            txDataRoot: () => void pickTxDataFolder(),
+            workspace: showWorkspaceControls,
+            serverExecutable: () => void pickFxServerExe(activeTarget),
+            clientExecutable: () => void pickExe(activeTarget),
+            txAdminAttachment: () => void window.api.shell.openExternal("https://docs.fivem.net/docs/server-manual/setting-up-a-server-txadmin/"),
+            rconCapability: () => void previewRconSetup(),
+            git: () => void window.api.shell.openExternal("https://git-scm.com/download/win"),
+          }}
+        />
+
+        {rconPreview && (
+          <section className="rcon-preview" aria-label={t("setup.rcon.previewTitle")}>
+            <strong>{t("setup.rcon.previewTitle")}</strong>
+            <div className="field-hint">{t("setup.rcon.previewHelp")}</div>
+            {rconPreview.hasExistingPassword && (
+              <div className="field-hint" style={{ color: "var(--yellow)" }}>{t("setup.rcon.existing")}</div>
+            )}
+            <div className="rcon-preview-list">
+              {rconPreview.changes.map((change) => (
+                <div className="rcon-preview-row" key={change.path}>
+                  <code>{change.path}</code>
+                  <span>
+                    {change.action === "create"
+                      ? t("setup.rcon.action.create")
+                      : change.action === "update"
+                        ? t("setup.rcon.action.update")
+                        : t("setup.rcon.action.unchanged")}
+                  </span>
+                  <span>
+                    {change.description === "load-secret-file"
+                      ? t("setup.rcon.change.load-secret-file")
+                      : change.description === "write-redacted-password"
+                        ? t("setup.rcon.change.write-redacted-password")
+                        : t("setup.rcon.change.ignore-secret-file")}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="rcon-preview-actions">
+              <button className="btn" type="button" onClick={() => setRconPreview(null)} disabled={rconBusy}>
+                {t("setup.rcon.cancel")}
+              </button>
+              <button className="btn primary" type="button" onClick={() => void applyRconSetup()} disabled={rconBusy}>
+                {rconBusy ? t("setup.rcon.applying") : t("setup.rcon.apply")}
+              </button>
+            </div>
+          </section>
+        )}
 
         <label className="field-label">txData root</label>
         <div className="field-row">
@@ -361,24 +511,15 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           )}
         </div>
 
-        <div className="settings-divider">Local workspace</div>
+        <div className="settings-divider" id="local-workspace-settings">Local workspace</div>
         <div className="setup-guide" role="note">
-          <strong>Required setup for local server tools</strong>
+          <strong>{t("setup.guide.title")}</strong>
           <ol>
-            <li>Create or select a server-data workspace below this txData root.</li>
-            <li>
-              Keep the <code>endpoint_add_tcp/udp</code> lines already in <code>server.cfg</code>; Workbench reads
-              their port and always sends RCON through loopback.
-            </li>
-            <li>
-              Add your license key and <code>set rcon_password "..."</code> to <code>server.cfg</code>, or put them
-              in a sibling <code>secrets.cfg</code> and add <code>exec secrets.cfg</code> to <code>server.cfg</code>.
-              The password is not stored in Settings.
-            </li>
-            <li>
-              In txAdmin choose <strong>Existing Server Data</strong>, attach this exact workspace, and start FXServer.
-            </li>
-            <li>Save Settings again after changing server.cfg or attaching txAdmin so Workbench rescans both.</li>
+            <li>{t("setup.guide.workspace")}</li>
+            <li>{t("setup.guide.endpoint")}</li>
+            <li>{t("setup.guide.rcon")}</li>
+            <li>{t("setup.guide.txAdmin")}</li>
+            <li>{t("setup.guide.rescan")}</li>
           </ol>
           <strong>No server resource or separate MCP process is required.</strong> {" "}
           <a
@@ -469,12 +610,15 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
                     Browse…
                   </button>
                 </div>
+                {clientPath && detectedClients[target] === clientPath && (
+                  <div className="field-hint artifact-success">{t("setup.detected")}</div>
+                )}
               </section>
             );
           })}
         </div>
         <div className="field-hint">
-          Server paths enable <strong>Start server</strong>; client paths enable <strong>Launch client</strong>. Workbench uses the selected
+          Server paths enable <strong>Start server</strong>; client paths enable <strong>Launch client</strong>. QB Studio uses the selected
           txData workspace for the active target and prevents different configured server artifacts from being started together.
         </div>
         {activeTarget === "redm" && (
@@ -527,10 +671,10 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
             <strong>Cfx.re {artifactStatus.track} build {artifactStatus.build}</strong>
             <span>
               {artifactStatus.installedBuild === null
-                ? "Installed build unknown (this installation has not yet been updated by Workbench)."
+                ? "Installed build unknown (this installation has not yet been updated by QB Studio)."
                 : artifactStatus.installedBuild === artifactStatus.build
                   ? "This managed build is installed."
-                  : `Workbench last installed build ${artifactStatus.installedBuild}.`}
+                  : `QB Studio last installed build ${artifactStatus.installedBuild}.`}
             </span>
             <span>
               {artifactStatus.archiveSize ? `${(artifactStatus.archiveSize / 1024 / 1024).toFixed(1)} MB` : "Size unavailable"}
@@ -773,10 +917,10 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         )}
 
         <div className="modal-actions">
-          <button className="btn" onClick={onClose} disabled={artifactBusy !== null}>
+          <button className="btn" onClick={onClose} disabled={artifactBusy !== null || rconBusy}>
             Cancel
           </button>
-          <button className="btn primary" onClick={save} disabled={busy || artifactBusy !== null}>
+          <button className="btn primary" onClick={save} disabled={busy || artifactBusy !== null || rconBusy}>
             {busy ? "Connecting…" : "Save & Connect"}
           </button>
         </div>

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } from "electron";
 import path from "node:path";
 import fs from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 import {
   loadConfig,
@@ -34,8 +34,18 @@ import * as windowEmbed from "./windowEmbed";
 import { setEditorContext, setOnFileWritten, setProjectRevertStore, type EditorContext } from "./projectTools";
 import { assertSafeBasename, contains, resolveInsideRoot } from "./pathSafety";
 import { resolveToolApproval } from "./toolApproval";
-import { createLocalWorkspace } from "./workspaceCreator";
-import { discoverTxAdminControlProfile, ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
+import {
+  applyDevelopmentRcon,
+  createLocalWorkspace,
+  previewDevelopmentRcon,
+} from "./workspaceCreator";
+import {
+  discoverTxAdminControlProfile,
+  ensureManagedRuntime,
+  loadLocalServerConfig,
+  parseLocalServerConfig,
+  stopManagedRuntime,
+} from "./managedRuntime";
 import { parseProviderUrl } from "./localUrl";
 import { OperationLock } from "./operationLock";
 import { LuaLanguageServerProcess, type JsonRpcMessage } from "./luaLanguageServer";
@@ -52,6 +62,7 @@ import {
 import { checkForAppUpdate } from "./appUpdate";
 import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
 import { RevertStore, type RevertMode } from "./revertStore";
+import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -100,6 +111,39 @@ function requireRevertStore(): RevertStore {
 function requireRevertMode(value: unknown): RevertMode {
   if (value !== "all" && value !== "safe") throw new Error("Undo mode must be 'all' or 'safe'.");
   return value;
+}
+
+function isRegularUnlinkedFile(filePath: string | null): boolean {
+  if (!filePath) return false;
+  try {
+    const stat = fs.lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function selectedProfileRoot(txDataValue: unknown, profileValue: unknown): { txDataPath: string; profileRoot: string } {
+  const txDataPath = scopedTxDataPath(txDataValue);
+  const profile = assertSafeBasename(requireString(profileValue, "Profile", 255));
+  const profileRoot = resolveInsideRoot(txDataPath, profile);
+  const stat = fs.lstatSync(profileRoot);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("The selected workspace must be a real directory.");
+  return { txDataPath, profileRoot };
+}
+
+function workspaceHasRconPassword(profileRoot: string): boolean {
+  try {
+    return Boolean(parseLocalServerConfig(loadLocalServerConfig(profileRoot)).rconPassword);
+  } catch {
+    // A missing include or endpoint should not hide a direct credential when
+    // deciding whether rotation needs explicit confirmation.
+    let visible = "";
+    for (const name of ["server.cfg", "secrets.cfg"]) {
+      try { visible += `\n${fs.readFileSync(resolveInsideRoot(profileRoot, name), "utf8")}`; } catch { /* absent/inaccessible */ }
+    }
+    return /^\s*(?:set\s+)?rcon_password\s+.+$/im.test(visible);
+  }
 }
 
 function requireJsonRpcMessage(value: unknown): JsonRpcMessage {
@@ -436,6 +480,65 @@ function registerIpcHandlers() {
   );
   ipcMain.handle("theme:system", () => resolvedSystemTheme());
 
+  // --- conventional local client discovery and setup diagnostics ---
+  ipcMain.handle("installs:detectClients", () => {
+    const localAppData = process.env.LOCALAPPDATA;
+    const detected = localAppData && path.isAbsolute(localAppData)
+      ? detectConventionalClientInstalls(localAppData)
+      : { legacy: null, enhanced: null, redm: null };
+    for (const target of CFX_TARGETS) {
+      if (detected[target]) pendingClientExePaths[target] = detected[target];
+    }
+    return detected;
+  });
+
+  ipcMain.handle(
+    "setup:diagnostics",
+    (_e, txDataValue: unknown, profileValue: unknown, targetValue: unknown, clientValue: unknown, serverValue: unknown) => {
+      const target = requireCfxTarget(targetValue);
+      let txDataRoot = false;
+      let workspace = false;
+      let txAdminAttachment = false;
+      let rconCapability = false;
+      let txDataPath: string | null = null;
+      let profileRoot: string | null = null;
+      try {
+        if (txDataValue) {
+          txDataPath = scopedTxDataPath(txDataValue);
+          const stat = fs.lstatSync(txDataPath);
+          txDataRoot = stat.isDirectory() && !stat.isSymbolicLink();
+        }
+        if (txDataRoot && profileValue) {
+          ({ profileRoot } = selectedProfileRoot(txDataPath, profileValue));
+          const resolved = resolveProfile(txDataPath!, path.basename(profileRoot));
+          workspace = Boolean(resolved.serverCfgPath && resolved.resourcesPath);
+        }
+        if (workspace && txDataPath && profileRoot) {
+          txAdminAttachment = discoverTxAdminControlProfile(txDataPath, profileRoot) !== null;
+          const parsed = parseLocalServerConfig(loadLocalServerConfig(profileRoot));
+          rconCapability = Boolean(parsed.rconPassword);
+        }
+      } catch {
+        // Individual false checks below are actionable; setup remains usable.
+      }
+
+      let clientExecutable = false;
+      let serverExecutable = false;
+      try { clientExecutable = isRegularUnlinkedFile(scopedClientExe(clientValue, target)); } catch { /* untrusted/stale draft */ }
+      try { serverExecutable = isRegularUnlinkedFile(scopedFxServerExe(serverValue, target, txDataPath)); } catch { /* untrusted/stale draft */ }
+      const git = (() => {
+        try {
+          const result = spawnSync("git", ["--version"], { shell: false, windowsHide: true, encoding: "utf8", timeout: 2_000 });
+          return result.status === 0 && /^git version\s+/i.test(result.stdout.trim());
+        } catch {
+          return false;
+        }
+      })();
+
+      return { txDataRoot, workspace, serverExecutable, clientExecutable, txAdminAttachment, rconCapability, git };
+    },
+  );
+
   // --- bounded programmatic-write undo history ---
   ipcMain.handle("revert:list", () => requireRevertStore().listBatches(activeResourcesRoot()));
   ipcMain.handle("revert:apply", (_e, batchId: unknown, mode: unknown) => {
@@ -494,6 +597,21 @@ function registerIpcHandlers() {
       requireFiniteNumber(port, "Local server port"),
       requireCfxTarget(target),
     ),
+  );
+  ipcMain.handle("txdata:previewDevelopmentRcon", (_e, txDataPath: unknown, profile: unknown) => {
+    const selected = selectedProfileRoot(txDataPath, profile);
+    return previewDevelopmentRcon(selected.profileRoot, workspaceHasRconPassword(selected.profileRoot));
+  });
+  ipcMain.handle("txdata:applyDevelopmentRcon", (_e, txDataPath: unknown, profile: unknown, allowOverwrite: unknown) =>
+    serverOperation.run("local RCON setup", async () => {
+      if (typeof allowOverwrite !== "boolean") throw new Error("RCON replacement confirmation must be a boolean.");
+      const selected = selectedProfileRoot(txDataPath, profile);
+      const hasExistingPassword = workspaceHasRconPassword(selected.profileRoot);
+      const result = applyDevelopmentRcon(selected.profileRoot, hasExistingPassword, allowOverwrite);
+      try { await mcpDisconnect(); } catch { /* the on-disk setup succeeded; a stale runtime is stopped below */ }
+      stopManagedRuntime();
+      return result;
+    }),
   );
 
   ipcMain.handle("dialog:chooseFolder", async () => {

@@ -16,6 +16,10 @@ const api = {
       return () => ipcRenderer.removeListener("theme:systemChanged", listener);
     },
   },
+  revert: {
+    list: () => ipcRenderer.invoke("revert:list"),
+    apply: (batchId: string, mode: "all" | "safe") => ipcRenderer.invoke("revert:apply", batchId, mode),
+  },
   fs: {
     listDir: (dirPath: string) => ipcRenderer.invoke("fs:listDir", dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke("fs:readFile", filePath),

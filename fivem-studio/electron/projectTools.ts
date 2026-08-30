@@ -13,6 +13,7 @@ import { loadConfig } from "./configStore";
 import { createTextFile, listDir, readTextFile, readTextFileSnapshot, writeTextFile, resolveProfile } from "./fsTree";
 import { ensureParentInsideRoot, resolveInsideRoot } from "./pathSafety";
 import type { McpToolDefinition } from "./mcpClient";
+import type { RevertStore } from "./revertStore";
 
 /** Far smaller than the editor's 2MB limit: a file that's merely slow to open
  *  in an editor will blow out a model's context window. */
@@ -139,9 +140,14 @@ export function previewProjectWrite(input: Record<string, unknown>): ProjectWrit
 
 /** Called after the agent writes, so the renderer can refresh a stale open buffer. */
 let onFileWritten: ((absolutePath: string) => void) | null = null;
+let revertStore: RevertStore | null = null;
 
 export function setOnFileWritten(callback: (absolutePath: string) => void): void {
   onFileWritten = callback;
+}
+
+export function setProjectRevertStore(store: RevertStore): void {
+  revertStore = store;
 }
 
 export const PROJECT_TOOL_NAMES = new Set([
@@ -274,11 +280,20 @@ export async function runProjectTool(name: string, input: Record<string, unknown
       if (expectedRevision !== "new" && fs.statSync(target).size > MAX_READ_BYTES) {
         throw new Error(`Agent file writes are limited to existing files of ${MAX_READ_BYTES} bytes or less.`);
       }
-      const revision = expectedRevision === "new"
-        ? createTextFile(target, content)
-        : writeTextFile(target, content, expectedRevision);
+      if (!revertStore) throw new Error("The bounded undo store is unavailable, so the agent write was refused.");
+      const prepared = revertStore.prepareBatch(root, `Agent edit: ${path.relative(root, target)}`, [{ filePath: target, nextContent: content }]);
+      let revision: string;
+      try {
+        revision = expectedRevision === "new"
+          ? createTextFile(target, content)
+          : writeTextFile(target, content, expectedRevision);
+      } catch (error) {
+        if (prepared) revertStore.discardBatch(root, prepared.id);
+        throw error;
+      }
       onFileWritten?.(target);
-      return `Wrote ${content.length} characters to ${path.relative(root, target)}. New revision: ${revision}`;
+      const undoNote = prepared ? ` Undo batch: ${prepared.id}` : " Undo was not stored because this file is credential-bearing.";
+      return `Wrote ${content.length} characters to ${path.relative(root, target)}. New revision: ${revision}.${undoNote}`;
     }
 
     case "search_project": {

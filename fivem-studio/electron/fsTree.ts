@@ -38,7 +38,7 @@ export interface FileSnapshot {
   revision: string;
 }
 
-function contentRevision(content: Buffer | string): string {
+export function contentRevision(content: Buffer | string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 

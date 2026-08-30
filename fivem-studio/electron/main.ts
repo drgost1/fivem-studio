@@ -31,7 +31,7 @@ import {
 } from "./mcpClient";
 import { fetchRepoInfo, searchGithubRepos, listGithubOrganizationRepos, cloneRepo } from "./githubClient";
 import * as windowEmbed from "./windowEmbed";
-import { setEditorContext, setOnFileWritten, type EditorContext } from "./projectTools";
+import { setEditorContext, setOnFileWritten, setProjectRevertStore, type EditorContext } from "./projectTools";
 import { assertSafeBasename, contains, resolveInsideRoot } from "./pathSafety";
 import { resolveToolApproval } from "./toolApproval";
 import { createLocalWorkspace } from "./workspaceCreator";
@@ -51,6 +51,7 @@ import {
 } from "./serverArtifacts";
 import { checkForAppUpdate } from "./appUpdate";
 import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
+import { RevertStore, type RevertMode } from "./revertStore";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -69,6 +70,7 @@ const pendingFxServerExePaths: Record<CfxTarget, string | null> = { legacy: null
 let artifactRecoveryNotice: string | null = null;
 const serverOperation = new OperationLock();
 const luaLanguageServer = new LuaLanguageServerProcess();
+let revertStore: RevertStore | null = null;
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -87,6 +89,16 @@ function requireString(value: unknown, label: string, maxLength = 32767): string
 
 function requireFiniteNumber(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} must be a finite number.`);
+  return value;
+}
+
+function requireRevertStore(): RevertStore {
+  if (!revertStore) throw new Error("Undo history is not ready yet.");
+  return revertStore;
+}
+
+function requireRevertMode(value: unknown): RevertMode {
+  if (value !== "all" && value !== "safe") throw new Error("Undo mode must be 'all' or 'safe'.");
   return value;
 }
 
@@ -370,6 +382,9 @@ app.whenReady().then(() => {
   }
   artifactRecoveryNotice = recoveryNotices.length > 0 ? recoveryNotices.join(" ") : null;
 
+  revertStore = new RevertStore(path.join(app.getPath("userData"), "revert-store"));
+  setProjectRevertStore(revertStore);
+
   registerIpcHandlers();
   createWindow();
 
@@ -420,6 +435,21 @@ function registerIpcHandlers() {
     }),
   );
   ipcMain.handle("theme:system", () => resolvedSystemTheme());
+
+  // --- bounded programmatic-write undo history ---
+  ipcMain.handle("revert:list", () => requireRevertStore().listBatches(activeResourcesRoot()));
+  ipcMain.handle("revert:apply", (_e, batchId: unknown, mode: unknown) => {
+    const result = requireRevertStore().revertBatch(
+      activeResourcesRoot(),
+      requireString(batchId, "Undo batch id", 128),
+      requireRevertMode(mode),
+    );
+    for (const relativePath of result.reverted) {
+      const absolutePath = resolveInsideRoot(activeResourcesRoot(), relativePath);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:fileWritten", absolutePath);
+    }
+    return result;
+  });
 
   // --- filesystem / resource tree ---
   ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listProfileDirectory(dirPath));

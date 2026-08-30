@@ -245,6 +245,26 @@ export interface ArtifactUpdateResult extends ArtifactStatus {
   warning?: string;
 }
 
+export interface RevertBatchSummary {
+  id: string;
+  label: string;
+  createdAt: string;
+  fileCount: number;
+  totalBytes: number;
+}
+
+export interface RevertConflict {
+  path: string;
+  reason: string;
+}
+
+export interface RevertResult {
+  batchId: string;
+  status: "reverted" | "partial" | "conflict" | "not-found";
+  reverted: string[];
+  skipped: RevertConflict[];
+}
+
 // Mirrors electron/preload.ts's exposeInMainWorld("api", ...) shape.
 // Kept as a hand-written duplicate (not a cross-import from electron/)
 // since the renderer and electron main process are separate TS projects
@@ -259,6 +279,10 @@ declare global {
       theme: {
         system(): Promise<"dark" | "light">;
         onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
+      };
+      revert: {
+        list(): Promise<RevertBatchSummary[]>;
+        apply(batchId: string, mode: "all" | "safe"): Promise<RevertResult>;
       };
       fs: {
         listDir(dirPath: string): Promise<DirEntry[]>;

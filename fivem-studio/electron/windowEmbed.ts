@@ -214,7 +214,15 @@ function withTargetDpiAwareness<T>(hwnd: bigint, fn: () => T): T {
   }
 }
 
-let attached: { hwnd: bigint; pid: number; originalStyle: number; wasVisible: boolean } | null = null;
+interface AttachedWindow {
+  hwnd: bigint;
+  pid: number;
+  originalStyle: number;
+  wasVisible: boolean;
+  lastRect: { x: number; y: number; width: number; height: number } | null;
+}
+
+let attached: AttachedWindow | null = null;
 
 function attachedWindowStillOwned(value: NonNullable<typeof attached>): boolean {
   if (!IsWindow(value.hwnd)) return false;
@@ -269,7 +277,7 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
     SetParent(hwnd, parentHandle);
     withTargetDpiAwareness(hwnd, () => SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE));
 
-    attached = { hwnd, pid: current.candidate.pid, originalStyle, wasVisible: false };
+    attached = { hwnd, pid: current.candidate.pid, originalStyle, wasVisible: false, lastRect: null };
     return { ok: true };
   } catch (err) {
     attached = null;
@@ -288,11 +296,34 @@ export function setRect(x: number, y: number, width: number, height: number, vis
     attached.wasVisible = false;
     return;
   }
+  const nextRect = {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
   const risingEdge = !attached.wasVisible; // covers both the initial attach and switching back into the tab after hiding
-  withTargetDpiAwareness(attached.hwnd, () =>
-    SetWindowPos(attached!.hwnd, null, Math.round(x), Math.round(y), Math.round(width), Math.round(height), SWP_NOZORDER | SWP_NOACTIVATE),
-  );
-  ShowWindow(attached.hwnd, SW_SHOWNOACTIVATE);
+  const rectChanged =
+    !attached.lastRect ||
+    attached.lastRect.x !== nextRect.x ||
+    attached.lastRect.y !== nextRect.y ||
+    attached.lastRect.width !== nextRect.width ||
+    attached.lastRect.height !== nextRect.height;
+  if (rectChanged) {
+    withTargetDpiAwareness(attached.hwnd, () =>
+      SetWindowPos(
+        attached!.hwnd,
+        null,
+        nextRect.x,
+        nextRect.y,
+        nextRect.width,
+        nextRect.height,
+        SWP_NOZORDER | SWP_NOACTIVATE,
+      ),
+    );
+    attached.lastRect = nextRect;
+  }
+  if (risingEdge) ShowWindow(attached.hwnd, SW_SHOWNOACTIVATE);
   attached.wasVisible = true;
   if (risingEdge) focusEmbeddedWindow(attached.hwnd);
 }

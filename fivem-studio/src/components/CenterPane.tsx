@@ -625,23 +625,43 @@ function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
 function EmbedSurface({ active }: { active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keep the native window positioned over this div (or hidden, when this tab isn't the visible
-  // one) every animation frame. The measured div itself carries no border/padding — decoration
-  // lives on the wrapper around it — so nothing in the CSS box model can skew the physical rect.
+  // Measure only when layout can actually change. The old perpetual rAF loop sent 60 IPC calls
+  // and repeated SetWindowPos/ShowWindow every second even for a completely static viewport.
+  // ResizeObserver covers panel/layout changes; the window event covers DPI and host resizing.
   useEffect(() => {
-    let raf: number;
-    const tick = () => {
-      if (active && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        window.api.windowEmbed.setRect(rect.x * dpr, rect.y * dpr, rect.width * dpr, rect.height * dpr, true);
-      } else {
-        window.api.windowEmbed.setRect(0, 0, 0, 0, false);
-      }
-      raf = requestAnimationFrame(tick);
+    if (!active || !containerRef.current) {
+      void window.api.windowEmbed.setRect(0, 0, 0, 0, false);
+      return;
+    }
+
+    const container = containerRef.current;
+    let frame: number | null = null;
+    let lastMeasurement = "";
+    const measure = () => {
+      frame = null;
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const values = [rect.x, rect.y, rect.width, rect.height].map((value) => Math.round(value * dpr));
+      const measurement = values.join(":");
+      if (measurement === lastMeasurement) return;
+      lastMeasurement = measurement;
+      void window.api.windowEmbed.setRect(values[0], values[1], values[2], values[3], true);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const scheduleMeasure = () => {
+      if (frame === null) frame = requestAnimationFrame(measure);
+    };
+
+    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    resizeObserver.observe(container);
+    window.addEventListener("resize", scheduleMeasure);
+    scheduleMeasure();
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      if (frame !== null) cancelAnimationFrame(frame);
+      void window.api.windowEmbed.setRect(0, 0, 0, 0, false);
+    };
   }, [active]);
 
   // Safety net — the authoritative cleanup is main.ts's window-all-closed handler,

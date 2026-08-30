@@ -264,7 +264,7 @@ features.
 
 ## Build from source
 
-Requires Node.js 22 and Windows:
+Requires Node.js 24 LTS and Windows:
 
 ```powershell
 npm ci

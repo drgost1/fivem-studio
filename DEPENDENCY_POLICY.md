@@ -3,7 +3,7 @@
 Last reviewed: August 29, 2026
 
 QB Studio targets current stable releases that support its Windows x64,
-Electron, and Node.js 22 runtime. The committed `package-lock.json` is the
+Electron, and Node.js 24 LTS runtime. The committed `package-lock.json` is the
 source of truth for reproducible installs. A newer version is not adopted when
 it drops a required platform, is prerelease-only, or fails the repository's
 security, behavior, packaging, or performance checks.
@@ -14,6 +14,11 @@ Dependabot checks npm packages and GitHub Actions every week. Compatible minor
 and patch npm updates are grouped to keep review noise manageable; major
 updates remain separate so migrations and resource impact are visible. Updates
 are never auto-merged.
+
+The direct `@types/node` major stays aligned with the supported Node.js runtime
+major. Dependabot does not propose a newer typings major independently; a Node
+major upgrade is reviewed as an explicit runtime, CI, typings, and documentation
+migration.
 
 Every dependency change must pass on Windows:
 

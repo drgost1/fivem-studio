@@ -71,6 +71,72 @@ export function getEditorContext(): EditorContext {
   return editorContext;
 }
 
+export interface ProjectWritePreview {
+  path: string;
+  originalContent: string;
+  modifiedContent: string;
+  originalLabel: string;
+  modifiedLabel: string;
+  warning?: string;
+}
+
+/**
+ * Builds the approval diff from the same contained project path and revision
+ * rules used by the eventual write. This is a snapshot only: the atomic write
+ * still rechecks the revision after approval to close the TOCTOU window.
+ */
+export function buildProjectWritePreview(root: string, input: Record<string, unknown>): ProjectWritePreview {
+  const requestedPath = String(input.path ?? "");
+  const target = resolveInsideRoot(root, requestedPath);
+  const content = String(input.content ?? "");
+  if (Buffer.byteLength(content, "utf8") > MAX_READ_BYTES) {
+    throw new Error(`Agent file writes are limited to ${MAX_READ_BYTES} bytes.`);
+  }
+  const expectedRevision = String(input.expected_revision ?? "");
+  const relativePath = path.relative(root, target);
+  if (!relativePath) throw new Error("The project root is a directory, not a writable file.");
+
+  if (!fs.existsSync(target)) {
+    return {
+      path: relativePath,
+      originalContent: "",
+      modifiedContent: content,
+      originalLabel: "New file (currently absent)",
+      modifiedLabel: "Proposed agent version",
+      warning: expectedRevision === "new" ? undefined : "The file is missing, so this revision-based write will be refused.",
+    };
+  }
+
+  const stat = fs.statSync(target);
+  if (!stat.isFile()) throw new Error("The proposed write target is not a regular file.");
+  if (stat.size > MAX_READ_BYTES) {
+    throw new Error(`Agent file writes are limited to existing files of ${MAX_READ_BYTES} bytes or less.`);
+  }
+  const snapshot = readTextFileSnapshot(target);
+  let warning: string | undefined;
+  if (expectedRevision === "new") {
+    warning = "The file already exists, so this create-only write will be refused.";
+  } else if (!REVISION_PATTERN.test(expectedRevision)) {
+    warning = "The proposed write does not contain a valid source revision and will be refused.";
+  } else if (expectedRevision !== snapshot.revision) {
+    warning = "The file changed after the agent read it; approval will not bypass the revision conflict.";
+  }
+  return {
+    path: relativePath,
+    originalContent: snapshot.content,
+    modifiedContent: content,
+    originalLabel: "Current version on disk",
+    modifiedLabel: "Proposed agent version",
+    warning,
+  };
+}
+
+export function previewProjectWrite(input: Record<string, unknown>): ProjectWritePreview {
+  const root = projectRoot();
+  if (!root) throw new Error("Choose a project workspace before reviewing this write.");
+  return buildProjectWritePreview(root, input);
+}
+
 /** Called after the agent writes, so the renderer can refresh a stale open buffer. */
 let onFileWritten: ((absolutePath: string) => void) | null = null;
 

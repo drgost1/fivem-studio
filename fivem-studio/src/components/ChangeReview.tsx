@@ -1,8 +1,6 @@
-import { DiffEditor } from "@monaco-editor/react";
-
-import "../monacoSetup";
 import type { FileChangeReview } from "../App";
 import type { EditorPreferences } from "../global";
+import ChangeDiff from "./ChangeDiff";
 
 interface ChangeReviewProps {
   review: FileChangeReview;
@@ -23,7 +21,6 @@ export default function ChangeReview({
   onUseDisk,
   onSaveEditor,
 }: ChangeReviewProps) {
-  const modelBase = `qb-studio-diff://review/${review.id}`;
   return (
     <section className="change-review" aria-label={`Change review for ${review.path}`}>
       <header className="change-review-header">
@@ -48,27 +45,13 @@ export default function ChangeReview({
         <span>{review.modifiedLabel}</span>
       </div>
       <div className="change-review-editor">
-        <DiffEditor
+        <ChangeDiff
+          id={review.id}
           original={review.originalContent}
           modified={review.modifiedContent}
           language={language}
-          originalModelPath={`${modelBase}/original.${language}`}
-          modifiedModelPath={`${modelBase}/modified.${language}`}
-          theme="vs-dark"
-          options={{
-            automaticLayout: true,
-            readOnly: true,
-            originalEditable: false,
-            renderSideBySide: true,
-            enableSplitViewResizing: true,
-            minimap: { enabled: false },
-            fontSize: preferences.fontSize,
-            wordWrap: preferences.wordWrap ? "on" : "off",
-            renderIndicators: true,
-            renderOverviewRuler: true,
-            maxComputationTime: 3_000,
-            smoothScrolling: true,
-          }}
+          fontSize={preferences.fontSize}
+          wordWrap={preferences.wordWrap}
         />
       </div>
     </section>

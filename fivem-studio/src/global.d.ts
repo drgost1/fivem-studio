@@ -122,11 +122,22 @@ export type AgentEvent =
       input: unknown;
       risk: "write" | "dangerous";
       summary: string;
+      filePreview?: AgentFilePreview;
+      previewError?: string;
     }
   | { type: "approval_resolved"; approvalId: string; approved: boolean; reason?: string }
   | { type: "usage"; usage: TurnUsage }
   | { type: "done" }
   | { type: "error"; message: string };
+
+export interface AgentFilePreview {
+  path: string;
+  originalContent: string;
+  modifiedContent: string;
+  originalLabel: string;
+  modifiedLabel: string;
+  warning?: string;
+}
 
 export interface WindowCandidate {
   id: string;

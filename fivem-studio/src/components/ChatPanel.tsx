@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import type { AgentEvent, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { languageForPath } from "../editorLanguage";
+import type { AgentEvent, AgentFilePreview, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
 import { matchPreset } from "../providerPresets";
+
+const ChangeDiff = lazy(() => import("./ChangeDiff"));
 
 /**
  * A transcript entry. Tool calls get their own entries rather than being folded
@@ -23,6 +26,8 @@ type Entry =
       approvalSummary?: string;
       approvalStatus?: "pending" | "responding" | "approved" | "denied";
       approvalReason?: string;
+      approvalPreview?: AgentFilePreview;
+      approvalPreviewError?: string;
     }
   | { kind: "error"; text: string };
 
@@ -162,6 +167,8 @@ export default function ChatPanel({ connected, config, workspaceMatch, selection
                 approvalRisk: event.risk,
                 approvalSummary: event.summary,
                 approvalStatus: "pending",
+                approvalPreview: event.filePreview,
+                approvalPreviewError: event.previewError,
               }
             : entry,
         );
@@ -280,10 +287,37 @@ export default function ChatPanel({ connected, config, workspaceMatch, selection
                       <strong>{entry.approvalRisk === "dangerous" ? "Dangerous action" : "Review change"}</strong>
                       <span>{entry.approvalSummary}</span>
                     </div>
-                    <details>
-                      <summary>Inspect arguments</summary>
-                      <pre>{JSON.stringify(entry.input, null, 2)}</pre>
-                    </details>
+                    {entry.approvalPreview ? (
+                      <div className="approval-change-preview">
+                        <div className="approval-change-path">{entry.approvalPreview.path}</div>
+                        {entry.approvalPreview.warning && (
+                          <div className="approval-preview-warning" role="alert">{entry.approvalPreview.warning}</div>
+                        )}
+                        <div className="approval-change-labels" aria-hidden="true">
+                          <span>{entry.approvalPreview.originalLabel}</span>
+                          <span>{entry.approvalPreview.modifiedLabel}</span>
+                        </div>
+                        <div className="approval-change-diff">
+                          <Suspense fallback={<div className="approval-preview-loading">Loading proposed change…</div>}>
+                            <ChangeDiff
+                              id={entry.approvalId}
+                              original={entry.approvalPreview.originalContent}
+                              modified={entry.approvalPreview.modifiedContent}
+                              language={languageForPath(entry.approvalPreview.path)}
+                              fontSize={config.editor.fontSize}
+                              wordWrap={config.editor.wordWrap}
+                              compact
+                            />
+                          </Suspense>
+                        </div>
+                      </div>
+                    ) : (
+                      <details>
+                        <summary>{entry.approvalPreviewError ? "Preview unavailable — inspect arguments" : "Inspect arguments"}</summary>
+                        {entry.approvalPreviewError && <div className="approval-preview-warning">{entry.approvalPreviewError}</div>}
+                        <pre>{JSON.stringify(entry.input, null, 2)}</pre>
+                      </details>
+                    )}
                     {entry.approvalStatus === "pending" ? (
                       <div className="tool-approval-actions">
                         <button className="btn small primary" onClick={() => void respondToApproval(entry.approvalId!, true)}>

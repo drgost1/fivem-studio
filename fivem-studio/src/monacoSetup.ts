@@ -59,6 +59,8 @@ import "monaco-editor/features/wordPartOperations/register";
 import "monaco-editor/languages/definitions/ini/register";
 import "monaco-editor/languages/definitions/lua/register";
 import "monaco-editor/languages/definitions/markdown/register";
+import "monaco-editor/languages/definitions/sql/register";
+import "monaco-editor/languages/definitions/xml/register";
 import "monaco-editor/languages/definitions/yaml/register";
 import "monaco-editor/languages/definitions/css/register";
 import "monaco-editor/languages/definitions/html/register";

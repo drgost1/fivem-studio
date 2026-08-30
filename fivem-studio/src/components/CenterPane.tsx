@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileChangeReview, OpenFile } from "../App";
+import { languageForPath } from "../editorLanguage";
 import type { EditorPreferences, EditorProblem, WindowCandidate } from "../global";
 import type { LuaServiceStatus } from "../luaLanguageService";
 
@@ -7,36 +8,6 @@ export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
 const CodeEditor = lazy(() => import("./CodeEditor"));
 const ChangeReview = lazy(() => import("./ChangeReview"));
-
-function languageForPath(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "lua":
-      return "lua";
-    case "json":
-      return "json";
-    case "js":
-    case "cjs":
-    case "mjs":
-      return "javascript";
-    case "ts":
-    case "tsx":
-      return "typescript";
-    case "md":
-      return "markdown";
-    case "yml":
-    case "yaml":
-      return "yaml";
-    case "html":
-      return "html";
-    case "css":
-      return "css";
-    case "cfg":
-      return "ini";
-    default:
-      return "plaintext";
-  }
-}
 
 /**
  * Tab labels, disambiguated by parent folder when bare filenames collide — near-universal

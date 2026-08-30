@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { previewProjectWrite, type ProjectWritePreview } from "./projectTools";
 
 export type ToolRisk = "write" | "dangerous";
 
@@ -10,6 +11,8 @@ export interface ToolApprovalRequestEvent {
   input: unknown;
   risk: ToolRisk;
   summary: string;
+  filePreview?: ProjectWritePreview;
+  previewError?: string;
 }
 
 export interface ToolApprovalResolvedEvent {
@@ -66,6 +69,15 @@ export async function requestToolApproval(
 
   const approvalId = randomUUID();
   const summary = summarize(name, input);
+  let filePreview: ProjectWritePreview | undefined;
+  let previewError: string | undefined;
+  if (name === "write_project_file") {
+    try {
+      filePreview = previewProjectWrite(input);
+    } catch (error) {
+      previewError = (error as Error).message || "The proposed file change could not be previewed.";
+    }
+  }
 
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => {
@@ -82,7 +94,7 @@ export async function requestToolApproval(
     }, APPROVAL_TIMEOUT_MS);
 
     pending.set(approvalId, { emit, resolve, timer });
-    emit({ type: "approval_request", approvalId, toolCallId, name, input, risk, summary });
+    emit({ type: "approval_request", approvalId, toolCallId, name, input, risk, summary, filePreview, previewError });
   });
 }
 

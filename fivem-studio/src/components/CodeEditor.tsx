@@ -5,13 +5,15 @@ import * as monaco from "monaco-editor/editor";
 import "../monacoSetup";
 import { notifyLuaDocumentSaved, useLuaLanguageService, type LuaServiceStatus } from "../luaLanguageService";
 import type { OpenFile } from "../App";
-import type { EditorPreferences, EditorProblem } from "../global";
+import type { EditorPreferences, EditorProblem, ResolvedTheme } from "../global";
+import { monacoThemeName } from "../theme";
 
 interface CodeEditorProps {
   file: OpenFile;
   openPaths: string[];
   language: string;
   preferences: EditorPreferences;
+  resolvedTheme: ResolvedTheme;
   luaActive: boolean;
   reveal: { path: string; line: number; column: number; nonce: number } | null;
   onChange: (path: string, content: string) => void;
@@ -35,6 +37,7 @@ export default function CodeEditor({
   openPaths,
   language,
   preferences,
+  resolvedTheme,
   luaActive,
   reveal,
   onChange,
@@ -94,6 +97,7 @@ export default function CodeEditor({
     automaticLayout: true,
     bracketPairColorization: { enabled: true },
     guides: { bracketPairs: true, indentation: true },
+    "semanticHighlighting.enabled": true,
     renderWhitespace: "selection" as const,
     smoothScrolling: true,
   }), [preferences]);
@@ -152,7 +156,7 @@ export default function CodeEditor({
       path={editorPath}
       language={language}
       value={file.content}
-      theme="vs-dark"
+      theme={monacoThemeName(resolvedTheme)}
       keepCurrentModel
       onChange={handleChange}
       onMount={(editor, monaco) => {

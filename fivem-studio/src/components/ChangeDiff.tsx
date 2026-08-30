@@ -1,6 +1,8 @@
 import { DiffEditor } from "@monaco-editor/react";
 
 import "../monacoSetup";
+import type { ResolvedTheme } from "../global";
+import { monacoThemeName } from "../theme";
 
 interface ChangeDiffProps {
   id: string | number;
@@ -9,6 +11,7 @@ interface ChangeDiffProps {
   language: string;
   fontSize: number;
   wordWrap: boolean;
+  resolvedTheme: ResolvedTheme;
   compact?: boolean;
 }
 
@@ -19,6 +22,7 @@ export default function ChangeDiff({
   language,
   fontSize,
   wordWrap,
+  resolvedTheme,
   compact = false,
 }: ChangeDiffProps) {
   const modelBase = `qb-studio-diff://review/${encodeURIComponent(String(id))}`;
@@ -29,7 +33,7 @@ export default function ChangeDiff({
       language={language}
       originalModelPath={`${modelBase}/original.${language}`}
       modifiedModelPath={`${modelBase}/modified.${language}`}
-      theme="vs-dark"
+      theme={monacoThemeName(resolvedTheme)}
       options={{
         automaticLayout: true,
         readOnly: true,

@@ -22,6 +22,14 @@ test("v1.1.5 active edition migrates to the matching Cfx target", () => {
   assert.equal(migrated.activeCfxTarget, "enhanced");
 });
 
+test("theme preferences migrate to system and accept every supported explicit theme", () => {
+  assert.equal(normalizeConfig({}).theme, "system");
+  for (const theme of ["system", "dark", "light", "high-contrast"] as const) {
+    assert.equal(normalizeConfig({ theme }).theme, theme);
+  }
+  assert.equal(normalizeConfig({ theme: "neon" }).theme, "system");
+});
+
 test("explicit FiveM and RedM paths remain separate", () => {
   const legacyServer = path.resolve("legacy", "FXServer.exe");
   const enhancedServer = path.resolve("enhanced", "cfx-server.exe");

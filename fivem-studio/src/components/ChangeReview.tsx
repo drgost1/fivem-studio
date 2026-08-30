@@ -1,11 +1,12 @@
 import type { FileChangeReview } from "../App";
-import type { EditorPreferences } from "../global";
+import type { EditorPreferences, ResolvedTheme } from "../global";
 import ChangeDiff from "./ChangeDiff";
 
 interface ChangeReviewProps {
   review: FileChangeReview;
   language: string;
   preferences: EditorPreferences;
+  resolvedTheme: ResolvedTheme;
   onBack: () => void;
   onDismiss: () => void;
   onUseDisk: () => void;
@@ -16,6 +17,7 @@ export default function ChangeReview({
   review,
   language,
   preferences,
+  resolvedTheme,
   onBack,
   onDismiss,
   onUseDisk,
@@ -52,6 +54,7 @@ export default function ChangeReview({
           language={language}
           fontSize={preferences.fontSize}
           wordWrap={preferences.wordWrap}
+          resolvedTheme={resolvedTheme}
         />
       </div>
     </section>

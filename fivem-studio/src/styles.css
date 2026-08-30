@@ -1,18 +1,118 @@
-:root {
-  --bg-0: #1e1e1e;
-  --bg-1: #252526;
-  --bg-2: #2d2d30;
-  --bg-3: #3a3a3d;
-  --border: #3f3f42;
-  --text: #d4d4d4;
-  --text-dim: #8a8a8d;
-  --accent: #4fa3ff;
-  --accent-dim: #2c5c8f;
-  --green: #4caf50;
-  --red: #e05561;
-  --yellow: #d7ba7d;
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-0: #101317;
+  --bg-1: #14181d;
+  --bg-2: #191e24;
+  --bg-3: #1f252c;
+  --border: #262d35;
+  --border-strong: #333c46;
+  --text-0: #e4e9ee;
+  --text-1: #a3aeb9;
+  --text-2: #6f7b87;
+  --accent: #4c9ee8;
+  --accent-hover: #6bb0ee;
+  --accent-wash: #16293a;
+  --ok: #5cb88a;
+  --warn: #d9a445;
+  --error: #e56e63;
+  --warn-wash: #d9a4451a;
+  --warn-border: #d9a44559;
+  --error-wash: #e56e631a;
+  --error-border: #e56e6359;
+  --diff-add: #5cb88a26;
+  --diff-add-in: #3e7d5f;
+  --diff-del: #e56e6326;
+  --diff-del-in: #94443e;
+  --scrollbar-hover: #46515d;
+  --shadow-outline: #0000004d;
+  --shadow-menu: 0 4px 16px #00000066;
+  --modal-scrim: #00000080;
+  --text-on-solid: #ffffff;
+  --text: var(--text-0);
+  --text-dim: var(--text-2);
+  --accent-dim: var(--accent-wash);
+  --green: var(--ok);
+  --yellow: var(--warn);
+  --red: var(--error);
   --mono: "Cascadia Code", "SF Mono", Consolas, Menlo, monospace;
   --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-0: #f7f5f2;
+  --bg-1: #fcfbf9;
+  --bg-2: #ffffff;
+  --bg-3: #efede8;
+  --border: #e1ded7;
+  --border-strong: #c9c5bc;
+  --text-0: #1e2227;
+  --text-1: #565e67;
+  --text-2: #868e97;
+  --accent: #1f6fb8;
+  --accent-hover: #175a99;
+  --accent-wash: #e3eef8;
+  --ok: #2e7d55;
+  --warn: #9a6a12;
+  --error: #b33f35;
+  --warn-wash: #9a6a1214;
+  --warn-border: #9a6a124d;
+  --error-wash: #b33f3514;
+  --error-border: #b33f354d;
+  --diff-add: #2e7d5518;
+  --diff-add-in: #74ae90;
+  --diff-del: #b33f3518;
+  --diff-del-in: #d89189;
+  --scrollbar-hover: #b8b3aa;
+  --shadow-outline: #1e222733;
+  --shadow-menu: 0 4px 16px #1e222733;
+  --modal-scrim: #1e222766;
+  --text-on-solid: #ffffff;
+  --text: var(--text-0);
+  --text-dim: var(--text-2);
+  --accent-dim: var(--accent-wash);
+  --green: var(--ok);
+  --yellow: var(--warn);
+  --red: var(--error);
+}
+
+:root[data-theme="high-contrast"] {
+  color-scheme: dark;
+  --bg-0: #000000;
+  --bg-1: #000000;
+  --bg-2: #0a0a0a;
+  --bg-3: #1a1a1a;
+  --border: #ffffff;
+  --border-strong: #ffffff;
+  --text-0: #ffffff;
+  --text-1: #ffffff;
+  --text-2: #c8c8c8;
+  --accent: #00b7ff;
+  --accent-hover: #72d3ff;
+  --accent-wash: #003b68;
+  --ok: #55ff99;
+  --warn: #ffe55c;
+  --error: #ff6b61;
+  --warn-wash: #ffe55c26;
+  --warn-border: #ffe55c;
+  --error-wash: #ff6b6126;
+  --error-border: #ff6b61;
+  --diff-add: #004d2b80;
+  --diff-add-in: #00b864;
+  --diff-del: #68131380;
+  --diff-del-in: #d93f3f;
+  --scrollbar-hover: #ffffff;
+  --shadow-outline: #ffffff;
+  --shadow-menu: 0 0 0 1px #ffffff;
+  --modal-scrim: #000000cc;
+  --text-on-solid: #000000;
+  --text: var(--text-0);
+  --text-dim: var(--text-2);
+  --accent-dim: var(--accent-wash);
+  --green: var(--ok);
+  --yellow: var(--warn);
+  --red: var(--error);
 }
 
 * {
@@ -50,7 +150,7 @@ body {
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4d4d52;
+  background: var(--scrollbar-hover);
   background-clip: content-box;
 }
 ::-webkit-scrollbar-corner {
@@ -77,7 +177,7 @@ textarea {
 select {
   /* Native <select> chrome otherwise ignores our color-scheme entirely on Windows —
      without this it renders as a stock white-on-gray dropdown inside an all-dark app. */
-  color-scheme: dark;
+  color-scheme: inherit;
 }
 input:focus,
 select:focus,
@@ -135,16 +235,16 @@ textarea:focus {
   padding: 6px 12px;
   font-size: 12px;
   color: var(--yellow);
-  background: rgba(215, 186, 125, 0.1);
-  border-bottom: 1px solid rgba(215, 186, 125, 0.25);
+  background: var(--warn-wash);
+  border-bottom: 1px solid var(--warn-border);
   border-left: 3px solid var(--yellow);
   flex-shrink: 0;
 }
 .warning-banner.error-banner {
   color: var(--red);
-  background: rgba(224, 85, 97, 0.1);
+  background: var(--error-wash);
   border-left-color: var(--red);
-  border-bottom-color: rgba(224, 85, 97, 0.3);
+  border-bottom-color: var(--error-border);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -342,11 +442,11 @@ button.tree-node {
   margin-right: 5px;
   border-radius: 50%;
   background: var(--text-dim);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 1px var(--shadow-outline);
   flex: 0 0 auto;
 }
 .resource-state-dot.started {
-  background: #4fca73;
+  background: var(--ok);
 }
 .resource-state-dot.stopped {
   background: var(--red);
@@ -377,7 +477,7 @@ button.tree-node {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-menu);
 }
 .context-menu-item {
   display: block;
@@ -452,7 +552,7 @@ button.tree-node {
   height: 15px;
   padding: 0 4px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-solid);
   background: var(--red);
   font-size: 9px;
   line-height: 15px;
@@ -598,7 +698,7 @@ button.tree-node {
 .change-review-actions button.primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-solid);
 }
 .change-review-labels {
   display: grid;
@@ -742,7 +842,7 @@ button.tree-node {
   color: var(--text);
 }
 .lua-service-status.ready {
-  color: #8bd49c;
+  color: var(--ok);
 }
 .lua-service-status.starting {
   color: var(--yellow);
@@ -869,8 +969,8 @@ button.tree-node {
 }
 .chat-message.error {
   color: var(--red);
-  background: rgba(224, 85, 97, 0.1);
-  border: 1px solid rgba(224, 85, 97, 0.3);
+  background: var(--error-wash);
+  border: 1px solid var(--error-border);
 }
 .chat-working {
   color: var(--text-dim);
@@ -935,13 +1035,13 @@ button.tree-node {
 .tool-approval {
   margin-top: 7px;
   padding: 8px;
-  border: 1px solid rgba(215, 186, 125, 0.35);
+  border: 1px solid var(--warn-border);
   border-radius: 4px;
-  background: rgba(215, 186, 125, 0.08);
+  background: var(--warn-wash);
 }
 .tool-approval.dangerous {
-  border-color: rgba(224, 85, 97, 0.45);
-  background: rgba(224, 85, 97, 0.08);
+  border-color: var(--error-border);
+  background: var(--error-wash);
 }
 .tool-approval-summary {
   display: flex;
@@ -1178,7 +1278,7 @@ button.tree-node {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--modal-scrim);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -10,6 +10,7 @@ import { providerUrlOr } from "./localUrl";
 export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
   selectedProfile: string | null; // which txData/<profile> to browse/edit
+  theme: ThemePreference;
   activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
@@ -40,12 +41,14 @@ export interface EditorPreferences {
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
+export type ThemePreference = "system" | "dark" | "light" | "high-contrast";
 
 export const CFX_TARGETS: readonly CfxTarget[] = ["legacy", "enhanced", "redm"];
 
 const DEFAULTS: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
+  theme: "system",
   activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
@@ -180,6 +183,8 @@ export function normalizeConfig(value: unknown): StudioConfig {
   return {
     txDataPath: nullablePath(raw.txDataPath),
     selectedProfile: safeProfile(raw.selectedProfile),
+    theme:
+      raw.theme === "dark" || raw.theme === "light" || raw.theme === "high-contrast" ? raw.theme : "system",
     activeCfxTarget,
     legacyFivemExePath:
       nullablePath(raw.legacyFivemExePath) ?? (inferredTarget === "legacy" ? oldClientPath : null),

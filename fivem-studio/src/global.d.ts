@@ -3,6 +3,7 @@ export {};
 export interface StudioConfig {
   txDataPath: string | null;
   selectedProfile: string | null;
+  theme: ThemePreference;
   activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
@@ -49,6 +50,8 @@ export interface AppUpdateStatus {
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
+export type ThemePreference = "system" | "dark" | "light" | "high-contrast";
+export type ResolvedTheme = Exclude<ThemePreference, "system">;
 
 export interface DirEntry {
   name: string;
@@ -252,6 +255,10 @@ declare global {
       config: {
         get(): Promise<StudioConfig>;
         set(config: StudioConfig): Promise<StudioConfig>;
+      };
+      theme: {
+        system(): Promise<"dark" | "light">;
+        onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
       };
       fs: {
         listDir(dirPath: string): Promise<DirEntry[]>;

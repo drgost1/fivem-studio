@@ -13,6 +13,7 @@ import type {
   CfxTarget,
   EditorProblem,
   ResolvedProfile,
+  ResolvedTheme,
   ResourceContext,
   ResourceStatusResult,
   RuntimeIdentity,
@@ -43,6 +44,7 @@ type SidebarTab = "resources" | "github";
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
+  theme: "system",
   activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
@@ -89,6 +91,7 @@ function clientExeFor(config: StudioConfig, target: CfxTarget): string | null {
 
 export default function App() {
   const [config, setConfig] = useState<StudioConfig>(DEFAULT_CONFIG);
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -209,6 +212,28 @@ export default function App() {
         setConnectError(`Could not load settings: ${(err as Error).message}`);
       });
   }, [connect]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applySystemTheme = (theme: "dark" | "light") => {
+      if (!cancelled && config.theme === "system") setResolvedTheme(theme);
+    };
+    if (config.theme === "system") {
+      void window.api.theme.system().then(applySystemTheme).catch(() => applySystemTheme("dark"));
+    } else {
+      setResolvedTheme(config.theme);
+    }
+    const unsubscribe = window.api.theme.onSystemChanged(applySystemTheme);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [config.theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.colorScheme = resolvedTheme === "light" ? "light" : "dark";
+  }, [resolvedTheme]);
 
   // This is intentionally notification-only. Installation remains an explicit
   // choice on the signed GitHub release page, and development builds skip the request.
@@ -973,6 +998,7 @@ export default function App() {
               resourceLifecycleAvailable={runtimeIdentity?.capabilities.resourceLifecycle ?? null}
               clientLabel={activeTargetLabel}
               editorPreferences={config.editor}
+              resolvedTheme={resolvedTheme}
               editorProblems={editorProblems}
               editorReveal={editorReveal}
               changeReviews={changeReviews}
@@ -1013,6 +1039,7 @@ export default function App() {
               key={`${config.txDataPath ?? ""}|${config.selectedProfile ?? ""}`}
               connected={connected}
               config={config}
+              resolvedTheme={resolvedTheme}
               workspaceMatch={workspaceMatch}
               selection={selection.selectedText ? { ...selection, path: activePath } : null}
             />

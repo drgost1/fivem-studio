@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { languageForPath } from "../editorLanguage";
-import type { AgentEvent, AgentFilePreview, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
+import type { AgentEvent, AgentFilePreview, ResolvedTheme, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
 import { matchPreset } from "../providerPresets";
 
 const ChangeDiff = lazy(() => import("./ChangeDiff"));
@@ -90,12 +90,13 @@ function summarizeInput(input: unknown): string {
 interface ChatPanelProps {
   connected: boolean;
   config: StudioConfig;
+  resolvedTheme: ResolvedTheme;
   workspaceMatch: RuntimeWorkspaceMatch | null;
   /** Live editor selection, if any — shown as a chip so it's never a surprise what gets sent. */
   selection: { path: string | null; selectedText: string; startLine: number; endLine: number } | null;
 }
 
-export default function ChatPanel({ connected, config, workspaceMatch, selection }: ChatPanelProps) {
+export default function ChatPanel({ connected, config, resolvedTheme, workspaceMatch, selection }: ChatPanelProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -306,6 +307,7 @@ export default function ChatPanel({ connected, config, workspaceMatch, selection
                               language={languageForPath(entry.approvalPreview.path)}
                               fontSize={config.editor.fontSize}
                               wordWrap={config.editor.wordWrap}
+                              resolvedTheme={resolvedTheme}
                               compact
                             />
                           </Suspense>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
@@ -13,6 +13,7 @@ import {
   CFX_TARGETS,
   type CfxTarget,
   type StudioConfig,
+  type ThemePreference,
 } from "./configStore";
 import * as agent from "./agent";
 import { listDir, readTextFileSnapshot, writeTextFile, renamePath, listProfiles, resolveProfile } from "./fsTree";
@@ -227,14 +228,26 @@ function artifactStatePath(target: CfxTarget): string {
   return path.join(app.getPath("userData"), `artifact-install-${target}.json`);
 }
 
+function resolvedSystemTheme(): "dark" | "light" {
+  return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+}
+
+function applyNativeTheme(theme: ThemePreference): void {
+  nativeTheme.themeSource = theme === "system" ? "system" : theme === "light" ? "light" : "dark";
+  const resolved = theme === "system" ? resolvedSystemTheme() : theme;
+  mainWindow?.setBackgroundColor(resolved === "light" ? "#F7F5F2" : "#101317");
+}
+
 function createWindow() {
+  const configuredTheme = loadConfig().theme;
+  const windowTheme = configuredTheme === "system" ? resolvedSystemTheme() : configuredTheme;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 640,
     title: "QB Studio",
-    backgroundColor: "#1e1e1e",
+    backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -338,6 +351,12 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   const startupConfig = loadConfig();
+  applyNativeTheme(startupConfig.theme);
+  nativeTheme.on("updated", () => {
+    const systemTheme = resolvedSystemTheme();
+    if (loadConfig().theme === "system") mainWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("theme:systemChanged", systemTheme);
+  });
   const recoveryNotices: string[] = [];
   for (const target of CFX_TARGETS) {
     const executable = serverExeFor(startupConfig, target);
@@ -395,9 +414,12 @@ function registerIpcHandlers() {
       scopedFxServerExe(candidate.legacyFxServerExePath, "legacy", txDataPath);
       scopedFxServerExe(candidate.enhancedFxServerExePath, "enhanced", txDataPath);
       scopedFxServerExe(candidate.redmFxServerExePath, "redm", txDataPath);
-      return saveConfig(config);
+      const saved = saveConfig(config);
+      applyNativeTheme(saved.theme);
+      return saved;
     }),
   );
+  ipcMain.handle("theme:system", () => resolvedSystemTheme());
 
   // --- filesystem / resource tree ---
   ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listProfileDirectory(dirPath));

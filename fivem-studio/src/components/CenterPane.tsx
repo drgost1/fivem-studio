@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileChangeReview, OpenFile } from "../App";
 import { languageForPath } from "../editorLanguage";
-import type { EditorPreferences, EditorProblem, ResourceContext, WindowCandidate } from "../global";
+import type { EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, WindowCandidate } from "../global";
 import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
 
@@ -42,6 +42,7 @@ interface CenterPaneProps {
   resourceLifecycleAvailable: boolean | null;
   clientLabel: string;
   editorPreferences: EditorPreferences;
+  resolvedTheme: ResolvedTheme;
   editorProblems: Record<string, EditorProblem[]>;
   editorReveal: { path: string; line: number; column: number; nonce: number } | null;
   changeReviews: Record<string, FileChangeReview>;
@@ -80,6 +81,7 @@ export default function CenterPane({
   resourceLifecycleAvailable,
   clientLabel,
   editorPreferences,
+  resolvedTheme,
   editorProblems,
   editorReveal,
   changeReviews,
@@ -270,6 +272,7 @@ export default function CenterPane({
                       openPaths={openPaths}
                       language={languageForPath(activeFile.path)}
                       preferences={editorPreferences}
+                      resolvedTheme={resolvedTheme}
                       luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
                       reveal={editorReveal}
                       onChange={onChange}
@@ -289,6 +292,7 @@ export default function CenterPane({
                       review={activeReview.kind === "conflict" ? { ...activeReview, originalContent: activeFile.content } : activeReview}
                       language={languageForPath(activeReview.path)}
                       preferences={editorPreferences}
+                      resolvedTheme={resolvedTheme}
                       onBack={onCloseReview}
                       onDismiss={() => onDismissReview(activeReview)}
                       onUseDisk={() => onUseDiskVersion(activeReview)}

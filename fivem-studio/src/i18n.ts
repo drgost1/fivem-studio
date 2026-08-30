@@ -27,6 +27,13 @@ const english = {
   "editor.restartAfterSaveHelp": "When a saved file belongs to a resource that is already running, restart it and open the refreshed console.",
   "editor.savedAndRestarted": "Saved and restarted {resource}.",
   "console.refreshAfterRestart": "Refreshing console after restarting {resource}…",
+  "appearance.section": "Appearance",
+  "appearance.theme": "Theme",
+  "appearance.theme.system": "System",
+  "appearance.theme.dark": "Dark — Nightshift",
+  "appearance.theme.light": "Light — Daybreak",
+  "appearance.theme.highContrast": "High Contrast",
+  "appearance.themeHelp": "System follows the current Windows light or dark setting. The app chrome and code editors update together.",
 } as const;
 
 export type MessageKey = keyof typeof english;

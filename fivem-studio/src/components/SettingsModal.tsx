@@ -311,6 +311,22 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
         {saveError && <div className="error-text" role="alert">{saveError}</div>}
 
+        <div className="settings-divider">{t("appearance.section")}</div>
+        <label className="field-label">{t("appearance.theme")}</label>
+        <select
+          value={draft.theme}
+          onChange={(event) => setDraft((current) => ({
+            ...current,
+            theme: event.target.value as StudioConfig["theme"],
+          }))}
+        >
+          <option value="system">{t("appearance.theme.system")}</option>
+          <option value="dark">{t("appearance.theme.dark")}</option>
+          <option value="light">{t("appearance.theme.light")}</option>
+          <option value="high-contrast">{t("appearance.theme.highContrast")}</option>
+        </select>
+        <div className="field-hint">{t("appearance.themeHelp")}</div>
+
         <label className="field-label">txData root</label>
         <div className="field-row">
           <input value={draft.txDataPath ?? ""} readOnly placeholder="Not set" />

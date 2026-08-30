@@ -8,6 +8,14 @@ const api = {
     get: () => ipcRenderer.invoke("config:get"),
     set: (config: unknown) => ipcRenderer.invoke("config:set", config),
   },
+  theme: {
+    system: () => ipcRenderer.invoke("theme:system"),
+    onSystemChanged: (callback: (theme: "dark" | "light") => void) => {
+      const listener = (_e: unknown, theme: "dark" | "light") => callback(theme);
+      ipcRenderer.on("theme:systemChanged", listener);
+      return () => ipcRenderer.removeListener("theme:systemChanged", listener);
+    },
+  },
   fs: {
     listDir: (dirPath: string) => ipcRenderer.invoke("fs:listDir", dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke("fs:readFile", filePath),

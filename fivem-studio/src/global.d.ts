@@ -40,6 +40,13 @@ export interface EditorProblem {
   code?: string;
 }
 
+export interface AppUpdateStatus {
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  updateAvailable: boolean;
+}
+
 export type CfxTarget = "legacy" | "enhanced" | "redm";
 
 export interface DirEntry {
@@ -286,6 +293,7 @@ declare global {
       };
       app: {
         setDirtyCount(count: number): Promise<void>;
+        checkForUpdate(): Promise<AppUpdateStatus | null>;
       };
       lua: {
         start(): Promise<

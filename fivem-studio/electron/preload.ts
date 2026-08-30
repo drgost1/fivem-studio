@@ -72,6 +72,7 @@ const api = {
   },
   app: {
     setDirtyCount: (count: number) => ipcRenderer.invoke("app:setDirtyCount", count),
+    checkForUpdate: () => ipcRenderer.invoke("app:checkForUpdate"),
   },
   lua: {
     start: () => ipcRenderer.invoke("lua:start"),

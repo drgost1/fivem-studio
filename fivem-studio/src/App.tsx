@@ -7,7 +7,7 @@ import ResourceTree from "./components/ResourceTree";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
-import type { CfxTarget, EditorProblem, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
+import type { AppUpdateStatus, CfxTarget, EditorProblem, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
 
 export interface OpenFile {
   path: string;
@@ -91,6 +91,7 @@ export default function App() {
   const [serverStatusError, setServerStatusError] = useState<string | null>(null);
   const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdateStatus | null>(null);
   const serverStatusEpoch = useRef(0);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
@@ -150,6 +151,22 @@ export default function App() {
         setConnectError(`Could not load settings: ${(err as Error).message}`);
       });
   }, [connect]);
+
+  // This is intentionally notification-only. Installation remains an explicit
+  // choice on the signed GitHub release page, and development builds skip the request.
+  useEffect(() => {
+    let cancelled = false;
+    void window.api.app.checkForUpdate()
+      .then((status) => {
+        if (!cancelled && status?.updateAvailable) setAvailableUpdate(status);
+      })
+      .catch(() => {
+        // Updates are advisory; offline/rate-limited starts must remain quiet and usable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshServerStatus = useCallback(async (
     expectedEpoch = serverStatusEpoch.current,
@@ -670,6 +687,18 @@ export default function App() {
         serverStatusError={serverStatusError}
         activeClientPath={activeClientPath}
       />
+
+      {availableUpdate && (
+        <div className="warning-banner setup-banner update-banner" role="status">
+          QB Studio {availableUpdate.latestVersion} is available.
+          <button className="btn small" onClick={() => void window.api.shell.openExternal(availableUpdate.releaseUrl)}>
+            View release
+          </button>
+          <button className="banner-dismiss" onClick={() => setAvailableUpdate(null)} aria-label="Dismiss update notice">
+            ×
+          </button>
+        </div>
+      )}
 
       {configLoaded && (!config.txDataPath || !config.selectedProfile) && (
         <div className="warning-banner setup-banner" role="alert">

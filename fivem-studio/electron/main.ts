@@ -47,6 +47,7 @@ import {
   stopLocalServer,
   type ArtifactTrack,
 } from "./serverArtifacts";
+import { checkForAppUpdate } from "./appUpdate";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -585,6 +586,7 @@ function registerIpcHandlers() {
     const valid = requireFiniteNumber(count, "Dirty file count");
     dirtyFileCount = Math.max(0, Math.min(10000, Math.floor(valid)));
   });
+  ipcMain.handle("app:checkForUpdate", () => checkForAppUpdate(app.getVersion()));
 
   // --- on-demand Lua language intelligence ---
   // The executable is part of the verified application bundle. The renderer

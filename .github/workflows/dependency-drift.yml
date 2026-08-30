@@ -1,0 +1,75 @@
+name: Dependency drift
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+      timezone: America/Chicago
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: dependency-drift
+  cancel-in-progress: false
+
+jobs:
+  luals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Check pinned LuaLS release
+        id: check
+        run: node scripts/check-luals-current.mjs
+      - name: Maintain dependency issue
+        uses: actions/github-script@v9
+        env:
+          PINNED_VERSION: ${{ steps.check.outputs.pinned }}
+          LATEST_VERSION: ${{ steps.check.outputs.latest }}
+          RELEASE_URL: ${{ steps.check.outputs.release_url }}
+          OUTDATED: ${{ steps.check.outputs.outdated }}
+        with:
+          script: |
+            const title = "LuaLS dependency is out of date";
+            const { owner, repo } = context.repo;
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const issue = openIssues.find((item) => !item.pull_request && item.title === title);
+            const pinned = process.env.PINNED_VERSION;
+            const latest = process.env.LATEST_VERSION;
+            const releaseUrl = process.env.RELEASE_URL;
+            const marker = `Latest upstream release: ${latest}`;
+
+            if (process.env.OUTDATED === "true") {
+              const body = [
+                "The weekly native-dependency check found a newer stable LuaLS release.",
+                "",
+                `Pinned version: ${pinned}`,
+                marker,
+                `Release notes: ${releaseUrl}`,
+                "",
+                "Review the upstream release and license, update `scripts/luals-release.json` with the reviewed version and Windows x64 archive SHA-256, then run the full test and package gates from `DEPENDENCY_POLICY.md`.",
+              ].join("\n");
+              if (!issue) {
+                await github.rest.issues.create({ owner, repo, title, body });
+              } else if (!issue.body?.includes(marker)) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+              }
+            } else if (issue) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: `The pinned LuaLS version ${pinned} now matches the latest stable release. Closing this automated reminder.`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed" });
+            }

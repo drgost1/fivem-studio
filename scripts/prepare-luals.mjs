@@ -8,10 +8,17 @@ import { fileURLToPath } from "node:url";
 
 import yauzl from "yauzl";
 
-const VERSION = "3.19.1";
-const ARCHIVE_SHA256 = "fdb9a59108cf62517813c97fa5549b0e16d1ef0688306bac728b08434db7e4cd";
-const DOWNLOAD_URL = `https://github.com/LuaLS/lua-language-server/releases/download/${VERSION}/lua-language-server-${VERSION}-win32-x64.zip`;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const releaseManifest = JSON.parse(fs.readFileSync(path.join(root, "scripts", "luals-release.json"), "utf8"));
+if (!releaseManifest || typeof releaseManifest !== "object" || !/^\d+\.\d+\.\d+$/.test(releaseManifest.version)) {
+  throw new Error("The LuaLS release manifest must contain a stable semantic version.");
+}
+if (!/^[a-f0-9]{64}$/.test(releaseManifest.sha256)) {
+  throw new Error("The LuaLS release manifest must contain a lowercase SHA-256 digest.");
+}
+const VERSION = releaseManifest.version;
+const ARCHIVE_SHA256 = releaseManifest.sha256;
+const DOWNLOAD_URL = `https://github.com/LuaLS/lua-language-server/releases/download/${VERSION}/lua-language-server-${VERSION}-win32-x64.zip`;
 const vendorRoot = path.join(root, "vendor");
 const target = path.join(vendorRoot, "lua-language-server");
 const marker = path.join(target, "QB_STUDIO_BUNDLE.json");

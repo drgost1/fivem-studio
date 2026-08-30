@@ -35,11 +35,16 @@ from the unpacked release—not only the source tree.
 ## Bundled Lua language server
 
 LuaLS is an executable dependency rather than an npm package, so it is pinned
-to an exact version and SHA-256 in `scripts/prepare-luals.mjs`. The script only
-downloads the official LuaLS Windows x64 release, rejects a checksum mismatch,
-applies bounded path and extraction limits, and requires the upstream license
-before installing the bundle. The MIT license and source marker are shipped
-with the application.
+to an exact version and SHA-256 in `scripts/luals-release.json`. The preparation
+script only downloads the official LuaLS Windows x64 release, rejects a
+checksum mismatch, applies bounded path and extraction limits, and requires the
+upstream license before installing the bundle. The MIT license and source
+marker are shipped with the application.
+
+A weekly GitHub Actions check compares that manifest with the latest stable
+upstream release. It maintains one repository issue when the pin is stale and
+closes the reminder after the reviewed pin catches up; it never changes the pin,
+downloads a new executable into the repository, or opens an automatic update PR.
 
 Updating LuaLS requires reviewing its release notes and license, changing both
 the version and checksum, running the end-to-end CfxLua completion test, and

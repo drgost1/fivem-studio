@@ -158,6 +158,12 @@ textarea:focus {
   margin-left: auto;
   flex-shrink: 0;
 }
+.warning-banner.update-banner {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.warning-banner.update-banner .banner-dismiss {
+  margin-left: 0;
+}
 .banner-dismiss {
   margin-left: auto;
   border: 0;

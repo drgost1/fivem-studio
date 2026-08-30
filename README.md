@@ -12,7 +12,7 @@ screenshots.
 
 ## Highlights
 
-- Monaco code editor with persistent per-file undo history, configurable editor preferences, Problems view, and safe side-by-side change review
+- Monaco code editor with persistent per-file undo history, SQL/XML support, configurable editor preferences, Problems view, and safe change review before approved agent writes
 - QBCore, FiveM, and RedM Lua intelligence powered by a bundled, verified Lua language server
 - txData workspace browser and minimal local-workspace creator
 - Separate one-click launchers and paths for FiveM Legacy, FiveM Enhanced, and RedM
@@ -21,6 +21,7 @@ screenshots.
 - GitHub repository and organization search with resource imports
 - AI assistant scoped to project files and coding-oriented runtime tools
 - Bundled private runtime: no separate Node or MCP server to launch
+- Passive notification when a newer stable QB Studio release is available
 
 GitHub imports require [Git for Windows](https://git-scm.com/download/win).
 
@@ -217,6 +218,10 @@ For development without installing the app, run:
 ```powershell
 npm run dev -w qb-studio
 ```
+
+Stable builds check the official GitHub latest-release endpoint once at startup
+and show a dismissible link when an update is available. QB Studio never
+downloads or installs application updates automatically.
 
 Conventional commits on `main` are automatically versioned by semantic-release
 and published as GitHub Releases. Dependency updates are proposed weekly and

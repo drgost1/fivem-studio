@@ -12,9 +12,10 @@ QB Studio does not require a QBCore account and does not send analytics,
 telemetry, crash reports, project files, or usage data to QBCore Framework.
 QBCore Framework does not operate a QB Studio cloud service or user database.
 
-QB Studio is a local development tool. Some features make network requests only
-when the user invokes them or configures an external service, as described
-below.
+QB Studio is a local development tool. Some features make network requests when
+the user invokes them or configures an external service. Stable builds also
+make one public GitHub release request at startup to provide a passive update
+notice, as described below.
 
 ## Data stored on the device
 
@@ -61,6 +62,10 @@ policies of a provider selected by the user.
 
 ## Other network features
 
+- **QB Studio release check:** On startup, a stable build requests the latest
+  public release metadata from the official GitHub repository. The request does
+  not include project files, settings, or a persistent application identifier.
+  GitHub receives ordinary connection metadata under its privacy statement.
 - **GitHub import:** Repository search and metadata requests use GitHub's public
   API. Importing a selected repository invokes Git to download it from GitHub.
   GitHub receives the request and ordinary connection metadata under the

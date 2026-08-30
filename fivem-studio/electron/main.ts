@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Notification, clipboard } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
@@ -64,6 +64,7 @@ import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
 import { RevertStore, type RevertMode } from "./revertStore";
 import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
 import { WorkspaceSearchService } from "./workspaceSearch";
+import { newestCrashReport } from "./crashTriage";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -759,6 +760,20 @@ function registerIpcHandlers() {
     return { running: false, pids: [], target: config.activeCfxTarget };
   });
 
+  ipcMain.handle("server:crashReport", () => newestCrashReport(activeProfileRoot()));
+  ipcMain.handle("server:notifyUnexpectedExit", (_e, targetValue: unknown) => {
+    const target = requireCfxTarget(targetValue);
+    if (!loadConfig().notifyOnServerExit || mainWindow?.isFocused() || !Notification.isSupported()) {
+      return { shown: false };
+    }
+    new Notification({
+      title: "QB Studio",
+      body: `${cfxTargetLabel(target)} FXServer stopped unexpectedly. Crash context is ready in the Console tab.`,
+      silent: false,
+    }).show();
+    return { shown: true };
+  });
+
   ipcMain.handle("server:launch", () =>
     serverOperation.run("the local server start", async () => {
       const config = loadConfig();
@@ -913,6 +928,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle("shell:openExternal", (_e, url: unknown) => shell.openExternal(allowedExternalUrl(url)));
   ipcMain.handle("shell:showItemInFolder", (_e, targetPath: unknown) => shell.showItemInFolder(scopedProfilePath(targetPath)));
+  ipcMain.handle("clipboard:writeText", (_e, value: unknown) => clipboard.writeText(requireString(value, "Clipboard text", 100_000)));
 
   // --- embed the live FiveM game window into the Viewport tab (Windows only) ---
   ipcMain.handle("windowEmbed:listCandidates", () => windowEmbed.listCandidates());

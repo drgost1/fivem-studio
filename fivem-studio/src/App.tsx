@@ -9,9 +9,11 @@ import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
 import { t } from "./i18n";
+import { lastConsoleLines } from "./consoleText";
 import type {
   AppUpdateStatus,
   CfxTarget,
+  CrashTriageContext,
   EditorProblem,
   ResolvedProfile,
   ResolvedTheme,
@@ -56,6 +58,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
+  notifyOnServerExit: true,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -104,11 +107,17 @@ export default function App() {
   const [serverRunning, setServerRunning] = useState(false);
   const [serverPids, setServerPids] = useState<number[]>([]);
   const [serverTarget, setServerTarget] = useState<CfxTarget>("legacy");
+  const [serverStartedAt, setServerStartedAt] = useState<number | null>(null);
   const [serverStatusError, setServerStatusError] = useState<string | null>(null);
   const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdateStatus | null>(null);
   const serverStatusEpoch = useRef(0);
+  const observedServerRunning = useRef<boolean | null>(null);
+  const intentionalServerStop = useRef(false);
+  const latestConsoleOutput = useRef("");
+  const [crashTriage, setCrashTriage] = useState<CrashTriageContext | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState<{ text: string; nonce: number } | null>(null);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
@@ -268,6 +277,24 @@ export default function App() {
     try {
       const status = await window.api.server.status();
       if (!isCurrent()) return;
+      const wasRunning = observedServerRunning.current;
+      observedServerRunning.current = status.running;
+      if (status.running && wasRunning !== true) setServerStartedAt(Date.now());
+      if (!status.running) setServerStartedAt(null);
+      if (wasRunning === true && !status.running) {
+        const wasIntentional = intentionalServerStop.current;
+        intentionalServerStop.current = false;
+        if (!wasIntentional) {
+          const consoleTail = lastConsoleLines(latestConsoleOutput.current, 50);
+          void window.api.server.crashReport()
+            .then((report) => setCrashTriage({ report, consoleTail, detectedAt: new Date().toISOString() }))
+            .catch(() => setCrashTriage({ report: null, consoleTail, detectedAt: new Date().toISOString() }));
+          void window.api.server.notifyUnexpectedExit(status.target).catch(() => {
+            // Desktop notifications are advisory; the in-app crash context remains available.
+          });
+          setServerNotice({ message: `${cfxTargetLabel(status.target)} FXServer stopped unexpectedly. Review the crash context in Console.`, error: true });
+        }
+      }
       setServerRunning(status.running);
       setServerPids(status.pids);
       setServerTarget(status.target);
@@ -803,13 +830,15 @@ export default function App() {
       const result = await window.api.server.launch();
       if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
       setServerRunning(true);
+      observedServerRunning.current = true;
+      setServerStartedAt(Date.now());
       setServerPids([result.pid]);
       setServerTarget(result.target);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyRunning
-          ? `The ${cfxTargetLabel(result.target)} local server is already running (process ${result.pid}).`
-          : `${cfxTargetLabel(result.target)} local server started (process ${result.pid}). Use Stop server here or stop it in txAdmin.`,
+          ? `The ${cfxTargetLabel(result.target)} local server is already running.`
+          : `${cfxTargetLabel(result.target)} local server started. Use Stop server here or stop it in txAdmin.`,
         error: false,
       });
     } catch (err) {
@@ -824,20 +853,24 @@ export default function App() {
   async function stopServer() {
     if (serverAction) return;
     serverStatusEpoch.current += 1;
+    intentionalServerStop.current = true;
     setServerAction("stopping");
     setServerNotice(null);
     try {
       const result = await window.api.server.stop(serverTarget);
       setServerRunning(false);
+      observedServerRunning.current = false;
+      setServerStartedAt(null);
       setServerPids([]);
       setServerStatusError(null);
       setServerNotice({
         message: result.alreadyStopped
           ? `The ${cfxTargetLabel(result.target)} local server is already stopped.`
-          : `Stopped the ${cfxTargetLabel(result.target)} local server${result.stoppedPids.length ? ` (process ${result.stoppedPids.join(", ")})` : ""}.`,
+          : `Stopped the ${cfxTargetLabel(result.target)} local server.`,
         error: false,
       });
     } catch (err) {
+      intentionalServerStop.current = false;
       setServerNotice({ message: `Could not stop the local server: ${(err as Error).message}`, error: true });
     } finally {
       const settledEpoch = ++serverStatusEpoch.current;
@@ -863,6 +896,7 @@ export default function App() {
         serverAction={serverAction}
         serverRunning={serverRunning}
         serverPids={serverPids}
+        serverStartedAt={serverStartedAt}
         serverStatusError={serverStatusError}
         activeClientPath={activeClientPath}
       />
@@ -1032,6 +1066,10 @@ export default function App() {
               resourceAction={resourceAction}
               onResourceAction={runResourceLifecycle}
               consoleRefreshSignal={consoleRefreshSignal}
+              crashTriage={crashTriage}
+              onDismissCrashTriage={() => setCrashTriage(null)}
+              onSendCrashTriage={(text) => setAgentPrompt({ text, nonce: Date.now() })}
+              onConsoleOutputChange={(output) => { latestConsoleOutput.current = output; }}
               onSelectFileTab={setActivePath}
               onCloseFileTab={closeTab}
               onChange={updateContent}
@@ -1060,6 +1098,7 @@ export default function App() {
               resolvedTheme={resolvedTheme}
               workspaceMatch={workspaceMatch}
               selection={selection.selectedText ? { ...selection, path: activePath } : null}
+              suggestedPrompt={agentPrompt}
             />
           </Panel>
         </Group>

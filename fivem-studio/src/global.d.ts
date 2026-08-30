@@ -14,6 +14,7 @@ export interface StudioConfig {
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
+  notifyOnServerExit: boolean;
   editor: EditorPreferences;
   agentProvider: "anthropic" | "openai";
   openaiBaseUrl: string;
@@ -245,6 +246,19 @@ export interface ArtifactUpdateResult extends ArtifactStatus {
   warning?: string;
 }
 
+export interface CrashReportSummary {
+  relativePath: string;
+  modifiedAt: string;
+  excerpt: string;
+  truncated: boolean;
+}
+
+export interface CrashTriageContext {
+  report: CrashReportSummary | null;
+  consoleTail: string;
+  detectedAt: string;
+}
+
 export interface RevertBatchSummary {
   id: string;
   label: string;
@@ -448,6 +462,8 @@ declare global {
         status(): Promise<{ running: boolean; pids: number[]; target: CfxTarget }>;
         launch(): Promise<{ pid: number; controlProfile: string | null; alreadyRunning: boolean; target: CfxTarget; recoveryNotice?: string }>;
         stop(target: CfxTarget): Promise<{ stoppedPids: number[]; alreadyStopped: boolean; target: CfxTarget }>;
+        crashReport(): Promise<CrashReportSummary | null>;
+        notifyUnexpectedExit(target: CfxTarget): Promise<{ shown: boolean }>;
       };
       artifacts: {
         check(target: CfxTarget, track: "recommended" | "latest"): Promise<ArtifactStatus>;
@@ -494,6 +510,9 @@ declare global {
       shell: {
         openExternal(url: string): Promise<void>;
         showItemInFolder(targetPath: string): Promise<void>;
+      };
+      clipboard: {
+        writeText(value: string): Promise<void>;
       };
     };
   }

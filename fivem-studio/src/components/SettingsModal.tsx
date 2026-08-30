@@ -424,6 +424,22 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
         </select>
         <div className="field-hint">{t("appearance.themeHelp")}</div>
 
+        <div className="settings-divider">{t("console.section")}</div>
+        <label className="field-label">
+          {t("console.notifyExit")}
+          <select
+            value={draft.notifyOnServerExit ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({
+              ...current,
+              notifyOnServerExit: event.target.value === "on",
+            }))}
+          >
+            <option value="on">{t("common.on")}</option>
+            <option value="off">{t("common.off")}</option>
+          </select>
+        </label>
+        <div className="field-hint">{t("console.notifyExitHelp")}</div>
+
         <SetupChecklist
           diagnostics={setupDiagnostics}
           targetLabel={cfxTargetLabel(activeTarget)}

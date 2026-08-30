@@ -103,6 +103,8 @@ const api = {
     status: () => ipcRenderer.invoke("server:status"),
     launch: () => ipcRenderer.invoke("server:launch"),
     stop: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("server:stop", target),
+    crashReport: () => ipcRenderer.invoke("server:crashReport"),
+    notifyUnexpectedExit: (target: "legacy" | "enhanced" | "redm") => ipcRenderer.invoke("server:notifyUnexpectedExit", target),
   },
   artifacts: {
     check: (target: "legacy" | "enhanced" | "redm", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", target, track),
@@ -155,6 +157,9 @@ const api = {
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
     showItemInFolder: (targetPath: string) => ipcRenderer.invoke("shell:showItemInFolder", targetPath),
+  },
+  clipboard: {
+    writeText: (value: string) => ipcRenderer.invoke("clipboard:writeText", value),
   },
 };
 

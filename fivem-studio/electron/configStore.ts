@@ -21,6 +21,7 @@ export interface StudioConfig {
   legacyArtifactTrack: "recommended" | "latest";
   redmArtifactTrack: "recommended" | "latest";
   consoleRefreshIntervalMs: number;
+  notifyOnServerExit: boolean;
   editor: EditorPreferences;
   // --- agent chat backend (no secrets here: this object is sent to the renderer) ---
   // "anthropic" uses the native Anthropic SDK; "openai" covers every
@@ -59,6 +60,7 @@ const DEFAULTS: StudioConfig = {
   legacyArtifactTrack: "recommended",
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
+  notifyOnServerExit: true,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -200,6 +202,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
       raw.legacyArtifactTrack === "latest" || raw.artifactTrack === "latest" ? "latest" : "recommended",
     redmArtifactTrack: raw.redmArtifactTrack === "latest" ? "latest" : "recommended",
     consoleRefreshIntervalMs: consoleRefreshIntervalOrDefault(raw.consoleRefreshIntervalMs),
+    notifyOnServerExit: booleanOr(raw.notifyOnServerExit, DEFAULTS.notifyOnServerExit),
     editor: editorPreferences(raw.editor),
     agentProvider: provider,
     openaiBaseUrl: providerUrlOr(raw.openaiBaseUrl, DEFAULTS.openaiBaseUrl),

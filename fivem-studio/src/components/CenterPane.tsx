@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileChangeReview, OpenFile } from "../App";
 import { languageForPath } from "../editorLanguage";
-import type { EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, WindowCandidate } from "../global";
+import type { CrashTriageContext, EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, WindowCandidate } from "../global";
 import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
+import { countNewConsoleLines, filterConsoleOutput, newestErrorBlock, type ConsoleSeverity } from "../consoleText";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
@@ -56,6 +57,10 @@ interface CenterPaneProps {
   resourceAction: string | null;
   onResourceAction: (kind: "start" | "stop" | "restart", name: string) => Promise<boolean>;
   consoleRefreshSignal: { resource: string; nonce: number } | null;
+  crashTriage: CrashTriageContext | null;
+  onDismissCrashTriage: () => void;
+  onSendCrashTriage: (text: string) => void;
+  onConsoleOutputChange: (output: string) => void;
   onSelectFileTab: (path: string) => void;
   onCloseFileTab: (path: string) => void;
   onChange: (path: string, content: string) => void;
@@ -95,6 +100,10 @@ export default function CenterPane({
   resourceAction,
   onResourceAction,
   consoleRefreshSignal,
+  crashTriage,
+  onDismissCrashTriage,
+  onSendCrashTriage,
+  onConsoleOutputChange,
   onSelectFileTab,
   onCloseFileTab,
   onChange,
@@ -220,6 +229,10 @@ export default function CenterPane({
             refreshIntervalMs={consoleRefreshIntervalMs}
             onRefreshIntervalChange={onConsoleRefreshIntervalChange}
             refreshSignal={consoleRefreshSignal}
+            crashTriage={crashTriage}
+            onDismissCrashTriage={onDismissCrashTriage}
+            onSendCrashTriage={onSendCrashTriage}
+            onOutputChange={onConsoleOutputChange}
           />
         </div>
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "resources" ? "flex" : "none" }}>
@@ -376,6 +389,10 @@ function ConsoleSection({
   refreshIntervalMs,
   onRefreshIntervalChange,
   refreshSignal,
+  crashTriage,
+  onDismissCrashTriage,
+  onSendCrashTriage,
+  onOutputChange,
 }: {
   active: boolean;
   connected: boolean;
@@ -383,6 +400,10 @@ function ConsoleSection({
   refreshIntervalMs: number;
   onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
   refreshSignal: { resource: string; nonce: number } | null;
+  crashTriage: CrashTriageContext | null;
+  onDismissCrashTriage: () => void;
+  onSendCrashTriage: (text: string) => void;
+  onOutputChange: (output: string) => void;
 }) {
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
@@ -393,6 +414,10 @@ function ConsoleSection({
         refreshIntervalMs={refreshIntervalMs}
         onRefreshIntervalChange={onRefreshIntervalChange}
         refreshSignal={refreshSignal}
+        crashTriage={crashTriage}
+        onDismissCrashTriage={onDismissCrashTriage}
+        onSendCrashTriage={onSendCrashTriage}
+        onOutputChange={onOutputChange}
       />
     </div>
   );
@@ -405,6 +430,10 @@ function ConsoleTab({
   refreshIntervalMs,
   onRefreshIntervalChange,
   refreshSignal,
+  crashTriage,
+  onDismissCrashTriage,
+  onSendCrashTriage,
+  onOutputChange,
 }: {
   active: boolean;
   connected: boolean;
@@ -412,8 +441,17 @@ function ConsoleTab({
   refreshIntervalMs: number;
   onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
   refreshSignal: { resource: string; nonce: number } | null;
+  crashTriage: CrashTriageContext | null;
+  onDismissCrashTriage: () => void;
+  onSendCrashTriage: (text: string) => void;
+  onOutputChange: (output: string) => void;
 }) {
   const [output, setOutput] = useState("");
+  const [paused, setPaused] = useState(false);
+  const [bufferedLines, setBufferedLines] = useState(0);
+  const [severity, setSeverity] = useState<ConsoleSeverity>("all");
+  const [textFilter, setTextFilter] = useState("");
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [savingInterval, setSavingInterval] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -422,6 +460,20 @@ function ConsoleTab({
   const requestRef = useRef<Promise<void> | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const latestOutputRef = useRef("");
+  const pausedRef = useRef(false);
+  const frozenOutputRef = useRef("");
+
+  const acceptOutput = useCallback((next: string) => {
+    latestOutputRef.current = next;
+    onOutputChange(next);
+    if (pausedRef.current) {
+      setBufferedLines(countNewConsoleLines(frozenOutputRef.current, next));
+      return;
+    }
+    frozenOutputRef.current = next;
+    setOutput(next);
+  }, [onOutputChange]);
 
   const refresh = useCallback((showLoading: boolean): Promise<void> => {
     if (requestRef.current) return requestRef.current;
@@ -431,7 +483,7 @@ function ConsoleTab({
     setError(null);
     const request = window.api.mcp
       .callTool("get_console_output", { lines: 200 })
-      .then(setOutput)
+      .then(acceptOutput)
       .catch((err) => setError((err as Error).message))
       .finally(() => {
         requestRef.current = null;
@@ -439,7 +491,7 @@ function ConsoleTab({
       });
     requestRef.current = request;
     return request;
-  }, []);
+  }, [acceptOutput]);
 
   useEffect(() => {
     const onVisibilityChange = () => setPageVisible(document.visibilityState !== "hidden");
@@ -489,12 +541,83 @@ function ConsoleTab({
     }
   }
 
+  function togglePaused() {
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      setPaused(false);
+      setBufferedLines(0);
+      frozenOutputRef.current = latestOutputRef.current;
+      stickToBottomRef.current = true;
+      setOutput(latestOutputRef.current);
+      return;
+    }
+    pausedRef.current = true;
+    frozenOutputRef.current = output;
+    setPaused(true);
+  }
+
+  async function copyLastError() {
+    const block = newestErrorBlock(latestOutputRef.current || output);
+    if (!block) {
+      setCopyNotice(t("console.noError"));
+      return;
+    }
+    try {
+      await window.api.clipboard.writeText(block);
+      setCopyNotice(t("console.copiedError"));
+    } catch (copyError) {
+      setCopyNotice((copyError as Error).message);
+    }
+  }
+
+  const visibleOutput = useMemo(
+    () => filterConsoleOutput(output, severity, textFilter),
+    [output, severity, textFilter],
+  );
+
+  function sendCrashContext() {
+    if (!crashTriage) return;
+    const reportSection = crashTriage.report
+      ? `Newest crash artifact (${crashTriage.report.relativePath}):\n${crashTriage.report.excerpt}`
+      : "No crash artifact was found.";
+    const consoleSection = crashTriage.consoleTail || "No recent console output was captured.";
+    onSendCrashTriage(
+      `Please triage this unexpected FXServer exit. Identify the likely cause, point to the relevant resource or config when possible, and recommend the safest next check.\n\n${reportSection}\n\nLast 50 console lines:\n${consoleSection}`,
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
-      <div style={{ display: "flex", gap: 6, padding: 6, borderBottom: "1px solid var(--border)" }}>
+      <div className="console-toolbar">
         <button className="btn small" onClick={() => void refresh(true)} disabled={loading || !connected || available !== true}>
           {loading ? "Refreshing…" : "Refresh"}
         </button>
+        <button className={`btn small ${paused ? "active" : ""}`} onClick={togglePaused} aria-pressed={paused}>
+          {paused ? t("console.resume") : t("console.pause")}
+        </button>
+        <button className="btn small" onClick={() => void copyLastError()}>
+          {t("console.copyLastError")}
+        </button>
+        <div className="console-severity-chips" role="group" aria-label={t("console.severity.label")}>
+          {(["all", "error", "warning"] as const).map((nextSeverity) => (
+            <button
+              key={nextSeverity}
+              type="button"
+              className={`console-chip ${severity === nextSeverity ? "active" : ""} ${nextSeverity}`}
+              aria-pressed={severity === nextSeverity}
+              onClick={() => setSeverity(nextSeverity)}
+            >
+              {t(nextSeverity === "all" ? "console.severity.all" : nextSeverity === "error" ? "console.severity.errors" : "console.severity.warnings")}
+            </button>
+          ))}
+        </div>
+        <input
+          className="console-filter"
+          value={textFilter}
+          onChange={(event) => setTextFilter(event.target.value)}
+          placeholder={t("console.filter.placeholder")}
+          aria-label={t("console.filter.placeholder")}
+        />
         <label className="console-refresh-control">
           <span>Auto-refresh</span>
           <select
@@ -510,6 +633,34 @@ function ConsoleTab({
         </label>
         {refreshNotice && <span className="console-refresh-notice" aria-live="polite">{refreshNotice}</span>}
       </div>
+      {paused && bufferedLines > 0 && (
+        <button type="button" className="console-buffered-banner" onClick={togglePaused}>
+          {t("console.buffered", { count: bufferedLines })}
+        </button>
+      )}
+      {copyNotice && (
+        <div className="console-copy-notice" role="status">
+          {copyNotice}
+          <button className="banner-dismiss" type="button" onClick={() => setCopyNotice(null)} aria-label={t("common.dismiss")}>×</button>
+        </div>
+      )}
+      {crashTriage && (
+        <section className="console-crash-card" aria-label={t("console.crashTitle")}>
+          <div className="console-crash-head">
+            <strong>{t("console.crashTitle")}</strong>
+            <span>{new Date(crashTriage.detectedAt).toLocaleString()}</span>
+          </div>
+          <div>
+            {crashTriage.report
+              ? t("console.crashReport", { path: crashTriage.report.relativePath })
+              : t("console.crashNoReport")}
+          </div>
+          <div className="console-crash-actions">
+            <button className="btn small primary" type="button" onClick={sendCrashContext}>{t("console.crashSend")}</button>
+            <button className="btn small" type="button" onClick={onDismissCrashTriage}>{t("console.crashDismiss")}</button>
+          </div>
+        </section>
+      )}
       {connected && available === false && (
         <div className="operations-empty" role="status">
           Console tailing requires exactly one txAdmin control profile whose <code>config.json</code> {" "}
@@ -523,11 +674,13 @@ function ConsoleTab({
         style={{ flex: 1, overflow: "auto" }}
         aria-live={refreshIntervalMs === 0 ? "polite" : "off"}
       >
-        {output || (available === false
-          ? "(console not attached yet)"
-          : refreshIntervalMs === 0
-            ? "(no output yet — click Refresh)"
-            : "(waiting for console output…)" )}
+        {visibleOutput || (output
+          ? `(${t("console.noMatches")})`
+          : available === false
+            ? "(console not attached yet)"
+            : refreshIntervalMs === 0
+              ? "(no output yet — click Refresh)"
+              : "(waiting for console output…)" )}
       </div>
     </div>
   );

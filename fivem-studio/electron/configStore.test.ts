@@ -68,6 +68,12 @@ test("console refresh accepts supported intervals and defaults invalid values", 
   }
 });
 
+test("unexpected server-exit notifications default on and accept an explicit preference", () => {
+  assert.equal(normalizeConfig({}).notifyOnServerExit, true);
+  assert.equal(normalizeConfig({ notifyOnServerExit: false }).notifyOnServerExit, false);
+  assert.equal(normalizeConfig({ notifyOnServerExit: "false" }).notifyOnServerExit, true);
+});
+
 test("editor preferences are bounded and migrate from missing settings", () => {
   assert.deepEqual(normalizeConfig({}).editor, {
     fontSize: 13,

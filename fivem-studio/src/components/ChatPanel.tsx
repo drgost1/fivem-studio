@@ -94,15 +94,17 @@ interface ChatPanelProps {
   workspaceMatch: RuntimeWorkspaceMatch | null;
   /** Live editor selection, if any — shown as a chip so it's never a surprise what gets sent. */
   selection: { path: string | null; selectedText: string; startLine: number; endLine: number } | null;
+  suggestedPrompt: { text: string; nonce: number } | null;
 }
 
-export default function ChatPanel({ connected, config, resolvedTheme, workspaceMatch, selection }: ChatPanelProps) {
+export default function ChatPanel({ connected, config, resolvedTheme, workspaceMatch, selection, suggestedPrompt }: ChatPanelProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState<boolean | null>(null);
   const [usage, setUsage] = useState<SessionUsage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isAnthropic = config.agentProvider === "anthropic";
   const preset = matchPreset(config.agentProvider, config.openaiBaseUrl);
@@ -140,6 +142,12 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries]);
+
+  useEffect(() => {
+    if (!suggestedPrompt) return;
+    setDraft(suggestedPrompt.text);
+    inputRef.current?.focus();
+  }, [suggestedPrompt]);
 
   function applyEvent(prev: Entry[], event: AgentEvent): Entry[] {
     switch (event.type) {
@@ -377,6 +385,7 @@ export default function ChatPanel({ connected, config, resolvedTheme, workspaceM
 
       <div className="chat-input-row">
         <textarea
+          ref={inputRef}
           rows={2}
           value={draft}
           placeholder={ready === false ? "Configure a model backend in Settings first…" : "Ask your agent to do something…"}

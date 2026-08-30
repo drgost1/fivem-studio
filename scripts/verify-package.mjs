@@ -84,7 +84,13 @@ function verifyPackagedRenderer() {
   const entries = new Set(
     listPackage(appArchive).map((entry) => entry.replace(/^[/\\]+/, "").replaceAll("\\", "/")),
   );
-  const required = ["dist/index.html", "dist/manifest.json", "dist-electron/main.js", "dist-electron/preload.js"];
+  const required = [
+    "dist/index.html",
+    "dist/manifest.json",
+    "dist-electron/main.js",
+    "dist-electron/preload.js",
+    "dist-electron/workspaceSearchWorker.js",
+  ];
   for (const entry of required) {
     if (!entries.has(entry)) throw new Error(`Required packaged app entry is missing: ${entry}`);
   }

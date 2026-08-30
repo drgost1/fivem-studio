@@ -55,6 +55,8 @@ assert((desktopTests.match(/\.test\.js/g) ?? []).length === 1, "Desktop tests mu
 assert(desktopPackage.scripts?.pretest?.includes("require('electron')"), "Desktop tests must prepare Electron once before parallel discovery.");
 assert(desktopPackage.build?.files?.includes("!dist-electron/**/*.map"), "Desktop source maps must be excluded from the package.");
 assert(desktopPackage.build?.files?.includes("!dist-electron/**/*.test.js"), "Desktop tests must be excluded from the package.");
+assert(desktopPackage.build?.files?.includes("dist-electron/**/*"), "Compiled Electron workers must remain included in the package.");
+assert(fs.existsSync(path.join(root, "fivem-studio", "electron", "workspaceSearchWorker.ts")), "The bounded workspace-search worker source is missing.");
 
 const workflowsDir = path.join(root, ".github", "workflows");
 for (const name of fs.readdirSync(workflowsDir).filter((entry) => /\.ya?ml$/i.test(entry))) {
@@ -72,6 +74,11 @@ for (const name of fs.readdirSync(workflowsDir).filter((entry) => /\.ya?ml$/i.te
 
 const releaseScript = readText("scripts/package-release.mjs");
 assert(!releaseScript.includes('run(npm, ["install"'), "Release packaging must not re-resolve the reviewed lockfile.");
+assert(!/\b(?:ComSpec|COMSPEC)\b/.test(releaseScript), "Release packaging must not select a command shell from the environment.");
+assert(
+  releaseScript.includes("spawnSync(process.execPath, [scriptPath, ...args]") && releaseScript.includes("shell: false"),
+  "Release packaging must execute JavaScript CLIs directly with the pinned Node executable and no shell.",
+);
 for (const requiredDocument of ["BUILDING.md", "SECURITY.md", "DEPENDENCY_POLICY.md", "LOCALIZATION.md"]) {
   assert(fs.existsSync(path.join(root, requiredDocument)), `${requiredDocument} is missing.`);
 }

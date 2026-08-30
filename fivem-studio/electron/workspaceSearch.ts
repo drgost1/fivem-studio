@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { Worker } from "node:worker_threads";
 
 import { readTextFileSnapshot, writeTextFile } from "./fsTree";
 import { resolveInsideRoot } from "./pathSafety";
@@ -19,6 +20,8 @@ const MAX_PREVIEW_BYTES = 24 * 1024 * 1024;
 const SESSION_TTL_MS = 15 * 60 * 1_000;
 const MAX_SESSIONS = 4;
 const MAX_PREVIEWS = 8;
+const REGEX_EXECUTION_TIMEOUT_MS = 1_000;
+const REGEX_SEARCH_TIMEOUT_MS = 10_000;
 
 export interface WorkspaceSearchRequest {
   query: string;
@@ -119,6 +122,42 @@ interface ReplacePreviewSession {
   changes: PreparedReplaceFile[];
 }
 
+interface RegexDescriptor {
+  source: string;
+  flags: string;
+}
+
+interface RegexWorkerMatch {
+  index: number;
+  text: string;
+  captures: Array<string | undefined>;
+  namedCaptures: Record<string, string>;
+}
+
+interface RegexWorkerResponse {
+  id: number;
+  matches?: RegexWorkerMatch[];
+  error?: string;
+}
+
+interface RegexGroupRisk {
+  containsQuantifier: boolean;
+}
+
+interface RegexAtomRisk {
+  group?: RegexGroupRisk;
+}
+
+interface RegexExecutionLimits {
+  perFileMs: number;
+  totalMs: number;
+}
+
+const DEFAULT_REGEX_EXECUTION_LIMITS: Readonly<RegexExecutionLimits> = {
+  perFileMs: REGEX_EXECUTION_TIMEOUT_MS,
+  totalMs: REGEX_SEARCH_TIMEOUT_MS,
+};
+
 function forwardSlashes(value: string): string {
   return value.split(path.sep).join("/");
 }
@@ -127,22 +166,198 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function quantifierEnd(pattern: string, index: number): number {
+  const marker = pattern[index];
+  if (marker === "*" || marker === "+" || marker === "?") return index;
+  if (marker !== "{") return -1;
+  let cursor = index + 1;
+  const minimumStart = cursor;
+  while (cursor < pattern.length && pattern.charCodeAt(cursor) >= 48 && pattern.charCodeAt(cursor) <= 57) cursor += 1;
+  if (cursor === minimumStart) return -1;
+  if (pattern[cursor] === ",") {
+    cursor += 1;
+    while (cursor < pattern.length && pattern.charCodeAt(cursor) >= 48 && pattern.charCodeAt(cursor) <= 57) cursor += 1;
+  }
+  return pattern[cursor] === "}" ? cursor : -1;
+}
+
+function isUnboundedQuantifier(pattern: string, index: number, end: number): boolean {
+  if (pattern[index] === "*" || pattern[index] === "+") return true;
+  if (pattern[index] !== "{") return false;
+  const comma = pattern.indexOf(",", index + 1);
+  return comma >= 0 && comma < end && comma + 1 === end;
+}
+
 function validateRegexPattern(pattern: string): void {
   if (pattern.length > MAX_QUERY_LENGTH) throw new Error(`Regular expressions are limited to ${MAX_QUERY_LENGTH} characters.`);
-  if (/\\[1-9]/.test(pattern)) throw new Error("Regular-expression backreferences are disabled because they can make workspace searches unbounded.");
-  if (/\((?:[^()]|\\.)*[+*{](?:[^()]|\\.)*\)\s*[+*{]/.test(pattern)) {
-    throw new Error("Nested regular-expression quantifiers are disabled because they can make workspace searches unbounded.");
+  // This scanner must remain linear: applying another backtracking expression
+  // to the user-controlled pattern would merely move the ReDoS sink here.
+  const groups: RegexGroupRisk[] = [];
+  let inCharacterClass = false;
+  let escaped = false;
+  let lastAtom: RegexAtomRisk | null = null;
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (escaped) {
+      if (!inCharacterClass && ((character >= "1" && character <= "9") || (character === "k" && pattern[index + 1] === "<"))) {
+        throw new Error("Regular-expression backreferences are disabled because they can make workspace searches unbounded.");
+      }
+      escaped = false;
+      lastAtom = {};
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (inCharacterClass) {
+      if (character === "]") {
+        inCharacterClass = false;
+        lastAtom = {};
+      }
+      continue;
+    }
+    if (character === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (character === "(") {
+      groups.push({ containsQuantifier: false });
+      lastAtom = null;
+      continue;
+    }
+    if (character === "|") {
+      lastAtom = null;
+      continue;
+    }
+    if (character === ")") {
+      const group = groups.pop();
+      if (group) {
+        const parent = groups[groups.length - 1];
+        if (parent) {
+          parent.containsQuantifier ||= group.containsQuantifier;
+        }
+        lastAtom = { group };
+      } else {
+        lastAtom = null;
+      }
+      continue;
+    }
+
+    const end = quantifierEnd(pattern, index);
+    if (end >= index && lastAtom) {
+      if (lastAtom.group?.containsQuantifier && isUnboundedQuantifier(pattern, index, end)) {
+        throw new Error("Nested regular-expression quantifiers are disabled because they can make workspace searches unbounded.");
+      }
+      const group = groups[groups.length - 1];
+      if (group) group.containsQuantifier = true;
+      index = end;
+      continue;
+    }
+    lastAtom = {};
   }
 }
 
-function searchRegex(request: WorkspaceSearchRequest): RegExp {
+function searchRegex(request: WorkspaceSearchRequest): RegexDescriptor {
   const source = request.regex ? request.query : escapeRegex(request.query);
   if (request.regex) validateRegexPattern(source);
   const bounded = request.wholeWord ? `(?<![A-Za-z0-9_])(?:${source})(?![A-Za-z0-9_])` : source;
-  try {
-    return new RegExp(bounded, `gu${request.caseSensitive ? "" : "i"}`);
-  } catch (error) {
-    throw new Error(`Invalid regular expression: ${(error as Error).message}`);
+  return { source: bounded, flags: `gu${request.caseSensitive ? "" : "i"}` };
+}
+
+function executeTrustedRegex(descriptor: RegexDescriptor, content: string, maxMatches: number): RegexWorkerMatch[] {
+  const matcher = new RegExp(descriptor.source, descriptor.flags);
+  const matches: RegexWorkerMatch[] = [];
+  let found: RegExpExecArray | null;
+  while (matches.length < maxMatches && (found = matcher.exec(content)) !== null) {
+    matches.push({
+      index: found.index,
+      text: found[0],
+      captures: found.slice(1),
+      namedCaptures: Object.fromEntries(Object.entries(found.groups ?? {}).map(([name, value]) => [name, value ?? ""])),
+    });
+    if (found[0].length === 0) {
+      const codePoint = content.codePointAt(matcher.lastIndex);
+      matcher.lastIndex += codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    }
+  }
+  return matches;
+}
+
+class BoundedRegexRunner {
+  private readonly worker = new Worker(path.join(__dirname, "workspaceSearchWorker.js"));
+  private nextId = 1;
+  private pending: {
+    id: number;
+    timer: NodeJS.Timeout;
+    resolve: (matches: RegexWorkerMatch[]) => void;
+    reject: (error: Error) => void;
+  } | null = null;
+  private stopped = false;
+  private termination: Promise<number> | null = null;
+
+  constructor() {
+    this.worker.on("message", (response: RegexWorkerResponse) => {
+      if (!this.pending || response.id !== this.pending.id) return;
+      const pending = this.pending;
+      this.pending = null;
+      clearTimeout(pending.timer);
+      if (response.error) pending.reject(new Error(`Invalid regular expression: ${response.error}`));
+      else pending.resolve(response.matches ?? []);
+    });
+    this.worker.on("error", (error) => this.fail(error));
+    this.worker.on("exit", (code) => {
+      if (!this.stopped) this.fail(new Error(`The bounded regular-expression worker exited unexpectedly with code ${code}.`));
+    });
+  }
+
+  run(
+    descriptor: RegexDescriptor,
+    content: string,
+    maxMatches: number,
+    timeoutMs: number,
+    timeoutScope: "file" | "search",
+  ): Promise<RegexWorkerMatch[]> {
+    if (this.pending) throw new Error("A bounded regular-expression search is already running.");
+    if (this.stopped) throw new Error("The bounded regular-expression worker is unavailable.");
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending || this.pending.id !== id) return;
+        this.pending = null;
+        void this.terminateWorker().catch(() => undefined);
+        reject(new Error(timeoutScope === "search"
+          ? "Regular-expression evaluation exceeded the whole-search safety limit. Narrow the scope or simplify the expression."
+          : "Regular-expression evaluation exceeded the per-file safety limit. Narrow or simplify the expression."));
+      }, Math.max(1, Math.ceil(timeoutMs)));
+      this.pending = { id, timer, resolve, reject };
+      this.worker.postMessage({ id, ...descriptor, content, maxMatches });
+    });
+  }
+
+  async dispose(): Promise<void> {
+    if (this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(new Error("The bounded regular-expression worker was stopped."));
+      this.pending = null;
+    }
+    await this.terminateWorker();
+  }
+
+  private fail(error: Error): void {
+    if (this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(error);
+      this.pending = null;
+    }
+    this.stopped = true;
+  }
+
+  private terminateWorker(): Promise<number> {
+    this.stopped = true;
+    this.termination ??= this.worker.terminate();
+    return this.termination;
   }
 }
 
@@ -218,10 +433,24 @@ function expandReplacement(template: string, match: InternalMatch, content: stri
 export class WorkspaceSearchService {
   private readonly sessions = new Map<string, SearchSession>();
   private readonly previews = new Map<string, ReplacePreviewSession>();
+  private searchActive = false;
 
-  constructor(private readonly revertStore: RevertStore) {}
+  constructor(
+    private readonly revertStore: RevertStore,
+    private readonly regexExecutionLimits: Readonly<RegexExecutionLimits> = DEFAULT_REGEX_EXECUTION_LIMITS,
+  ) {}
 
-  search(workspaceRoot: string, scopeRoot: string, rawRequest: unknown): WorkspaceSearchResult {
+  async search(workspaceRoot: string, scopeRoot: string, rawRequest: unknown): Promise<WorkspaceSearchResult> {
+    if (this.searchActive) throw new Error("A workspace search is already running. Wait for it to finish before starting another.");
+    this.searchActive = true;
+    try {
+      return await this.runSearch(workspaceRoot, scopeRoot, rawRequest);
+    } finally {
+      this.searchActive = false;
+    }
+  }
+
+  private async runSearch(workspaceRoot: string, scopeRoot: string, rawRequest: unknown): Promise<WorkspaceSearchResult> {
     this.pruneSessions();
     if (!rawRequest || typeof rawRequest !== "object" || Array.isArray(rawRequest)) throw new Error("Search options must be an object.");
     const raw = rawRequest as Record<string, unknown>;
@@ -235,7 +464,7 @@ export class WorkspaceSearchService {
       include: validateGlobs(raw.include, "Include globs"),
       exclude: validateGlobs(raw.exclude, "Exclude globs"),
     };
-    const matcher = searchRegex(request);
+    const descriptor = searchRegex(request);
     const root = fs.realpathSync(workspaceRoot);
     const scope = resolveInsideRoot(root, path.relative(root, scopeRoot));
     const include = compileGlobs(request.include);
@@ -246,8 +475,30 @@ export class WorkspaceSearchService {
     let scannedFiles = 0;
     let skippedCredentialFiles = 0;
     let truncated = false;
+    const regexRunner = request.regex ? new BoundedRegexRunner() : null;
+    const regexDeadline = regexRunner ? Date.now() + this.regexExecutionLimits.totalMs : 0;
 
-    const walk = (directory: string): void => {
+    const runBoundedRegex = async (content: string, maxMatches: number): Promise<RegexWorkerMatch[]> => {
+      if (!regexRunner) return executeTrustedRegex(descriptor, content, maxMatches);
+      const remainingMs = regexDeadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error("Regular-expression evaluation exceeded the whole-search safety limit. Narrow the scope or simplify the expression.");
+      }
+      const timeoutScope = remainingMs <= this.regexExecutionLimits.perFileMs ? "search" : "file";
+      const matches = await regexRunner.run(
+        descriptor,
+        content,
+        maxMatches,
+        Math.min(this.regexExecutionLimits.perFileMs, remainingMs),
+        timeoutScope,
+      );
+      if (Date.now() >= regexDeadline) {
+        throw new Error("Regular-expression evaluation exceeded the whole-search safety limit. Narrow the scope or simplify the expression.");
+      }
+      return matches;
+    };
+
+    const walk = async (directory: string): Promise<void> => {
       if (truncated) return;
       let entries: fs.Dirent[];
       try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return; }
@@ -258,7 +509,7 @@ export class WorkspaceSearchService {
         try { resolveInsideRoot(root, path.relative(root, target)); } catch { continue; }
         if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) {
-          if (!SKIP_DIRS.has(entry.name)) walk(target);
+          if (!SKIP_DIRS.has(entry.name)) await walk(target);
           continue;
         }
         if (!entry.isFile()) continue;
@@ -288,11 +539,11 @@ export class WorkspaceSearchService {
         const starts = lineStarts(content);
         const lines = content.split(/\r?\n/);
         const matches: InternalMatch[] = [];
-        matcher.lastIndex = 0;
-        let found: RegExpExecArray | null;
-        while ((found = matcher.exec(content)) !== null) {
+        const remainingMatches = Math.min(MAX_MATCHES_PER_FILE, MAX_UI_MATCHES - totalMatches);
+        const foundMatches = await runBoundedRegex(content, remainingMatches);
+        for (const found of foundMatches) {
           const start = found.index;
-          const end = start + found[0].length;
+          const end = start + found.text.length;
           const startLineIndex = lineIndexAt(starts, start);
           const endLineIndex = lineIndexAt(starts, Math.max(start, end - 1));
           const id = `${files.length}:${matches.length}`;
@@ -309,11 +560,10 @@ export class WorkspaceSearchService {
             after: lines.slice(endLineIndex + 1, endLineIndex + 3).map((line) => line.slice(0, 400)),
             start,
             end,
-            captures: found.slice(1),
-            namedCaptures: Object.fromEntries(Object.entries(found.groups ?? {}).map(([name, value]) => [name, value ?? ""])),
+            captures: found.captures,
+            namedCaptures: found.namedCaptures,
           });
           totalMatches += 1;
-          if (found[0].length === 0) matcher.lastIndex += 1;
           if (matches.length >= MAX_MATCHES_PER_FILE || totalMatches >= MAX_UI_MATCHES) {
             truncated = true;
             break;
@@ -324,7 +574,14 @@ export class WorkspaceSearchService {
         }
       }
     };
-    walk(scope);
+    try {
+      // Compile once in the bounded worker before walking so invalid patterns
+      // are rejected even when the selected workspace contains no text files.
+      if (regexRunner) await runBoundedRegex("", 1);
+      await walk(scope);
+    } finally {
+      await regexRunner?.dispose();
+    }
 
     const id = randomUUID();
     this.sessions.set(id, {

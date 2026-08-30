@@ -7,7 +7,7 @@ import test from "node:test";
 import { RevertStore } from "./revertStore";
 import { WorkspaceSearchService } from "./workspaceSearch";
 
-function fixture() {
+function fixture(regexExecutionLimits?: { perFileMs: number; totalMs: number }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-search-workspace-"));
   const history = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-search-history-"));
   const firstResource = path.join(root, "qb-first");
@@ -23,7 +23,7 @@ function fixture() {
     firstResource,
     secondResource,
     store,
-    service: new WorkspaceSearchService(store),
+    service: new WorkspaceSearchService(store, regexExecutionLimits),
     cleanup() {
       fs.rmSync(root, { recursive: true, force: true });
       fs.rmSync(history, { recursive: true, force: true });
@@ -31,13 +31,13 @@ function fixture() {
   };
 }
 
-test("human search supports resource scope, context, regex options, and globs", () => {
+test("human search supports resource scope, context, regex options, and globs", async () => {
   const f = fixture();
   try {
     fs.writeFileSync(path.join(f.firstResource, "client.lua"), "local before = true\nTriggerEvent('qb:open')\nlocal after = true\n");
     fs.writeFileSync(path.join(f.firstResource, "ignored.lua"), "TriggerEvent('qb:open')\n");
     fs.writeFileSync(path.join(f.secondResource, "client.lua"), "TriggerEvent('qb:open')\n");
-    const result = f.service.search(f.root, f.firstResource, {
+    const result = await f.service.search(f.root, f.firstResource, {
       query: "trigger(event)",
       regex: true,
       caseSensitive: false,
@@ -54,14 +54,14 @@ test("human search supports resource scope, context, regex options, and globs", 
   }
 });
 
-test("replace previews selected capture groups, skips stale files, and undoes one successful batch", () => {
+test("replace previews selected capture groups, skips stale files, and undoes one successful batch", async () => {
   const f = fixture();
   try {
     const first = path.join(f.firstResource, "first.lua");
     const second = path.join(f.firstResource, "second.lua");
     fs.writeFileSync(first, "old_alpha old_beta\n");
     fs.writeFileSync(second, "old_gamma\n");
-    const search = f.service.search(f.root, f.firstResource, {
+    const search = await f.service.search(f.root, f.firstResource, {
       query: "old_(\\w+)",
       regex: true,
       caseSensitive: true,
@@ -94,12 +94,12 @@ test("replace previews selected capture groups, skips stale files, and undoes on
   }
 });
 
-test("apply is bound to the exact reviewed selection and replacement", () => {
+test("apply is bound to the exact reviewed selection and replacement", async () => {
   const f = fixture();
   try {
     const target = path.join(f.firstResource, "client.lua");
     fs.writeFileSync(target, "old_alpha old_beta\n");
-    const search = f.service.search(f.root, f.firstResource, {
+    const search = await f.service.search(f.root, f.firstResource, {
       query: "old_(\\w+)",
       regex: true,
       caseSensitive: true,
@@ -119,12 +119,12 @@ test("apply is bound to the exact reviewed selection and replacement", () => {
   }
 });
 
-test("credential-bearing files and unsafe regular expressions are refused", () => {
+test("credential-bearing files and structurally unsafe regular expressions are refused", async () => {
   const f = fixture();
   try {
     fs.writeFileSync(path.join(f.firstResource, "secrets.cfg"), 'set rcon_password "private"\n');
     fs.writeFileSync(path.join(f.firstResource, "client.lua"), "local value = 'public'\n");
-    const result = f.service.search(f.root, f.firstResource, {
+    const result = await f.service.search(f.root, f.firstResource, {
       query: "private",
       regex: false,
       caseSensitive: true,
@@ -134,7 +134,7 @@ test("credential-bearing files and unsafe regular expressions are refused", () =
     });
     assert.equal(result.totalMatches, 0);
     assert.equal(result.skippedCredentialFiles, 1);
-    assert.throws(() => f.service.search(f.root, f.firstResource, {
+    await assert.rejects(() => f.service.search(f.root, f.firstResource, {
       query: "(a+)+$",
       regex: true,
       caseSensitive: true,
@@ -142,6 +142,108 @@ test("credential-bearing files and unsafe regular expressions are refused", () =
       include: [],
       exclude: [],
     }), /Nested regular-expression quantifiers/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("bounded and disjoint quantified alternatives remain available", async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.firstResource, "animals.lua"), "cat dog fox\nfoofoobar\n");
+    const optional = await f.service.search(f.root, f.firstResource, {
+      query: "(cat|dog)?",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/animals.lua"],
+      exclude: [],
+    });
+    assert.ok(optional.totalMatches >= 2);
+
+    const repeated = await f.service.search(f.root, f.firstResource, {
+      query: "(foo|bar)+",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/animals.lua"],
+      exclude: [],
+    });
+    assert.equal(repeated.totalMatches, 1);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("raw regular-expression evaluation is terminated at the per-file deadline", async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.firstResource, "adversarial.lua"), `${"a".repeat(100_000)}!\n`);
+    const startedAt = Date.now();
+    await assert.rejects(() => f.service.search(f.root, f.firstResource, {
+      query: "a*a*$",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/*.lua"],
+      exclude: [],
+    }), /per-file safety limit/);
+    assert.ok(Date.now() - startedAt < 4_000, "catastrophic evaluation should be terminated promptly");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("raw regular-expression evaluation cannot consume the aggregate search budget", async () => {
+  const f = fixture({ perFileMs: 1_000, totalMs: 50 });
+  try {
+    fs.writeFileSync(path.join(f.firstResource, "adversarial.lua"), `${"a".repeat(100_000)}!\n`);
+    const startedAt = Date.now();
+    await assert.rejects(() => f.service.search(f.root, f.firstResource, {
+      query: "a*a*$",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/*.lua"],
+      exclude: [],
+    }), /whole-search safety limit/);
+    assert.ok(Date.now() - startedAt < 1_000, "the remaining whole-search budget must cap a worker run");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("only one search can run at a time and the guard recovers after failure", async () => {
+  const f = fixture({ perFileMs: 1_000, totalMs: 50 });
+  try {
+    fs.writeFileSync(path.join(f.firstResource, "adversarial.lua"), `${"a".repeat(100_000)}!\n`);
+    const active = f.service.search(f.root, f.firstResource, {
+      query: "a*a*$",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/*.lua"],
+      exclude: [],
+    });
+    await assert.rejects(() => f.service.search(f.root, f.firstResource, {
+      query: "public",
+      regex: false,
+      caseSensitive: true,
+      wholeWord: false,
+      include: [],
+      exclude: [],
+    }), /workspace search is already running/);
+    await assert.rejects(() => active, /whole-search safety limit/);
+
+    const recovered = await f.service.search(f.root, f.root, {
+      query: "fx_version",
+      regex: false,
+      caseSensitive: true,
+      wholeWord: false,
+      include: ["**/fxmanifest.lua"],
+      exclude: [],
+    });
+    assert.equal(recovered.totalMatches, 2);
   } finally {
     f.cleanup();
   }

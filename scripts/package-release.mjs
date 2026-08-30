@@ -29,22 +29,39 @@ for (const workspace of ["", "fivem-studio", "fivem-mcp-server"]) {
 }
 fs.writeFileSync(lockPath, `${JSON.stringify(packageLock, null, 2)}\n`, "utf8");
 
-function run(executable, args) {
-  const isWindowsCommandShim = process.platform === "win32" && /\.cmd$/i.test(executable);
-  const command = isWindowsCommandShim ? (process.env.ComSpec || "cmd.exe") : executable;
-  const commandArgs = isWindowsCommandShim ? ["/d", "/s", "/c", executable, ...args] : args;
-  const result = spawnSync(command, commandArgs, { cwd: root, stdio: "inherit", shell: false });
-  if (result.error) throw new Error(`Could not run ${executable}: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`${executable} ${args.join(" ")} failed with exit code ${result.status}`);
+function requireFile(label, candidates) {
+  const resolved = candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+  if (resolved) return resolved;
+  throw new Error(`Could not locate ${label}. Checked: ${candidates.join(", ")}`);
 }
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-run(npm, ["run", "dist"]);
+// Run JavaScript entry points with this already-pinned Node executable. This
+// avoids .cmd wrappers on Windows and never delegates release arguments to a
+// command shell (including one selected through process environment data).
+const nodeDir = path.dirname(fs.realpathSync(process.execPath));
+const npmCli = requireFile("npm CLI", [
+  path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
+  path.resolve(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+]);
+
+function runNodeCli(scriptPath, args) {
+  const result = spawnSync(process.execPath, [scriptPath, ...args], {
+    cwd: root,
+    stdio: "inherit",
+    shell: false,
+  });
+  if (result.error) throw new Error(`Could not run ${scriptPath}: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`${path.basename(scriptPath)} ${args.join(" ")} failed with exit code ${result.status}`);
+}
+
+runNodeCli(npmCli, ["run", "dist"]);
 // Verify the exact versioned package built by semantic-release. CI's earlier
 // package check covers a different build and cannot protect the release asset.
-run(npm, ["run", "verify:package"]);
-const cyclonedx = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "cyclonedx-npm.cmd" : "cyclonedx-npm");
+runNodeCli(npmCli, ["run", "verify:package"]);
+const cyclonedx = requireFile("CycloneDX npm CLI", [
+  path.join(root, "node_modules", "@cyclonedx", "cyclonedx-npm", "bin", "cyclonedx-npm-cli.js"),
+]);
 // The renderer bundle contains libraries that are intentionally development
 // classified because electron-builder must not copy their source packages.
 // Include the complete reviewed graph so the SBOM does not omit shipped code.
-run(cyclonedx, ["--output-file", "release/bom.cdx.json"]);
+runNodeCli(cyclonedx, ["--output-file", "release/bom.cdx.json"]);

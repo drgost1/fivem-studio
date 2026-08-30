@@ -35,6 +35,7 @@ export interface EditorPreferences {
   minimap: boolean;
   stickyScroll: boolean;
   formatOnSave: boolean;
+  restartResourceOnSave: boolean;
   luaIntelligence: "off" | "balanced" | "full";
 }
 
@@ -61,6 +62,7 @@ const DEFAULTS: StudioConfig = {
     minimap: false,
     stickyScroll: true,
     formatOnSave: false,
+    restartResourceOnSave: false,
     luaIntelligence: "balanced",
   },
   // Defaults to Google's free tier rather than a paid key or a local model the
@@ -153,6 +155,7 @@ function editorPreferences(value: unknown): EditorPreferences {
     minimap: booleanOr(raw.minimap, DEFAULTS.editor.minimap),
     stickyScroll: booleanOr(raw.stickyScroll, DEFAULTS.editor.stickyScroll),
     formatOnSave: booleanOr(raw.formatOnSave, DEFAULTS.editor.formatOnSave),
+    restartResourceOnSave: booleanOr(raw.restartResourceOnSave, DEFAULTS.editor.restartResourceOnSave),
     luaIntelligence:
       raw.luaIntelligence === "off" || raw.luaIntelligence === "full" ? raw.luaIntelligence : "balanced",
   };

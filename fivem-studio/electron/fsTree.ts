@@ -11,6 +11,7 @@ export interface DirEntry {
   name: string;
   path: string;
   isDirectory: boolean;
+  resourceName?: string;
 }
 
 const SKIP_NAMES = new Set([".git", "node_modules", ".DS_Store"]);

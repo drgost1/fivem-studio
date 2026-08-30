@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { DirEntry } from "../global";
-import ContextMenu from "./ContextMenu";
+import { t } from "../i18n";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+
+type ResourceState = "started" | "stopped";
+type ResourceAction = "start" | "stop" | "restart";
 
 interface TreeNodeProps {
   entry: DirEntry;
@@ -12,6 +16,8 @@ interface TreeNodeProps {
   onCommitRename: (entry: DirEntry, newName: string) => void;
   onCancelRename: () => void;
   onContextMenu: (entry: DirEntry, x: number, y: number) => void;
+  resourceStates: Record<string, ResourceState>;
+  serverStateAvailable: boolean;
 }
 
 function TreeNode({
@@ -24,6 +30,8 @@ function TreeNode({
   onCommitRename,
   onCancelRename,
   onContextMenu,
+  resourceStates,
+  serverStateAvailable,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
@@ -57,6 +65,9 @@ function TreeNode({
   }, [refreshKey]);
 
   const isRenaming = renamingPath === entry.path;
+  const resourceState = entry.resourceName && serverStateAvailable
+    ? resourceStates[entry.resourceName.toLowerCase()]
+    : undefined;
 
   return (
     <div>
@@ -85,7 +96,16 @@ function TreeNode({
             onBlur={(e) => onCommitRename(entry, e.target.value)}
           />
         ) : (
-          <span>{entry.name}</span>
+          <>
+            <span>{entry.name}</span>
+            {entry.resourceName && (
+              <span
+                className={`resource-state-dot ${resourceState ?? "unknown"}`}
+                title={t(`resource.state.${resourceState ?? "unknown"}`)}
+                aria-label={t(`resource.state.${resourceState ?? "unknown"}`)}
+              />
+            )}
+          </>
         )}
       </div>
       {expanded && entry.isDirectory && (
@@ -104,6 +124,8 @@ function TreeNode({
               onCommitRename={onCommitRename}
               onCancelRename={onCancelRename}
               onContextMenu={onContextMenu}
+              resourceStates={resourceStates}
+              serverStateAvailable={serverStateAvailable}
             />
           ))}
         </div>
@@ -119,6 +141,11 @@ interface ResourceTreeProps {
   refreshKey: number;
   onPathRenamed: (oldPath: string, newPath: string) => void;
   onDeleteEntry: (path: string, name: string) => Promise<boolean>;
+  resourceStates: Record<string, ResourceState>;
+  serverStateAvailable: boolean;
+  runtimeWritable: boolean;
+  resourceAction: string | null;
+  onResourceAction: (kind: ResourceAction, name: string) => Promise<unknown>;
 }
 
 interface MenuState {
@@ -127,7 +154,19 @@ interface MenuState {
   entry: DirEntry;
 }
 
-export default function ResourceTree({ rootPath, selectedPath, onOpenFile, refreshKey, onPathRenamed, onDeleteEntry }: ResourceTreeProps) {
+export default function ResourceTree({
+  rootPath,
+  selectedPath,
+  onOpenFile,
+  refreshKey,
+  onPathRenamed,
+  onDeleteEntry,
+  resourceStates,
+  serverStateAvailable,
+  runtimeWritable,
+  resourceAction,
+  onResourceAction,
+}: ResourceTreeProps) {
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -164,6 +203,34 @@ export default function ResourceTree({ rootPath, selectedPath, onOpenFile, refre
     setMenu({ x, y, entry });
   }
 
+  function lifecycleMenuItems(): ContextMenuItem[] {
+    const name = menu?.entry.resourceName;
+    if (!name) return [];
+    const state = serverStateAvailable ? resourceStates[name.toLowerCase()] : undefined;
+    const controlsBlocked = !runtimeWritable || resourceAction !== null || !serverStateAvailable || state === undefined;
+    return [
+      ...(!serverStateAvailable
+        ? [{ label: t("resource.context.unavailable"), disabled: true, onClick: () => undefined }]
+        : []),
+      {
+        label: t("resource.context.start", { resource: name }),
+        disabled: controlsBlocked || state === "started",
+        onClick: () => void onResourceAction("start", name),
+      },
+      {
+        label: t("resource.context.restart", { resource: name }),
+        disabled: controlsBlocked,
+        onClick: () => void onResourceAction("restart", name),
+      },
+      {
+        label: t("resource.context.stop", { resource: name }),
+        danger: true,
+        disabled: controlsBlocked || state === "stopped",
+        onClick: () => void onResourceAction("stop", name),
+      },
+    ];
+  }
+
   if (!rootPath) {
     return <div className="tree-empty">No profile selected — open Settings and pick your txData folder and profile.</div>;
   }
@@ -188,6 +255,8 @@ export default function ResourceTree({ rootPath, selectedPath, onOpenFile, refre
           onCommitRename={commitRename}
           onCancelRename={() => setRenamingPath(null)}
           onContextMenu={openContextMenu}
+          resourceStates={resourceStates}
+          serverStateAvailable={serverStateAvailable}
         />
       ))}
       {menu && (
@@ -196,6 +265,7 @@ export default function ResourceTree({ rootPath, selectedPath, onOpenFile, refre
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            ...lifecycleMenuItems(),
             { label: "Rename", onClick: () => setRenamingPath(menu.entry.path) },
             { label: "Show in Explorer", onClick: () => window.api.shell.showItemInFolder(menu.entry.path) },
             { label: "Delete", danger: true, onClick: () => deleteEntry(menu.entry) },

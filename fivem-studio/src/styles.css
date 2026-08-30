@@ -335,6 +335,22 @@ button.tree-node {
   color: var(--text-dim);
   flex-shrink: 0;
 }
+.resource-state-dot {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  flex: 0 0 auto;
+}
+.resource-state-dot.started {
+  background: #4fca73;
+}
+.resource-state-dot.stopped {
+  background: var(--red);
+}
 .tree-children {
   margin-left: 14px;
 }
@@ -364,17 +380,29 @@ button.tree-node {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .context-menu-item {
+  display: block;
+  width: 100%;
   padding: 6px 10px;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
   font-size: 12px;
   cursor: pointer;
+  text-align: left;
   white-space: nowrap;
 }
-.context-menu-item:hover {
+.context-menu-item:hover:not(:disabled) {
   background: var(--bg-3);
 }
 .context-menu-item.danger {
   color: var(--red);
+}
+.context-menu-item:disabled {
+  color: var(--text-dim);
+  cursor: default;
+  opacity: 0.6;
 }
 
 /* --- Editor ---
@@ -468,6 +496,49 @@ button.tree-node {
 .editor-surface {
   flex: 1;
   min-height: 0;
+  flex-direction: column;
+}
+.editor-resource-bar {
+  display: flex;
+  flex: 0 0 34px;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.editor-resource-bar > .resource-state-dot {
+  margin: 0;
+}
+.editor-resource-bar strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.editor-resource-bar.stopped {
+  background: color-mix(in srgb, var(--red) 8%, var(--bg-2));
+}
+.editor-resource-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-resource-bar .btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.editor-monaco-surface {
+  flex: 1;
+  min-height: 0;
+}
+.console-refresh-notice {
+  align-self: center;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 10px;
 }
 .change-review-surface,
 .change-review,

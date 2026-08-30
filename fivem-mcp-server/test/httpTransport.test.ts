@@ -41,6 +41,18 @@ test("HTTP transport initializes, lists tools, and returns runtime identity", as
     assert.equal(identity?.contractVersion, "3");
     assert.ok(identity?.runtime?.serverData?.workspacePath);
     assert.ok(identity?.runtime?.serverData?.configPath);
+
+    const resources = await client.callTool({ name: "list_resources", arguments: {} });
+    const structured = resources.structuredContent as {
+      resources?: Array<{ name?: unknown; state?: unknown }>;
+      serverStateAvailable?: unknown;
+    } | undefined;
+    assert.ok(Array.isArray(structured?.resources));
+    assert.equal(typeof structured?.serverStateAvailable, "boolean");
+    for (const resource of structured.resources) {
+      assert.equal(typeof resource.name, "string");
+      assert.ok(resource.state === "started" || resource.state === "stopped");
+    }
   } finally {
     await client?.close().catch(() => undefined);
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));

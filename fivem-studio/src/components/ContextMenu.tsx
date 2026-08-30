@@ -4,6 +4,7 @@ export interface ContextMenuItem {
   label: string;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }
 
 interface ContextMenuProps {
@@ -34,16 +35,19 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
   return (
     <div ref={ref} className="context-menu" style={{ left: x, top: y }}>
       {items.map((item) => (
-        <div
+        <button
+          type="button"
           key={item.label}
           className={`context-menu-item ${item.danger ? "danger" : ""}`}
+          disabled={item.disabled}
           onClick={() => {
+            if (item.disabled) return;
             item.onClick();
             onClose();
           }}
         >
           {item.label}
-        </div>
+        </button>
       ))}
     </div>
   );

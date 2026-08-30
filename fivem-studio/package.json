@@ -19,7 +19,7 @@
     "prebuild": "npm run build:runtime",
     "build": "npm run build:vite && npm run build:electron",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/localUrl.test.js dist-electron/appUpdate.test.js dist-electron/toolApproval.test.js dist-electron/projectTools.test.js dist-electron/fsTree.test.js dist-electron/githubClient.test.js dist-electron/managedRuntime.test.js dist-electron/operationLock.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js dist-electron/configStore.test.js dist-electron/luaLanguageServer.test.js",
+    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/resourceContext.test.js dist-electron/localUrl.test.js dist-electron/appUpdate.test.js dist-electron/toolApproval.test.js dist-electron/projectTools.test.js dist-electron/fsTree.test.js dist-electron/githubClient.test.js dist-electron/managedRuntime.test.js dist-electron/operationLock.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js dist-electron/configStore.test.js dist-electron/luaLanguageServer.test.js",
     "start": "electron .",
     "predist": "npm run prepare:luals && npm run build",
     "dist": "electron-builder --win nsis --x64 --publish never"

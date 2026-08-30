@@ -16,15 +16,30 @@ export const resourceNameSchema = z
   .max(128)
   .describe("Resource name, exactly as it appears in list_resources.");
 
+const resourceStatusOutputSchema = {
+  resources: z.array(z.object({
+    name: z.string(),
+    state: z.enum(["started", "stopped"]),
+  })),
+  serverStateAvailable: z.boolean(),
+};
+
 export function registerResourceTools(server: McpServer, rcon: RconClient) {
-  server.tool(
+  server.registerTool(
     "list_resources",
-    "List resources detected in the selected server-data workspace and show which ones the local " +
-      "FXServer currently reports as started. This is read-only and does not rely on an undocumented console command.",
-    {},
+    {
+      description:
+        "List resources detected in the selected server-data workspace and show which ones the local " +
+        "FXServer currently reports as started. This is read-only and does not rely on an undocumented console command.",
+      inputSchema: {},
+      outputSchema: resourceStatusOutputSchema,
+    },
     async () => {
       const result = await listResourceStatuses(config.serverData.workspacePath, config.rcon.host, config.rcon.port);
-      return text(formatResourceStatuses(result));
+      return {
+        content: [{ type: "text" as const, text: formatResourceStatuses(result) }],
+        structuredContent: result,
+      };
     },
   );
 

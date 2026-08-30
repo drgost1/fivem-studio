@@ -51,6 +51,10 @@ const api = {
       return () => ipcRenderer.removeListener("mcp:dropped", listener);
     },
   },
+  resources: {
+    listStatuses: () => ipcRenderer.invoke("resources:listStatuses"),
+    context: (filePath: string) => ipcRenderer.invoke("resources:context", filePath),
+  },
   github: {
     fetchRepoInfo: (input: string) => ipcRenderer.invoke("github:fetchRepoInfo", input),
     searchRepos: (input: string) => ipcRenderer.invoke("github:searchRepos", input),

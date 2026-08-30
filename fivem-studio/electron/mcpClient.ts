@@ -65,6 +65,16 @@ export interface RuntimeWorkspaceMatch {
   reason?: string;
 }
 
+export interface ResourceStatusItem {
+  name: string;
+  state: "started" | "stopped";
+}
+
+export interface ResourceStatusResult {
+  resources: ResourceStatusItem[];
+  serverStateAvailable: boolean;
+}
+
 let client: Client | null = null;
 let connectedUrl: string | null = null;
 let runtimeIdentity: RuntimeIdentity | null = null;
@@ -223,6 +233,39 @@ export async function mcpCallTool(name: string, args: Record<string, unknown>): 
     throw new Error(textBlock?.text ?? `${name} failed`);
   }
   return textBlock?.text ?? "";
+}
+
+/** Typed UI path for list_resources. The agent continues to receive the
+ * unchanged text block while the renderer gets validated structured state. */
+export async function mcpListResourceStatuses(): Promise<ResourceStatusResult> {
+  if (!client) throw new Error("Not connected to the bundled coding runtime.");
+  const result = await client.callTool({ name: "list_resources", arguments: {} });
+  const content = result.content as Array<{ type: string; text?: string }> | undefined;
+  const textBlock = content?.find((block) => block.type === "text")?.text;
+  if (result.isError) throw new Error(textBlock ?? "Could not list resources.");
+
+  const structured = result.structuredContent;
+  if (!structured || typeof structured !== "object" || Array.isArray(structured)) {
+    throw new Error("The bundled runtime did not return structured resource state.");
+  }
+  const value = structured as Record<string, unknown>;
+  if (!Array.isArray(value.resources) || typeof value.serverStateAvailable !== "boolean") {
+    throw new Error("The bundled runtime returned invalid resource state.");
+  }
+  const resources = value.resources.map((entry): ResourceStatusItem => {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      typeof (entry as Record<string, unknown>).name !== "string" ||
+      !["started", "stopped"].includes(String((entry as Record<string, unknown>).state))
+    ) {
+      throw new Error("The bundled runtime returned an invalid resource entry.");
+    }
+    const item = entry as Record<string, unknown>;
+    return { name: item.name as string, state: item.state as ResourceStatusItem["state"] };
+  });
+  return { resources, serverStateAvailable: value.serverStateAvailable };
 }
 
 async function readRuntimeIdentity(activeClient: Client): Promise<RuntimeIdentity | null> {

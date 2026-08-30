@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileChangeReview, OpenFile } from "../App";
 import { languageForPath } from "../editorLanguage";
-import type { EditorPreferences, EditorProblem, WindowCandidate } from "../global";
+import type { EditorPreferences, EditorProblem, ResourceContext, WindowCandidate } from "../global";
+import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
 
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
@@ -49,6 +50,11 @@ interface CenterPaneProps {
   onSelectCenterTab: (tab: CenterTab) => void;
   openFiles: OpenFile[];
   activePath: string | null;
+  activeResourceContext: ResourceContext | null;
+  activeResourceState: "started" | "stopped" | undefined;
+  resourceAction: string | null;
+  onResourceAction: (kind: "start" | "stop" | "restart", name: string) => Promise<boolean>;
+  consoleRefreshSignal: { resource: string; nonce: number } | null;
   onSelectFileTab: (path: string) => void;
   onCloseFileTab: (path: string) => void;
   onChange: (path: string, content: string) => void;
@@ -82,6 +88,11 @@ export default function CenterPane({
   onSelectCenterTab,
   openFiles,
   activePath,
+  activeResourceContext,
+  activeResourceState,
+  resourceAction,
+  onResourceAction,
+  consoleRefreshSignal,
   onSelectFileTab,
   onCloseFileTab,
   onChange,
@@ -206,6 +217,7 @@ export default function CenterPane({
             available={consoleAvailable}
             refreshIntervalMs={consoleRefreshIntervalMs}
             onRefreshIntervalChange={onConsoleRefreshIntervalChange}
+            refreshSignal={consoleRefreshSignal}
           />
         </div>
         <div style={{ flex: 1, minHeight: 0, display: centerTab === "resources" ? "flex" : "none" }}>
@@ -219,23 +231,56 @@ export default function CenterPane({
         <div className="editor-workbench" style={{ flex: 1, minHeight: 0, display: centerTab === "editor" ? "flex" : "none" }}>
           {activeFile ? (
             <>
-              <div className="editor-surface" style={{ display: activeReview ? "none" : "block" }}>
-                <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
-                  <CodeEditor
-                    file={activeFile}
-                    openPaths={openPaths}
-                    language={languageForPath(activeFile.path)}
-                    preferences={editorPreferences}
-                    luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
-                    reveal={editorReveal}
-                    onChange={onChange}
-                    onSave={onSave}
-                    onSelectionChange={onSelectionChange}
-                    onProblemsChange={onProblemsChange}
-                    onOpenLocation={onOpenEditorLocation}
-                    onLuaStatusChange={handleLuaStatusChange}
-                  />
-                </Suspense>
+              <div className="editor-surface" style={{ display: activeReview ? "none" : "flex" }}>
+                {activeResourceContext && (
+                  <div className={`editor-resource-bar ${activeResourceState ?? "unknown"}`} role="status">
+                    <span className={`resource-state-dot ${activeResourceState ?? "unknown"}`} aria-hidden="true" />
+                    <strong>{activeResourceContext.name}</strong>
+                    <span className="editor-resource-message">
+                      {activeResourceState === "stopped"
+                        ? t("editor.resourceStopped", { resource: activeResourceContext.name })
+                        : t(`resource.state.${activeResourceState ?? "unknown"}`)}
+                    </span>
+                    {activeResourceState === "started" && (
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled={!runtimeWritable || resourceAction !== null}
+                        onClick={() => void onResourceAction("restart", activeResourceContext.name)}
+                      >
+                        {resourceAction === `restart:${activeResourceContext.name}` ? t("common.restarting") : t("editor.restartResource")}
+                      </button>
+                    )}
+                    {activeResourceState === "stopped" && (
+                      <button
+                        type="button"
+                        className="btn small primary"
+                        disabled={!runtimeWritable || resourceAction !== null}
+                        onClick={() => void onResourceAction("start", activeResourceContext.name)}
+                      >
+                        {resourceAction === `start:${activeResourceContext.name}` ? t("common.starting") : t("editor.startResource")}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="editor-monaco-surface">
+                  <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
+                    <CodeEditor
+                      file={activeFile}
+                      openPaths={openPaths}
+                      language={languageForPath(activeFile.path)}
+                      preferences={editorPreferences}
+                      luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
+                      reveal={editorReveal}
+                      onChange={onChange}
+                      onSave={onSave}
+                      onSelectionChange={onSelectionChange}
+                      onProblemsChange={onProblemsChange}
+                      onOpenLocation={onOpenEditorLocation}
+                      onLuaStatusChange={handleLuaStatusChange}
+                    />
+                  </Suspense>
+                </div>
               </div>
               {activeReview && (
                 <div className="change-review-surface">
@@ -326,12 +371,14 @@ function ConsoleSection({
   available,
   refreshIntervalMs,
   onRefreshIntervalChange,
+  refreshSignal,
 }: {
   active: boolean;
   connected: boolean;
   available: boolean | null;
   refreshIntervalMs: number;
   onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
+  refreshSignal: { resource: string; nonce: number } | null;
 }) {
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
@@ -341,6 +388,7 @@ function ConsoleSection({
         available={available}
         refreshIntervalMs={refreshIntervalMs}
         onRefreshIntervalChange={onRefreshIntervalChange}
+        refreshSignal={refreshSignal}
       />
     </div>
   );
@@ -352,18 +400,21 @@ function ConsoleTab({
   available,
   refreshIntervalMs,
   onRefreshIntervalChange,
+  refreshSignal,
 }: {
   active: boolean;
   connected: boolean;
   available: boolean | null;
   refreshIntervalMs: number;
   onRefreshIntervalChange: (intervalMs: number) => Promise<void>;
+  refreshSignal: { resource: string; nonce: number } | null;
 }) {
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [savingInterval, setSavingInterval] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const requestRef = useRef<Promise<void> | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -413,6 +464,15 @@ function ConsoleTab({
     }
   }, [output]);
 
+  useEffect(() => {
+    if (!refreshSignal || !connected || available !== true) return;
+    setRefreshNotice(t("console.refreshAfterRestart", { resource: refreshSignal.resource }));
+    const timer = setTimeout(() => {
+      void refresh(false).finally(() => setRefreshNotice(null));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [available, connected, refresh, refreshSignal]);
+
   async function changeRefreshInterval(intervalMs: number) {
     setSavingInterval(true);
     setError(null);
@@ -444,6 +504,7 @@ function ConsoleTab({
             ))}
           </select>
         </label>
+        {refreshNotice && <span className="console-refresh-notice" aria-live="polite">{refreshNotice}</span>}
       </div>
       {connected && available === false && (
         <div className="operations-empty" role="status">

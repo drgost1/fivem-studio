@@ -7,7 +7,18 @@ import ResourceTree from "./components/ResourceTree";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
-import type { AppUpdateStatus, CfxTarget, EditorProblem, ResolvedProfile, RuntimeIdentity, RuntimeWorkspaceMatch, StudioConfig } from "./global";
+import { t } from "./i18n";
+import type {
+  AppUpdateStatus,
+  CfxTarget,
+  EditorProblem,
+  ResolvedProfile,
+  ResourceContext,
+  ResourceStatusResult,
+  RuntimeIdentity,
+  RuntimeWorkspaceMatch,
+  StudioConfig,
+} from "./global";
 
 export interface OpenFile {
   path: string;
@@ -48,6 +59,7 @@ const DEFAULT_CONFIG: StudioConfig = {
     minimap: false,
     stickyScroll: true,
     formatOnSave: false,
+    restartResourceOnSave: false,
     luaIntelligence: "balanced",
   },
   agentProvider: "openai",
@@ -96,6 +108,16 @@ export default function App() {
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
+  const [resourceStatuses, setResourceStatuses] = useState<ResourceStatusResult>({
+    resources: [],
+    serverStateAvailable: false,
+  });
+  const [resourceAction, setResourceAction] = useState<string | null>(null);
+  const [resourceNotice, setResourceNotice] = useState<{ message: string; error: boolean } | null>(null);
+  const [activeResourceContext, setActiveResourceContext] = useState<ResourceContext | null>(null);
+  const [consoleRefreshSignal, setConsoleRefreshSignal] = useState<{ resource: string; nonce: number } | null>(null);
+  const resourceStatusRequest = useRef<{ scope: string; promise: Promise<void> } | null>(null);
+  const resourceStatusSequence = useRef(0);
 
   const [resolved, setResolved] = useState<ResolvedProfile>(EMPTY_PROFILE);
 
@@ -113,6 +135,19 @@ export default function App() {
   const activeServerPath = serverExeFor(config, config.activeCfxTarget);
   const activeClientPath = clientExeFor(config, config.activeCfxTarget);
   const activeTargetLabel = cfxTargetLabel(config.activeCfxTarget);
+  const runtimeReadable = connected && workspaceMatch?.ok === true;
+  const runtimeWritable = runtimeReadable && runtimeIdentity?.capabilities.resourceLifecycle === true;
+  const resourceStates = Object.fromEntries(
+    resourceStatuses.resources.map((resource) => [resource.name.toLowerCase(), resource.state]),
+  ) as Record<string, "started" | "stopped">;
+  const resourceStatusScope = [
+    connected ? "connected" : "disconnected",
+    config.txDataPath ?? "",
+    config.selectedProfile ?? "",
+    runtimeIdentity?.runtime.serverData.workspacePath ?? "",
+  ].join("|");
+  const resourceStatusScopeRef = useRef(resourceStatusScope);
+  resourceStatusScopeRef.current = resourceStatusScope;
 
   const connect = useCallback(async () => {
     setConnectError(null);
@@ -131,6 +166,29 @@ export default function App() {
       return false;
     }
   }, []);
+
+  const refreshResourceStatuses = useCallback((force = false): Promise<void> => {
+    if (!connected || workspaceMatch?.ok !== true) return Promise.resolve();
+    const existing = resourceStatusRequest.current;
+    if (!force && existing?.scope === resourceStatusScope) return existing.promise;
+
+    const sequence = ++resourceStatusSequence.current;
+    const request = window.api.resources.listStatuses()
+      .then((status) => {
+        if (resourceStatusScopeRef.current === resourceStatusScope && resourceStatusSequence.current === sequence) {
+          setResourceStatuses(status);
+        }
+      })
+      .catch(() => {
+        // Connection state owns the visible failure. Status polling stays quiet
+        // while the runtime is starting or the local server is temporarily down.
+      })
+      .finally(() => {
+        if (resourceStatusRequest.current?.promise === request) resourceStatusRequest.current = null;
+      });
+    resourceStatusRequest.current = { scope: resourceStatusScope, promise: request };
+    return request;
+  }, [connected, resourceStatusScope, workspaceMatch?.ok]);
 
   // Load saved config, then try connecting automatically.
   useEffect(() => {
@@ -238,9 +296,35 @@ export default function App() {
       setConnected(false);
       setRuntimeIdentity(null);
       setWorkspaceMatch(null);
+      setResourceStatuses({ resources: [], serverStateAvailable: false });
       setConnectError("Lost connection to the bundled coding runtime.");
     });
   }, []);
+
+  // Resource state is shared by the tree and editor controls. Keep one
+  // visibility-aware poll rather than letting each view query FXServer itself.
+  useEffect(() => {
+    if (!runtimeReadable) {
+      setResourceStatuses({ resources: [], serverStateAvailable: false });
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      if (document.visibilityState !== "hidden") await refreshResourceStatuses();
+      if (!cancelled) timer = setTimeout(poll, 5_000);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") void refreshResourceStatuses();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refreshResourceStatuses, runtimeReadable]);
 
   // Resolve the selected profile's resources/ and server.cfg paths whenever
   // the txData root or chosen profile changes, and point the live filesystem
@@ -260,8 +344,29 @@ export default function App() {
 
   // Bump the tree refresh token whenever the watcher reports a change.
   useEffect(() => {
-    return window.api.fs.onChanged(() => setTreeRefreshKey((k) => k + 1));
-  }, []);
+    return window.api.fs.onChanged(() => {
+      setTreeRefreshKey((k) => k + 1);
+      void refreshResourceStatuses();
+    });
+  }, [refreshResourceStatuses]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activePath) {
+      setActiveResourceContext(null);
+      return;
+    }
+    void window.api.resources.context(activePath)
+      .then((context) => {
+        if (!cancelled) setActiveResourceContext(context);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveResourceContext(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePath, resolved.resourcesPath]);
 
   // Keep the main process informed about unsaved work so it can warn on quit.
   useEffect(() => {
@@ -460,6 +565,47 @@ export default function App() {
     setOpenFiles((files) => files.map((f) => (f.path === path ? { ...f, content, dirty: true } : f)));
   }
 
+  async function runResourceLifecycle(
+    kind: "start" | "stop" | "restart",
+    name: string,
+    source: "manual" | "save" = "manual",
+  ): Promise<boolean> {
+    if (!runtimeWritable || resourceAction) return false;
+    if (kind === "stop" && !confirm(t("resource.confirmStop", { resource: name }))) return false;
+
+    setResourceAction(`${kind}:${name}`);
+    setResourceNotice(null);
+    try {
+      const tool = kind === "start" ? "start_resource" : kind === "stop" ? "stop_resource" : "restart_resource";
+      await window.api.mcp.callTool(tool, { name });
+      await refreshResourceStatuses(true);
+      const action = kind === "start" ? "started" : kind === "stop" ? "stopped" : "restarted";
+      setResourceNotice({
+        message: source === "save" && kind === "restart"
+          ? t("editor.savedAndRestarted", { resource: name })
+          : t("resource.actionSuccess", { resource: name, action }),
+        error: false,
+      });
+      if (kind === "restart") {
+        setConsoleRefreshSignal((current) => ({ resource: name, nonce: (current?.nonce ?? 0) + 1 }));
+        setCenterTab("console");
+      }
+      return true;
+    } catch (err) {
+      setResourceNotice({
+        message: t("resource.actionFailure", {
+          resource: name,
+          action: kind,
+          message: (err as Error).message || "Unknown error",
+        }),
+        error: true,
+      });
+      return false;
+    } finally {
+      setResourceAction(null);
+    }
+  }
+
   // A rename/delete from the resource tree can affect a path that's the exact
   // match (a file itself) or an ancestor (a folder containing open tabs) —
   // handle both so open tabs stay in sync with what's on disk.
@@ -535,6 +681,13 @@ export default function App() {
     try {
       const revision = await window.api.fs.writeFile(path, content, expectedRevision);
       setOpenFiles((files) => files.map((f) => (f.path === path ? { ...f, content, revision, dirty: false } : f)));
+
+      if (config.editor.restartResourceOnSave && runtimeWritable) {
+        const context = await window.api.resources.context(path).catch(() => null);
+        if (context && resourceStates[context.name.toLowerCase()] === "started") {
+          await runResourceLifecycle("restart", context.name, "save");
+        }
+      }
     } catch (err) {
       const message = `Could not save ${path.split(/[/\\]/).pop()}: ${(err as Error).message}`;
       setSaveError(message);
@@ -724,6 +877,14 @@ export default function App() {
           </button>
         </div>
       )}
+      {resourceNotice && (
+        <div className={`warning-banner setup-banner ${resourceNotice.error ? "error-banner" : ""}`} role={resourceNotice.error ? "alert" : "status"}>
+          {resourceNotice.message}
+          <button className="btn small" onClick={() => setResourceNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {!connected && connectError && (
         <div className="warning-banner">
           Local coding runtime unavailable: {connectError} — retrying automatically.
@@ -785,6 +946,11 @@ export default function App() {
                       refreshKey={treeRefreshKey}
                       onPathRenamed={handlePathRenamed}
                       onDeleteEntry={deleteEntry}
+                      resourceStates={resourceStates}
+                      serverStateAvailable={resourceStatuses.serverStateAvailable}
+                      runtimeWritable={runtimeWritable}
+                      resourceAction={resourceAction}
+                      onResourceAction={runResourceLifecycle}
                     />
                   </>
                 ) : (
@@ -799,8 +965,8 @@ export default function App() {
           <Panel defaultSize="55" minSize="30">
             <CenterPane
               connected={connected}
-              runtimeReadable={connected && workspaceMatch?.ok === true}
-              runtimeWritable={connected && workspaceMatch?.ok === true && runtimeIdentity?.capabilities.resourceLifecycle === true}
+              runtimeReadable={runtimeReadable}
+              runtimeWritable={runtimeWritable}
               consoleAvailable={connected && workspaceMatch?.ok === true ? (runtimeIdentity?.capabilities.console ?? null) : null}
               consoleRefreshIntervalMs={config.consoleRefreshIntervalMs}
               onConsoleRefreshIntervalChange={handleConsoleRefreshIntervalChange}
@@ -815,6 +981,13 @@ export default function App() {
               onSelectCenterTab={setCenterTab}
               openFiles={openFiles}
               activePath={activePath}
+              activeResourceContext={activeResourceContext}
+              activeResourceState={activeResourceContext && resourceStatuses.serverStateAvailable
+                ? resourceStates[activeResourceContext.name.toLowerCase()]
+                : undefined}
+              resourceAction={resourceAction}
+              onResourceAction={runResourceLifecycle}
+              consoleRefreshSignal={consoleRefreshSignal}
               onSelectFileTab={setActivePath}
               onCloseFileTab={closeTab}
               onChange={updateContent}

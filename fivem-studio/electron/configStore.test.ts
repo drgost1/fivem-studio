@@ -67,6 +67,7 @@ test("editor preferences are bounded and migrate from missing settings", () => {
     minimap: false,
     stickyScroll: true,
     formatOnSave: false,
+    restartResourceOnSave: false,
     luaIntelligence: "balanced",
   });
   assert.deepEqual(normalizeConfig({
@@ -76,6 +77,7 @@ test("editor preferences are bounded and migrate from missing settings", () => {
       minimap: true,
       stickyScroll: false,
       formatOnSave: true,
+      restartResourceOnSave: true,
       luaIntelligence: "full",
     },
   }).editor, {
@@ -84,6 +86,7 @@ test("editor preferences are bounded and migrate from missing settings", () => {
     minimap: true,
     stickyScroll: false,
     formatOnSave: true,
+    restartResourceOnSave: true,
     luaIntelligence: "full",
   });
   assert.equal(normalizeConfig({ editor: { fontSize: 99 } }).editor.fontSize, 13);

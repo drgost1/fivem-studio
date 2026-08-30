@@ -25,6 +25,7 @@ export interface EditorPreferences {
   minimap: boolean;
   stickyScroll: boolean;
   formatOnSave: boolean;
+  restartResourceOnSave: boolean;
   luaIntelligence: "off" | "balanced" | "full";
 }
 
@@ -53,6 +54,23 @@ export interface DirEntry {
   name: string;
   path: string;
   isDirectory: boolean;
+  resourceName?: string;
+}
+
+export interface ResourceContext {
+  name: string;
+  rootPath: string;
+  manifestPath: string;
+}
+
+export interface ResourceStatusItem {
+  name: string;
+  state: "started" | "stopped";
+}
+
+export interface ResourceStatusResult {
+  resources: ResourceStatusItem[];
+  serverStateAvailable: boolean;
 }
 
 export interface ProfileInfo {
@@ -271,6 +289,10 @@ declare global {
         }>;
         callTool(name: string, args: Record<string, unknown>): Promise<string>;
         onDropped(callback: () => void): () => void;
+      };
+      resources: {
+        listStatuses(): Promise<ResourceStatusResult>;
+        context(filePath: string): Promise<ResourceContext | null>;
       };
       github: {
         fetchRepoInfo(input: string): Promise<RepoInfo>;

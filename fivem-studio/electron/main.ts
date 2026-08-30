@@ -25,12 +25,13 @@ import {
   mcpConnectedUrl,
   mcpRuntimeIdentity,
   mcpRuntimeWorkspaceMatch,
+  mcpListResourceStatuses,
   setOnDropped,
 } from "./mcpClient";
 import { fetchRepoInfo, searchGithubRepos, listGithubOrganizationRepos, cloneRepo } from "./githubClient";
 import * as windowEmbed from "./windowEmbed";
 import { setEditorContext, setOnFileWritten, type EditorContext } from "./projectTools";
-import { assertSafeBasename, resolveInsideRoot } from "./pathSafety";
+import { assertSafeBasename, contains, resolveInsideRoot } from "./pathSafety";
 import { resolveToolApproval } from "./toolApproval";
 import { createLocalWorkspace } from "./workspaceCreator";
 import { discoverTxAdminControlProfile, ensureManagedRuntime, stopManagedRuntime } from "./managedRuntime";
@@ -48,6 +49,7 @@ import {
   type ArtifactTrack,
 } from "./serverArtifacts";
 import { checkForAppUpdate } from "./appUpdate";
+import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -117,6 +119,28 @@ function scopedProfilePath(value: unknown): string {
   const root = activeProfileRoot();
   const requested = requireString(value, "Path");
   return resolveInsideRoot(root, path.relative(root, requested));
+}
+
+function listProfileDirectory(value: unknown) {
+  const target = scopedProfilePath(value);
+  const entries = listDir(target);
+  let resourcesRoot: string;
+  try {
+    resourcesRoot = activeResourcesRoot();
+  } catch {
+    return entries;
+  }
+  return entries.map((entry) => {
+    if (!entry.isDirectory || !contains(resourcesRoot, entry.path)) return entry;
+    const context = resourceAtDirectory(resourcesRoot, entry.path);
+    return context ? { ...entry, resourceName: context.name } : entry;
+  });
+}
+
+function activeResourceContext(value: unknown) {
+  const target = scopedProfilePath(value);
+  const resourcesRoot = activeResourcesRoot();
+  return contains(resourcesRoot, target) ? resolveResourceContext(resourcesRoot, target) : null;
 }
 
 function allowedExternalUrl(value: unknown): string {
@@ -376,7 +400,7 @@ function registerIpcHandlers() {
   );
 
   // --- filesystem / resource tree ---
-  ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listDir(scopedProfilePath(dirPath)));
+  ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listProfileDirectory(dirPath));
   ipcMain.handle("fs:readFile", (_e, filePath: unknown) => readTextFileSnapshot(scopedProfilePath(filePath)));
   ipcMain.handle("fs:writeFile", (_e, filePath: unknown, content: unknown, expectedRevision: unknown) =>
     writeTextFile(
@@ -480,6 +504,8 @@ function registerIpcHandlers() {
     if (!RENDERER_MCP_TOOLS.has(toolName)) throw new Error(`The QB Studio UI is not allowed to invoke ${toolName}.`);
     return mcpCallTool(toolName, args as Record<string, unknown>);
   });
+  ipcMain.handle("resources:listStatuses", () => mcpListResourceStatuses());
+  ipcMain.handle("resources:context", (_e, filePath: unknown) => activeResourceContext(filePath));
 
   // --- GitHub import ---
   ipcMain.handle("github:fetchRepoInfo", (_e, input: unknown) => fetchRepoInfo(requireString(input, "GitHub repository", 2048)));

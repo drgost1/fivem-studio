@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ArtifactStatus, CfxTarget, ProfileInfo, StudioConfig } from "../global";
+import { t } from "../i18n";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
 
 interface SettingsModalProps {
@@ -609,10 +610,24 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
               <option value="on">On</option>
             </select>
           </label>
+          <label className="field-label">
+            {t("editor.restartAfterSave")}
+            <select
+              value={draft.editor.restartResourceOnSave ? "on" : "off"}
+              onChange={(e) => setDraft((d) => ({
+                ...d,
+                editor: { ...d.editor, restartResourceOnSave: e.target.value === "on" },
+              }))}
+            >
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
         </div>
         <div className="field-hint">
           Format on save runs only when the active language has a formatter. Editor models are kept only for open tabs so undo history survives tab switches without indexing closed files.
         </div>
+        <div className="field-hint">{t("editor.restartAfterSaveHelp")}</div>
 
         <div className="settings-divider">Agent Chat</div>
 

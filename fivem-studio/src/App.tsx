@@ -4,6 +4,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import TopBar from "./components/TopBar";
 import SettingsModal from "./components/SettingsModal";
 import ResourceTree from "./components/ResourceTree";
+import SearchPanel from "./components/SearchPanel";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
@@ -39,7 +40,7 @@ export interface FileChangeReview {
   diskRevision: string;
 }
 
-type SidebarTab = "resources" | "github";
+type SidebarTab = "resources" | "search" | "github";
 
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
@@ -943,6 +944,14 @@ export default function App() {
                   Resources
                 </button>
                 <button
+                  className={`tab ${sidebarTab === "search" ? "active" : ""}`}
+                  role="tab"
+                  aria-selected={sidebarTab === "search"}
+                  onClick={() => setSidebarTab("search")}
+                >
+                  {t("search.tab")}
+                </button>
+                <button
                   className={`tab ${sidebarTab === "github" ? "active" : ""}`}
                   role="tab"
                   aria-selected={sidebarTab === "github"}
@@ -978,6 +987,15 @@ export default function App() {
                       onResourceAction={runResourceLifecycle}
                     />
                   </>
+                ) : sidebarTab === "search" ? (
+                  <SearchPanel
+                    workspaceRoot={resolved.resourcesPath}
+                    activeResource={activeResourceContext}
+                    resolvedTheme={resolvedTheme}
+                    editorPreferences={config.editor}
+                    onOpenLocation={(path, line, column) => void openEditorLocation(path, line, column)}
+                    onFilesChanged={() => setTreeRefreshKey((key) => key + 1)}
+                  />
                 ) : (
                   <GithubImportPanel projectRoot={resolved.resourcesPath} onImported={() => setTreeRefreshKey((k) => k + 1)} />
                 )}

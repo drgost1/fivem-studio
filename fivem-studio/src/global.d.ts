@@ -293,6 +293,69 @@ export interface DevelopmentRconResult {
   replacedExistingPassword: boolean;
 }
 
+export interface WorkspaceSearchRequest {
+  scope: "resource" | "workspace";
+  resourceRoot: string | null;
+  query: string;
+  regex: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  include: string[];
+  exclude: string[];
+}
+
+export interface WorkspaceSearchMatch {
+  id: string;
+  filePath: string;
+  relativePath: string;
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  text: string;
+  before: string[];
+  after: string[];
+}
+
+export interface WorkspaceSearchFileResult {
+  filePath: string;
+  relativePath: string;
+  revision: string;
+  matches: WorkspaceSearchMatch[];
+}
+
+export interface WorkspaceSearchResult {
+  id: string;
+  files: WorkspaceSearchFileResult[];
+  totalMatches: number;
+  truncated: boolean;
+  scannedFiles: number;
+  skippedCredentialFiles: number;
+}
+
+export interface WorkspaceReplaceFilePreview {
+  filePath: string;
+  relativePath: string;
+  originalContent: string;
+  modifiedContent: string;
+  hitCount: number;
+}
+
+export interface WorkspaceReplacePreview {
+  searchId: string;
+  files: WorkspaceReplaceFilePreview[];
+  totalHits: number;
+}
+
+export interface WorkspaceReplaceApplyResult {
+  searchId: string;
+  batchId: string | null;
+  filesChanged: number;
+  hitsApplied: number;
+  changedPaths: string[];
+  skipped: Array<{ path: string; reason: string }>;
+}
+
 // Mirrors electron/preload.ts's exposeInMainWorld("api", ...) shape.
 // Kept as a hand-written duplicate (not a cross-import from electron/)
 // since the renderer and electron main process are separate TS projects
@@ -323,6 +386,11 @@ declare global {
       revert: {
         list(): Promise<RevertBatchSummary[]>;
         apply(batchId: string, mode: "all" | "safe"): Promise<RevertResult>;
+      };
+      search: {
+        run(request: WorkspaceSearchRequest): Promise<WorkspaceSearchResult>;
+        previewReplace(searchId: string, selectedIds: string[], replacement: string): Promise<WorkspaceReplacePreview>;
+        applyReplace(searchId: string, selectedIds: string[], replacement: string): Promise<WorkspaceReplaceApplyResult>;
       };
       fs: {
         listDir(dirPath: string): Promise<DirEntry[]>;

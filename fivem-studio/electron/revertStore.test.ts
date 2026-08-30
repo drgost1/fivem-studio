@@ -164,3 +164,28 @@ test("oversized single batches fail before a write can proceed", () => {
     fs.rmSync(history, { recursive: true, force: true });
   }
 });
+
+test("prepared batches can be finalized down to only files that actually wrote", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    const first = path.join(root, "first.lua");
+    const second = path.join(root, "second.lua");
+    fs.writeFileSync(first, "first before");
+    fs.writeFileSync(second, "second before");
+    const batch = store.prepareBatch(root, "Partial apply", [
+      { filePath: first, nextContent: "first after" },
+      { filePath: second, nextContent: "second after" },
+    ]);
+    assert.ok(batch);
+    replace(first, "first after");
+    const retained = store.retainBatchEntries(root, batch.id, [first]);
+    assert.equal(retained?.fileCount, 1);
+    const undone = store.revertBatch(root, batch.id, "all");
+    assert.equal(undone.status, "reverted");
+    assert.deepEqual(undone.reverted, ["first.lua"]);
+    assert.equal(fs.readFileSync(first, "utf8"), "first before");
+    assert.equal(fs.readFileSync(second, "utf8"), "second before");
+  } finally {
+    cleanup();
+  }
+});

@@ -32,6 +32,13 @@ const api = {
     list: () => ipcRenderer.invoke("revert:list"),
     apply: (batchId: string, mode: "all" | "safe") => ipcRenderer.invoke("revert:apply", batchId, mode),
   },
+  search: {
+    run: (request: unknown) => ipcRenderer.invoke("search:run", request),
+    previewReplace: (searchId: string, selectedIds: string[], replacement: string) =>
+      ipcRenderer.invoke("search:previewReplace", searchId, selectedIds, replacement),
+    applyReplace: (searchId: string, selectedIds: string[], replacement: string) =>
+      ipcRenderer.invoke("search:applyReplace", searchId, selectedIds, replacement),
+  },
   fs: {
     listDir: (dirPath: string) => ipcRenderer.invoke("fs:listDir", dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke("fs:readFile", filePath),

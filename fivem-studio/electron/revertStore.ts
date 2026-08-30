@@ -236,6 +236,26 @@ export class RevertStore {
     this.save(workspaceRoot, { version: 1, batches: next });
   }
 
+  /** Finalize a prepared batch after a caller intentionally skips stale files.
+   * Keeping only successful paths prevents a later undo from reporting entries
+   * that were previewed but never written. */
+  retainBatchEntries(workspaceRoot: string, batchId: string, successfulPaths: string[]): RevertBatchSummary | null {
+    const retained = new Set(successfulPaths.map((filePath) => {
+      const target = resolveInsideRoot(workspaceRoot, path.relative(workspaceRoot, filePath));
+      const relative = path.relative(workspaceRoot, target);
+      return process.platform === "win32" ? relative.toLowerCase() : relative;
+    }));
+    const document = this.load(workspaceRoot);
+    const batch = document.batches.find((candidate) => candidate.id === batchId);
+    if (!batch) return null;
+    batch.entries = batch.entries.filter((entry) => retained.has(process.platform === "win32" ? entry.path.toLowerCase() : entry.path));
+    batch.fileCount = batch.entries.length;
+    batch.totalBytes = batch.entries.reduce((total, entry) => total + entryBytes(entry), 0);
+    document.batches = document.batches.filter((candidate) => candidate.entries.length > 0);
+    this.save(workspaceRoot, document);
+    return batch.entries.length > 0 ? this.summary(batch) : null;
+  }
+
   listBatches(workspaceRoot: string): RevertBatchSummary[] {
     return this.load(workspaceRoot).batches.slice().reverse().map((batch) => this.summary(batch));
   }

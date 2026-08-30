@@ -63,6 +63,7 @@ import { checkForAppUpdate } from "./appUpdate";
 import { resourceAtDirectory, resolveResourceContext } from "./resourceContext";
 import { RevertStore, type RevertMode } from "./revertStore";
 import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
+import { WorkspaceSearchService } from "./workspaceSearch";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -82,6 +83,7 @@ let artifactRecoveryNotice: string | null = null;
 const serverOperation = new OperationLock();
 const luaLanguageServer = new LuaLanguageServerProcess();
 let revertStore: RevertStore | null = null;
+let workspaceSearch: WorkspaceSearchService | null = null;
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -106,6 +108,11 @@ function requireFiniteNumber(value: unknown, label: string): number {
 function requireRevertStore(): RevertStore {
   if (!revertStore) throw new Error("Undo history is not ready yet.");
   return revertStore;
+}
+
+function requireWorkspaceSearch(): WorkspaceSearchService {
+  if (!workspaceSearch) throw new Error("Workspace search is not ready yet.");
+  return workspaceSearch;
 }
 
 function requireRevertMode(value: unknown): RevertMode {
@@ -428,6 +435,7 @@ app.whenReady().then(() => {
 
   revertStore = new RevertStore(path.join(app.getPath("userData"), "revert-store"));
   setProjectRevertStore(revertStore);
+  workspaceSearch = new WorkspaceSearchService(revertStore);
 
   registerIpcHandlers();
   createWindow();
@@ -549,6 +557,44 @@ function registerIpcHandlers() {
     );
     for (const relativePath of result.reverted) {
       const absolutePath = resolveInsideRoot(activeResourcesRoot(), relativePath);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:fileWritten", absolutePath);
+    }
+    return result;
+  });
+
+  // --- human-facing, resource-scoped search and revision-safe replace ---
+  ipcMain.handle("search:run", (_e, request: unknown) => {
+    if (!request || typeof request !== "object" || Array.isArray(request)) throw new Error("Search request must be an object.");
+    const raw = request as Record<string, unknown>;
+    const workspaceRoot = activeResourcesRoot();
+    let scopeRoot = workspaceRoot;
+    if (raw.scope === "resource") {
+      const requestedRoot = requireString(raw.resourceRoot, "Resource root");
+      const contained = resolveInsideRoot(workspaceRoot, path.relative(workspaceRoot, requestedRoot));
+      const resource = resourceAtDirectory(workspaceRoot, contained);
+      if (!resource || resource.rootPath !== contained) throw new Error("Choose an active resource before using resource-scoped search.");
+      scopeRoot = resource.rootPath;
+    } else if (raw.scope !== "workspace") {
+      throw new Error("Search scope must be the active resource or the whole workspace.");
+    }
+    return requireWorkspaceSearch().search(workspaceRoot, scopeRoot, raw);
+  });
+  ipcMain.handle("search:previewReplace", (_e, searchId: unknown, selectedIds: unknown, replacement: unknown) =>
+    requireWorkspaceSearch().preview(
+      activeResourcesRoot(),
+      requireString(searchId, "Search id", 128),
+      selectedIds,
+      replacement,
+    ),
+  );
+  ipcMain.handle("search:applyReplace", (_e, searchId: unknown, selectedIds: unknown, replacement: unknown) => {
+    const result = requireWorkspaceSearch().apply(
+      activeResourcesRoot(),
+      requireString(searchId, "Search id", 128),
+      selectedIds,
+      replacement,
+    );
+    for (const absolutePath of result.changedPaths) {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:fileWritten", absolutePath);
     }
     return result;

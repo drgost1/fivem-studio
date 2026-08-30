@@ -132,6 +132,9 @@ export default function App() {
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("resources");
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
+  const [resourceDropActive, setResourceDropActive] = useState(false);
+  const [resourceDropImporting, setResourceDropImporting] = useState(false);
+  const resourceDragDepth = useRef(0);
   const [resourceStatuses, setResourceStatuses] = useState<ResourceStatusResult>({
     resources: [],
     serverStateAvailable: false,
@@ -245,6 +248,10 @@ export default function App() {
         setConnectError(`Could not load settings: ${(err as Error).message}`);
       });
   }, [connect]);
+
+  useEffect(() => window.api.console.onRefreshIntervalChanged((consoleRefreshIntervalMs) => {
+    setConfig((current) => ({ ...current, consoleRefreshIntervalMs }));
+  }), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -423,6 +430,67 @@ export default function App() {
   }, [config.txDataPath, config.selectedProfile]);
 
   useEffect(() => {
+    const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files") === true;
+    const onDragEnter = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      resourceDragDepth.current += 1;
+      setResourceDropActive(true);
+    };
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onDragLeave = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      resourceDragDepth.current = Math.max(0, resourceDragDepth.current - 1);
+      if (resourceDragDepth.current === 0 && !resourceDropImporting) setResourceDropActive(false);
+    };
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      resourceDragDepth.current = 0;
+      const files = [...(event.dataTransfer?.files ?? [])];
+      if (!resolved.resourcesPath) {
+        setResourceDropActive(false);
+        setResourceNotice({ message: t("resource.import.noWorkspace"), error: true });
+        return;
+      }
+      if (files.length !== 1) {
+        setResourceDropActive(false);
+        setResourceNotice({ message: t("resource.import.oneFolder"), error: true });
+        return;
+      }
+      setResourceDropImporting(true);
+      setResourceDropActive(true);
+      void window.api.resources.importDroppedFolder(files[0])
+        .then((result) => {
+          setTreeRefreshKey((key) => key + 1);
+          setSidebarTab("resources");
+          setResourceNotice({ message: t("resource.import.success", { resource: result.name, count: result.fileCount }), error: false });
+          void openEditorLocation(result.manifestPath, 1, 1);
+        })
+        .catch((error) => setResourceNotice({ message: t("resource.import.failure", { message: (error as Error).message }), error: true }))
+        .finally(() => {
+          setResourceDropImporting(false);
+          setResourceDropActive(false);
+        });
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [resolved.resourcesPath, resourceDropImporting]);
+
+  useEffect(() => {
     if (!resolved.resourcesPath) {
       setDependencyGraph({ nodes: [] });
       return;
@@ -505,11 +573,20 @@ export default function App() {
       recentFilePaths.current = selected ? [selected, ...order.filter((path) => path !== selected)] : order;
       ctrlTabSession.current = null;
     };
+    const onBlur = () => {
+      if (!ctrlTabSession.current) return;
+      const selected = activePathRef.current;
+      const order = ctrlTabSession.current.order;
+      recentFilePaths.current = selected ? [selected, ...order.filter((path) => path !== selected)] : order;
+      ctrlTabSession.current = null;
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
@@ -618,8 +695,8 @@ export default function App() {
   }
 
   async function handleConsoleRefreshIntervalChange(intervalMs: number) {
-    const saved = await window.api.config.set({ ...config, consoleRefreshIntervalMs: intervalMs });
-    setConfig(saved);
+    const savedInterval = await window.api.console.setRefreshInterval(intervalMs);
+    setConfig((current) => ({ ...current, consoleRefreshIntervalMs: savedInterval }));
   }
 
   async function switchRecentWorkspace(id: string) {
@@ -1254,6 +1331,15 @@ export default function App() {
           </Panel>
         </Group>
       </div>
+
+      {resourceDropActive && (
+        <div className="resource-drop-overlay" role="status" aria-live="polite">
+          <div className="resource-drop-card">
+            <strong>{resourceDropImporting ? t("resource.import.importing") : t("resource.import.drop")}</strong>
+            <span>{resourceDropImporting ? t("resource.import.importingHelp") : t("resource.import.dropHelp")}</span>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && <SettingsModal config={config} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)} />}
       {whatsNew && <WhatsNewPanel currentVersion={whatsNew.currentVersion} onClose={() => setWhatsNew(null)} />}

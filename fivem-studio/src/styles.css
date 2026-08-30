@@ -134,6 +134,43 @@ body {
   overflow: hidden;
 }
 
+.console-popout-root {
+  background: var(--bg-0);
+  height: 100%;
+  min-height: 0;
+  padding: 8px;
+}
+
+.resource-drop-overlay {
+  align-items: center;
+  background: color-mix(in srgb, var(--bg-0) 80%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 10000;
+}
+.resource-drop-card {
+  align-items: center;
+  background: var(--bg-1);
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  box-shadow: var(--shadow-menu);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+  padding: 36px 48px;
+  text-align: center;
+}
+.resource-drop-card strong {
+  color: var(--text-0);
+  font-size: 17px;
+}
+.resource-drop-card span {
+  color: var(--text-1);
+}
+
 /* Chromium's default scrollbars are light-themed and read as unfinished
    inside an otherwise fully dark app. */
 ::-webkit-scrollbar {

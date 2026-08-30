@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 // Everything the renderer is allowed to do lives here, explicitly, rather
 // than exposing ipcRenderer wholesale — the renderer never gets direct
@@ -7,6 +7,15 @@ const api = {
   config: {
     get: () => ipcRenderer.invoke("config:get"),
     set: (config: unknown) => ipcRenderer.invoke("config:set", config),
+  },
+  console: {
+    openPopout: () => ipcRenderer.invoke("console:openPopout"),
+    setRefreshInterval: (intervalMs: number) => ipcRenderer.invoke("console:setRefreshInterval", intervalMs),
+    onRefreshIntervalChanged: (callback: (intervalMs: number) => void) => {
+      const listener = (_e: unknown, intervalMs: number) => callback(intervalMs);
+      ipcRenderer.on("console:refreshIntervalChanged", listener);
+      return () => ipcRenderer.removeListener("console:refreshIntervalChanged", listener);
+    },
   },
   theme: {
     system: () => ipcRenderer.invoke("theme:system"),
@@ -96,6 +105,11 @@ const api = {
     dependencyGraph: () => ipcRenderer.invoke("resources:dependencyGraph"),
     compare: (leftRoot: string, rightRoot: string) => ipcRenderer.invoke("resources:compare", leftRoot, rightRoot),
     duplicate: (sourceRoot: string, newName: string) => ipcRenderer.invoke("resources:duplicate", sourceRoot, newName),
+    importDroppedFolder: (file: File) => {
+      const sourceRoot = webUtils.getPathForFile(file);
+      if (!sourceRoot) return Promise.reject(new Error("Drop a real folder from Windows Explorer."));
+      return ipcRenderer.invoke("resources:importFolder", sourceRoot);
+    },
   },
   bookmarks: {
     list: () => ipcRenderer.invoke("bookmarks:list"),

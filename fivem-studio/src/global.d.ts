@@ -131,6 +131,14 @@ export interface ResourceDuplicateResult {
   skippedDirectories: string[];
 }
 
+export interface ResourceImportResult {
+  name: string;
+  rootPath: string;
+  manifestPath: string;
+  fileCount: number;
+  skippedDirectories: string[];
+}
+
 export interface EditorBookmark {
   path: string;
   line: number;
@@ -448,6 +456,11 @@ declare global {
         get(): Promise<StudioConfig>;
         set(config: StudioConfig): Promise<StudioConfig>;
       };
+      console: {
+        openPopout(): Promise<void>;
+        setRefreshInterval(intervalMs: number): Promise<number>;
+        onRefreshIntervalChanged(callback: (intervalMs: number) => void): () => void;
+      };
       theme: {
         system(): Promise<"dark" | "light">;
         onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
@@ -522,6 +535,7 @@ declare global {
         dependencyGraph(): Promise<ResourceDependencyGraph>;
         compare(leftRoot: string, rightRoot: string): Promise<ResourceComparison>;
         duplicate(sourceRoot: string, newName: string): Promise<ResourceDuplicateResult>;
+        importDroppedFolder(file: File): Promise<ResourceImportResult>;
       };
       bookmarks: {
         list(): Promise<EditorBookmark[]>;

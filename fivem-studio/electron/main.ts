@@ -73,8 +73,10 @@ import { assertFxServerPortAvailable } from "./portPreflight";
 import { BookmarkStore } from "./bookmarkStore";
 import { compareResources } from "./resourceCompare";
 import { duplicateResource } from "./resourceDuplicate";
+import { importResourceFolder } from "./resourceImport";
 
 let mainWindow: BrowserWindow | null = null;
+let consoleWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 
@@ -313,6 +315,7 @@ function applyNativeTheme(theme: ThemePreference): void {
   nativeTheme.themeSource = theme === "system" ? "system" : theme === "light" ? "light" : "dark";
   const resolved = theme === "system" ? resolvedSystemTheme() : theme;
   mainWindow?.setBackgroundColor(resolved === "light" ? "#F7F5F2" : "#101317");
+  consoleWindow?.setBackgroundColor(resolved === "light" ? "#F7F5F2" : "#101317");
 }
 
 function createWindow() {
@@ -426,8 +429,61 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     if (windowStateTimer) clearTimeout(windowStateTimer);
+    if (consoleWindow && !consoleWindow.isDestroyed()) consoleWindow.close();
     mainWindow = null;
   });
+}
+
+function openConsoleWindow(): void {
+  if (consoleWindow && !consoleWindow.isDestroyed()) {
+    if (consoleWindow.isMinimized()) consoleWindow.restore();
+    consoleWindow.show();
+    consoleWindow.focus();
+    return;
+  }
+  const startupConfig = loadConfig();
+  const windowTheme = startupConfig.theme === "system" ? resolvedSystemTheme() : startupConfig.theme;
+  consoleWindow = new BrowserWindow({
+    width: 980,
+    height: 620,
+    minWidth: 640,
+    minHeight: 360,
+    title: "QB Studio Console",
+    backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  consoleWindow.webContents.setZoomFactor(startupConfig.uiScale);
+  consoleWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+    consoleWindow?.setTitle("QB Studio Console");
+  });
+  const devUrl = process.env.ELECTRON_START_URL;
+  if (devUrl) {
+    const target = new URL(devUrl);
+    target.searchParams.set("view", "console");
+    void consoleWindow.loadURL(target.toString());
+  } else {
+    void consoleWindow.loadFile(path.join(__dirname, "../dist/index.html"), { query: { view: "console" } });
+  }
+  consoleWindow.once("ready-to-show", () => consoleWindow?.show());
+  consoleWindow.webContents.on("will-navigate", (event, target) => {
+    try {
+      const allowed = devUrl
+        ? new URL(target).origin === new URL(devUrl).origin
+        : target === consoleWindow?.webContents.getURL();
+      if (!allowed) event.preventDefault();
+    } catch {
+      event.preventDefault();
+    }
+  });
+  consoleWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  consoleWindow.on("closed", () => { consoleWindow = null; });
 }
 
 // Tell the renderer when the MCP transport drops on its own, so the status pill
@@ -461,8 +517,12 @@ app.whenReady().then(() => {
   applyNativeTheme(startupConfig.theme);
   nativeTheme.on("updated", () => {
     const systemTheme = resolvedSystemTheme();
-    if (loadConfig().theme === "system") mainWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
+    if (loadConfig().theme === "system") {
+      mainWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
+      consoleWindow?.setBackgroundColor(systemTheme === "light" ? "#F7F5F2" : "#101317");
+    }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("theme:systemChanged", systemTheme);
+    if (consoleWindow && !consoleWindow.isDestroyed()) consoleWindow.webContents.send("theme:systemChanged", systemTheme);
   });
   const recoveryNotices: string[] = [];
   for (const target of CFX_TARGETS) {
@@ -486,7 +546,7 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow) createWindow();
   });
 });
 
@@ -503,6 +563,16 @@ app.on("window-all-closed", () => {
 function registerIpcHandlers() {
   // --- config ---
   ipcMain.handle("config:get", () => loadConfig());
+  ipcMain.handle("console:openPopout", () => openConsoleWindow());
+  ipcMain.handle("console:setRefreshInterval", (_e, value: unknown) => {
+    const interval = requireFiniteNumber(value, "Console refresh interval");
+    if (![0, 1_000, 2_000, 5_000, 10_000, 30_000].includes(interval)) throw new Error("Unsupported console refresh interval.");
+    const saved = saveConfig({ ...loadConfig(), consoleRefreshIntervalMs: interval });
+    for (const window of [mainWindow, consoleWindow]) {
+      if (window && !window.isDestroyed()) window.webContents.send("console:refreshIntervalChanged", saved.consoleRefreshIntervalMs);
+    }
+    return saved.consoleRefreshIntervalMs;
+  });
   ipcMain.handle("config:set", (_e, config: unknown) =>
     serverOperation.run("the Settings change", async () => {
       if (typeof config !== "object" || config === null || Array.isArray(config)) throw new Error("Configuration must be an object.");
@@ -797,6 +867,10 @@ function registerIpcHandlers() {
     activeResourcesRoot(),
     requireString(sourceRoot, "Source resource path"),
     requireString(newName, "New resource name", 255),
+  ));
+  ipcMain.handle("resources:importFolder", (_e, sourceRoot: unknown) => importResourceFolder(
+    activeResourcesRoot(),
+    requireString(sourceRoot, "Dropped resource folder"),
   ));
   ipcMain.handle("bookmarks:list", () => bookmarkStore?.list(activeProfileRoot()) ?? []);
   ipcMain.handle("bookmarks:toggle", (_e, filePath: unknown, line: unknown) => {

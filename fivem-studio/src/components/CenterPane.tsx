@@ -514,7 +514,7 @@ function ConsoleSection({
 }) {
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <ConsoleTab
+      <ConsolePanel
         active={active}
         connected={connected}
         available={available}
@@ -525,12 +525,13 @@ function ConsoleSection({
         onDismissCrashTriage={onDismissCrashTriage}
         onSendCrashTriage={onSendCrashTriage}
         onOutputChange={onOutputChange}
+        onOpenPopout={() => void window.api.console.openPopout()}
       />
     </div>
   );
 }
 
-function ConsoleTab({
+export function ConsolePanel({
   active,
   connected,
   available,
@@ -541,6 +542,7 @@ function ConsoleTab({
   onDismissCrashTriage,
   onSendCrashTriage,
   onOutputChange,
+  onOpenPopout,
 }: {
   active: boolean;
   connected: boolean;
@@ -552,6 +554,7 @@ function ConsoleTab({
   onDismissCrashTriage: () => void;
   onSendCrashTriage: (text: string) => void;
   onOutputChange: (output: string) => void;
+  onOpenPopout?: () => void;
 }) {
   const [output, setOutput] = useState("");
   const [paused, setPaused] = useState(false);
@@ -705,6 +708,11 @@ function ConsoleTab({
         <button className="btn small" onClick={() => void copyLastError()}>
           {t("console.copyLastError")}
         </button>
+        {onOpenPopout && (
+          <button className="btn small" type="button" onClick={onOpenPopout}>
+            {t("console.openPopout")}
+          </button>
+        )}
         <div className="console-severity-chips" role="group" aria-label={t("console.severity.label")}>
           {(["all", "error", "warning"] as const).map((nextSeverity) => (
             <button

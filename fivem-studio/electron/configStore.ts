@@ -11,6 +11,7 @@ export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
   selectedProfile: string | null; // which txData/<profile> to browse/edit
   theme: ThemePreference;
+  uiScale: number;
   activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
@@ -50,6 +51,7 @@ const DEFAULTS: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
   theme: "system",
+  uiScale: 1,
   activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
@@ -149,6 +151,12 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+const UI_SCALES = new Set([0.8, 0.9, 1, 1.1, 1.25, 1.5]);
+
+function uiScaleOrDefault(value: unknown): number {
+  return typeof value === "number" && UI_SCALES.has(value) ? value : DEFAULTS.uiScale;
+}
+
 function editorPreferences(value: unknown): EditorPreferences {
   const raw = isRecord(value) ? value : {};
   const fontSize = typeof raw.fontSize === "number" && Number.isInteger(raw.fontSize) && raw.fontSize >= 11 && raw.fontSize <= 24
@@ -187,6 +195,7 @@ export function normalizeConfig(value: unknown): StudioConfig {
     selectedProfile: safeProfile(raw.selectedProfile),
     theme:
       raw.theme === "dark" || raw.theme === "light" || raw.theme === "high-contrast" ? raw.theme : "system",
+    uiScale: uiScaleOrDefault(raw.uiScale),
     activeCfxTarget,
     legacyFivemExePath:
       nullablePath(raw.legacyFivemExePath) ?? (inferredTarget === "legacy" ? oldClientPath : null),

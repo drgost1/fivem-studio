@@ -1,4 +1,4 @@
-import type { CfxTarget, RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
+import type { CfxTarget, RecentWorkspaceSummary, RuntimeIdentity, RuntimeWorkspaceMatch } from "../global";
 import { t } from "../i18n";
 
 interface TopBarProps {
@@ -9,6 +9,7 @@ interface TopBarProps {
   onLaunchServer: () => void;
   onStopServer: () => void;
   onLaunchClient: () => void;
+  onOpenWorkspace: () => void;
   activeTarget: CfxTarget;
   serverTarget: CfxTarget;
   activeServerPath: string | null;
@@ -19,6 +20,9 @@ interface TopBarProps {
   serverStartedAt: number | null;
   serverStatusError: string | null;
   activeClientPath: string | null;
+  workspacePath: string | null;
+  recentWorkspaces: RecentWorkspaceSummary[];
+  onSelectRecentWorkspace: (id: string) => void;
 }
 
 export default function TopBar({
@@ -29,6 +33,7 @@ export default function TopBar({
   onLaunchServer,
   onStopServer,
   onLaunchClient,
+  onOpenWorkspace,
   activeTarget,
   serverTarget,
   activeServerPath,
@@ -39,6 +44,9 @@ export default function TopBar({
   serverStartedAt,
   serverStatusError,
   activeClientPath,
+  workspacePath,
+  recentWorkspaces,
+  onSelectRecentWorkspace,
 }: TopBarProps) {
   const labelFor = (target: CfxTarget) => target === "legacy" ? "FiveM Legacy" : target === "enhanced" ? "FiveM Enhanced" : "RedM";
   const activeLabel = labelFor(activeTarget);
@@ -109,6 +117,21 @@ export default function TopBar({
       <button className="btn" onClick={onLaunchClient} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} ${clientExecutable} path in Settings`}>
         ▶ Launch {activeLabel}
       </button>
+      <button className="btn" onClick={onOpenWorkspace} disabled={!workspacePath} title={workspacePath ?? t("workspace.choose")}>
+        {t("workspace.open")}
+      </button>
+      <select
+        className="topbar-workspaces"
+        aria-label={t("workspace.recent")}
+        value=""
+        onChange={(event) => event.target.value && onSelectRecentWorkspace(event.target.value)}
+        disabled={recentWorkspaces.length === 0}
+      >
+        <option value="">{t("workspace.recentPlaceholder")}</option>
+        {recentWorkspaces.map((workspace) => (
+          <option key={workspace.id} value={workspace.id}>{workspace.label} · {labelFor(workspace.target)}</option>
+        ))}
+      </select>
       <button className="btn" onClick={onOpenSettings}>
         ⚙ Settings
       </button>

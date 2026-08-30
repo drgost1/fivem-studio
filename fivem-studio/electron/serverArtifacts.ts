@@ -31,6 +31,12 @@ export interface ArtifactUpdateResult extends ArtifactStatus {
   warning?: string;
 }
 
+export interface ArtifactProgress {
+  phase: "checking" | "downloading" | "extracting" | "validating" | "installing" | "complete";
+  transferredBytes: number;
+  totalBytes: number | null;
+}
+
 export interface ArtifactTarget {
   executablePath: string;
   executableName: "FXServer.exe" | "cfx-server.exe";
@@ -645,7 +651,11 @@ async function writeAll(handle: fs.promises.FileHandle, chunk: Buffer): Promise<
   }
 }
 
-async function downloadArchive(descriptor: ArtifactDescriptor, outputPath: string): Promise<string> {
+async function downloadArchive(
+  descriptor: ArtifactDescriptor,
+  outputPath: string,
+  onProgress?: (progress: ArtifactProgress) => void,
+): Promise<string> {
   const response = await fetchWithValidatedRedirects(
     descriptor.downloadUrl,
     "GET",
@@ -665,6 +675,8 @@ async function downloadArchive(descriptor: ArtifactDescriptor, outputPath: strin
   const hash = createHash("sha256");
   const handle = await fs.promises.open(outputPath, "wx", 0o600);
   let total = 0;
+  let lastProgressAt = 0;
+  onProgress?.({ phase: "downloading", transferredBytes: 0, totalBytes: declared });
   try {
     for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
       const value = Buffer.from(chunk);
@@ -672,6 +684,11 @@ async function downloadArchive(descriptor: ArtifactDescriptor, outputPath: strin
       if (total > declared || total > MAX_ARCHIVE_BYTES) throw new Error("The artifact exceeded its declared size.");
       hash.update(value);
       await writeAll(handle, value);
+      const now = Date.now();
+      if (total === declared || now - lastProgressAt >= 100) {
+        onProgress?.({ phase: "downloading", transferredBytes: total, totalBytes: declared });
+        lastProgressAt = now;
+      }
     }
   } finally {
     await handle.close();
@@ -993,12 +1010,14 @@ export async function installArtifactUpdate(
   txDataPath: string | null,
   track: ArtifactTrack,
   statePath: string,
+  onProgress?: (progress: ArtifactProgress) => void,
 ): Promise<ArtifactUpdateResult> {
   recoverInterruptedArtifactUpdate(exePath, statePath);
   const target = resolveArtifactTarget(exePath, txDataPath);
   const beforeDownload = await findRunningServerPids(target.executablePath);
   if (beforeDownload.length > 0) throw new Error("Stop this local server in txAdmin before updating its artifacts.");
 
+  onProgress?.({ phase: "checking", transferredBytes: 0, totalBytes: null });
   const status = await checkArtifactUpdate(exePath, txDataPath, track, statePath);
   if (status.installedBuild === status.build) throw new Error(`Cfx.re build ${status.build} is already installed.`);
   const archivePath = safeGeneratedSibling(target.root, "ghz-download") + ".zip";
@@ -1008,10 +1027,12 @@ export async function installArtifactUpdate(
   let sha256 = "";
 
   try {
-    sha256 = await downloadArchive(status, archivePath);
+    sha256 = await downloadArchive(status, archivePath, onProgress);
+    onProgress?.({ phase: "extracting", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
     fs.mkdirSync(stagePath, { recursive: false });
     stageExists = true;
     await extractValidatedZip(archivePath, stagePath);
+    onProgress?.({ phase: "validating", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
     validateStagedArtifact(stagePath, target);
 
     const beforeSwap = await findRunningServerPids(target.executablePath);
@@ -1042,6 +1063,7 @@ export async function installArtifactUpdate(
     };
     const journalPath = transactionPath(statePath);
     writeJsonDurably(journalPath, journal);
+    onProgress?.({ phase: "installing", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
 
     const finalCheck = await findRunningServerPids(target.executablePath);
     if (finalCheck.length > 0) {
@@ -1098,7 +1120,9 @@ export async function installArtifactUpdate(
         `The artifact was installed, but Workbench could not finish its local build record: ${(error as Error).message}. ` +
         "The durable recovery journal will finish that bookkeeping on the next launch or update check.";
     }
-    return { ...status, installedBuild: status.build, updateAvailable: false, sha256, backupPath, installedAt, warning };
+    const result = { ...status, installedBuild: status.build, updateAvailable: false, sha256, backupPath, installedAt, warning };
+    onProgress?.({ phase: "complete", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
+    return result;
   } finally {
     try {
       fs.rmSync(archivePath, { force: true });

@@ -30,6 +30,14 @@ test("theme preferences migrate to system and accept every supported explicit th
   assert.equal(normalizeConfig({ theme: "neon" }).theme, "system");
 });
 
+test("UI scale is bounded to supported zoom factors", () => {
+  assert.equal(normalizeConfig({}).uiScale, 1);
+  for (const uiScale of [0.8, 0.9, 1, 1.1, 1.25, 1.5]) {
+    assert.equal(normalizeConfig({ uiScale }).uiScale, uiScale);
+  }
+  assert.equal(normalizeConfig({ uiScale: 4 }).uiScale, 1);
+});
+
 test("explicit FiveM and RedM paths remain separate", () => {
   const legacyServer = path.resolve("legacy", "FXServer.exe");
   const enhancedServer = path.resolve("enhanced", "cfx-server.exe");

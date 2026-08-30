@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  ArtifactProgress,
   ArtifactStatus,
   CfxTarget,
   DetectedClientInstalls,
@@ -63,6 +64,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   const [artifactBusy, setArtifactBusy] = useState<"checking" | "updating" | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [artifactMessage, setArtifactMessage] = useState<string | null>(null);
+  const [artifactProgress, setArtifactProgress] = useState<ArtifactProgress | null>(null);
   const [detectedClients, setDetectedClients] = useState<DetectedClientInstalls>({ legacy: null, enhanced: null, redm: null });
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [diagnosticsEpoch, setDiagnosticsEpoch] = useState(0);
@@ -284,6 +286,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setArtifactBusy("updating");
     setArtifactError(null);
     setArtifactMessage(null);
+    setArtifactProgress({ target: activeTarget, phase: "checking", transferredBytes: 0, totalBytes: artifactStatus.archiveSize });
     try {
       const result = await window.api.artifacts.update(activeTarget, artifactTrack);
       setArtifactStatus(result);
@@ -302,7 +305,12 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     setArtifactStatus(null);
     setArtifactError(null);
     setArtifactMessage(null);
+    setArtifactProgress(null);
   }, [activeTarget, activeServerPath, artifactTrack]);
+
+  useEffect(() => window.api.artifacts.onProgress((progress) => {
+    if (progress.target === activeTarget) setArtifactProgress(progress);
+  }), [activeTarget]);
 
   async function createWorkspace() {
     if (!draft.txDataPath) {
@@ -423,6 +431,16 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           <option value="high-contrast">{t("appearance.theme.highContrast")}</option>
         </select>
         <div className="field-hint">{t("appearance.themeHelp")}</div>
+        <label className="field-label">{t("appearance.uiScale")}</label>
+        <select
+          value={draft.uiScale}
+          onChange={(event) => setDraft((current) => ({ ...current, uiScale: Number(event.target.value) }))}
+        >
+          {[0.8, 0.9, 1, 1.1, 1.25, 1.5].map((scale) => (
+            <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>
+          ))}
+        </select>
+        <div className="field-hint">{t("appearance.uiScaleHelp")}</div>
 
         <div className="settings-divider">{t("console.section")}</div>
         <label className="field-label">
@@ -674,6 +692,32 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
             {artifactBusy === "updating" ? "Updating…" : "Install update"}
           </button>
         </div>
+        {artifactBusy === "updating" && artifactProgress && (() => {
+          const total = artifactProgress.totalBytes;
+          const percent = total && total > 0
+            ? Math.min(100, Math.round((artifactProgress.transferredBytes / total) * 100))
+            : null;
+          const formatBytes = (bytes: number) => bytes >= 1024 * 1024
+            ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+            : `${Math.round(bytes / 1024)} KB`;
+          return (
+            <div className="artifact-progress" role="status" aria-live="polite">
+              <div className="artifact-progress-copy">
+                <strong>{t(`artifact.phase.${artifactProgress.phase}`)}</strong>
+                <span>
+                  {artifactProgress.phase === "downloading" && total
+                    ? t("artifact.progress.bytes", {
+                        percent: percent ?? 0,
+                        transferred: formatBytes(artifactProgress.transferredBytes),
+                        total: formatBytes(total),
+                      })
+                    : t("artifact.progress.working")}
+                </span>
+              </div>
+              <progress max={100} value={percent ?? undefined} />
+            </div>
+          );
+        })()}
         {!serverPathIsSaved && activeServerPath && (
           <div className="field-hint">Save Settings once before checking or installing artifacts for this path.</div>
         )}

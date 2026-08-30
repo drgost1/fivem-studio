@@ -16,6 +16,10 @@ const api = {
       return () => ipcRenderer.removeListener("theme:systemChanged", listener);
     },
   },
+  recents: {
+    list: () => ipcRenderer.invoke("recents:list"),
+    select: (id: string, allowDiscard: boolean) => ipcRenderer.invoke("recents:select", id, allowDiscard),
+  },
   installs: {
     detectClients: () => ipcRenderer.invoke("installs:detectClients"),
   },
@@ -110,10 +114,16 @@ const api = {
     check: (target: "legacy" | "enhanced" | "redm", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:check", target, track),
     update: (target: "legacy" | "enhanced" | "redm", track: "recommended" | "latest") => ipcRenderer.invoke("artifacts:update", target, track),
     recoveryNotice: () => ipcRenderer.invoke("artifacts:recoveryNotice"),
+    onProgress: (callback: (progress: unknown) => void) => {
+      const listener = (_e: unknown, progress: unknown) => callback(progress);
+      ipcRenderer.on("artifacts:progress", listener);
+      return () => ipcRenderer.removeListener("artifacts:progress", listener);
+    },
   },
   app: {
     setDirtyCount: (count: number) => ipcRenderer.invoke("app:setDirtyCount", count),
     checkForUpdate: () => ipcRenderer.invoke("app:checkForUpdate"),
+    consumeWhatsNew: () => ipcRenderer.invoke("app:consumeWhatsNew"),
   },
   lua: {
     start: () => ipcRenderer.invoke("lua:start"),

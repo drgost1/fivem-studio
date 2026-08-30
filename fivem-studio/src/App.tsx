@@ -8,6 +8,8 @@ import SearchPanel from "./components/SearchPanel";
 import GithubImportPanel from "./components/GithubImportPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
+import StatusArea, { type StatusItem } from "./components/StatusArea";
+import WhatsNewPanel from "./components/WhatsNewPanel";
 import { t } from "./i18n";
 import { lastConsoleLines } from "./consoleText";
 import type {
@@ -17,11 +19,13 @@ import type {
   EditorProblem,
   ResolvedProfile,
   ResolvedTheme,
+  RecentWorkspaceSummary,
   ResourceContext,
   ResourceStatusResult,
   RuntimeIdentity,
   RuntimeWorkspaceMatch,
   StudioConfig,
+  WhatsNewState,
 } from "./global";
 
 export interface OpenFile {
@@ -48,6 +52,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
   selectedProfile: null,
   theme: "system",
+  uiScale: 1,
   activeCfxTarget: "legacy",
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
@@ -99,6 +104,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspaceSummary[]>([]);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [runtimeIdentity, setRuntimeIdentity] = useState<RuntimeIdentity | null>(null);
   const [workspaceMatch, setWorkspaceMatch] = useState<RuntimeWorkspaceMatch | null>(null);
@@ -112,6 +118,7 @@ export default function App() {
   const [serverNotice, setServerNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdateStatus | null>(null);
+  const [whatsNew, setWhatsNew] = useState<WhatsNewState | null>(null);
   const serverStatusEpoch = useRef(0);
   const observedServerRunning = useRef<boolean | null>(null);
   const intentionalServerStop = useRef(false);
@@ -210,6 +217,7 @@ export default function App() {
       .then((saved) => {
         setConfig(saved);
         setConfigLoaded(true);
+        void window.api.recents.list().then(setRecentWorkspaces).catch(() => setRecentWorkspaces([]));
         void window.api.artifacts.recoveryNotice().then((notice) => notice && setArtifactNotice(notice));
         if (saved.txDataPath && saved.selectedProfile) {
           void connect();
@@ -259,6 +267,10 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void window.api.app.consumeWhatsNew().then(setWhatsNew).catch(() => setWhatsNew(null));
   }, []);
 
   const refreshServerStatus = useCallback(async (
@@ -506,6 +518,7 @@ export default function App() {
       serverStatusEpoch.current += 1;
     }
     setConfig(saved);
+    void window.api.recents.list().then(setRecentWorkspaces).catch(() => setRecentWorkspaces([]));
     if (profileChanged) {
       setOpenFiles([]);
       setActivePath(null);
@@ -529,6 +542,34 @@ export default function App() {
   async function handleConsoleRefreshIntervalChange(intervalMs: number) {
     const saved = await window.api.config.set({ ...config, consoleRefreshIntervalMs: intervalMs });
     setConfig(saved);
+  }
+
+  async function switchRecentWorkspace(id: string) {
+    const dirtyCount = openFiles.filter((file) => file.dirty).length;
+    const allowDiscard = dirtyCount > 0 && confirm(
+      `Switch workspaces and discard unsaved changes in ${dirtyCount} open ${dirtyCount === 1 ? "file" : "files"}?`,
+    );
+    if (dirtyCount > 0 && !allowDiscard) return;
+    try {
+      serverStatusEpoch.current += 1;
+      const saved = await window.api.recents.select(id, allowDiscard);
+      setConfig(saved);
+      setConnected(false);
+      setRuntimeIdentity(null);
+      setWorkspaceMatch(null);
+      setOpenFiles([]);
+      setActivePath(null);
+      setCenterTab("viewport");
+      setEditorProblems({});
+      setEditorReveal(null);
+      setChangeReviews({});
+      setReviewPath(null);
+      setTreeRefreshKey((key) => key + 1);
+      setRecentWorkspaces(await window.api.recents.list());
+      await connect();
+    } catch (error) {
+      setSaveError(`Could not switch workspaces: ${(error as Error).message}`);
+    }
   }
 
   async function openFile(path: string): Promise<boolean> {
@@ -879,6 +920,50 @@ export default function App() {
     }
   }
 
+  const statusItems: StatusItem[] = [];
+  if (saveError) statusItems.push({ id: "save", tone: "error", content: saveError, onDismiss: () => setSaveError(null) });
+  if (serverNotice) statusItems.push({
+    id: "server",
+    tone: serverNotice.error ? "error" : "info",
+    content: serverNotice.message,
+    onDismiss: () => setServerNotice(null),
+  });
+  if (resourceNotice) statusItems.push({
+    id: "resource",
+    tone: resourceNotice.error ? "error" : "info",
+    content: resourceNotice.message,
+    onDismiss: () => setResourceNotice(null),
+  });
+  if (connected && workspaceMatch && !workspaceMatch.ok) statusItems.push({
+    id: "workspace-mismatch",
+    tone: "error",
+    content: `Bundled runtime is read-only: ${workspaceMatch.reason} Resource refresh actions are blocked until the workspace identity matches.`,
+  });
+  if (configLoaded && (!config.txDataPath || !config.selectedProfile)) statusItems.push({
+    id: "setup",
+    tone: "warning",
+    content: "Choose a local txData root and server-data workspace before coding.",
+    actions: <button className="btn small" onClick={() => setSettingsOpen(true)}>Open Settings</button>,
+  });
+  if (!connected && connectError) statusItems.push({
+    id: "connection",
+    tone: "warning",
+    content: `Local coding runtime unavailable: ${connectError} — retrying automatically.`,
+  });
+  if (artifactNotice) statusItems.push({
+    id: "artifact",
+    tone: "warning",
+    content: artifactNotice,
+    onDismiss: () => setArtifactNotice(null),
+  });
+  if (availableUpdate) statusItems.push({
+    id: "update",
+    tone: "info",
+    content: `QB Studio ${availableUpdate.latestVersion} is available.`,
+    actions: <button className="btn small" onClick={() => void window.api.shell.openExternal(availableUpdate.releaseUrl)}>View release</button>,
+    onDismiss: () => setAvailableUpdate(null),
+  });
+
   return (
     <div className="app-shell">
       <TopBar
@@ -889,6 +974,7 @@ export default function App() {
         onLaunchServer={launchServer}
         onStopServer={stopServer}
         onLaunchClient={launchCfxClient}
+        onOpenWorkspace={() => resolved.profileRoot && void window.api.shell.showItemInFolder(resolved.profileRoot)}
         activeTarget={config.activeCfxTarget}
         serverTarget={serverTarget}
         activeServerPath={activeServerPath}
@@ -899,70 +985,12 @@ export default function App() {
         serverStartedAt={serverStartedAt}
         serverStatusError={serverStatusError}
         activeClientPath={activeClientPath}
+        workspacePath={resolved.profileRoot || null}
+        recentWorkspaces={recentWorkspaces}
+        onSelectRecentWorkspace={(id) => void switchRecentWorkspace(id)}
       />
 
-      {availableUpdate && (
-        <div className="warning-banner setup-banner update-banner" role="status">
-          QB Studio {availableUpdate.latestVersion} is available.
-          <button className="btn small" onClick={() => void window.api.shell.openExternal(availableUpdate.releaseUrl)}>
-            View release
-          </button>
-          <button className="banner-dismiss" onClick={() => setAvailableUpdate(null)} aria-label="Dismiss update notice">
-            ×
-          </button>
-        </div>
-      )}
-
-      {configLoaded && (!config.txDataPath || !config.selectedProfile) && (
-        <div className="warning-banner setup-banner" role="alert">
-          Choose a local txData root and server-data workspace before coding.
-          <button className="btn small" onClick={() => setSettingsOpen(true)}>
-            Open Settings
-          </button>
-        </div>
-      )}
-      {artifactNotice && (
-        <div className="warning-banner setup-banner" role="status">
-          {artifactNotice}
-          <button className="btn small" onClick={() => setArtifactNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {serverNotice && (
-        <div className={`warning-banner setup-banner ${serverNotice.error ? "error-banner" : ""}`} role={serverNotice.error ? "alert" : "status"}>
-          {serverNotice.message}
-          <button className="btn small" onClick={() => setServerNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {resourceNotice && (
-        <div className={`warning-banner setup-banner ${resourceNotice.error ? "error-banner" : ""}`} role={resourceNotice.error ? "alert" : "status"}>
-          {resourceNotice.message}
-          <button className="btn small" onClick={() => setResourceNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {!connected && connectError && (
-        <div className="warning-banner">
-          Local coding runtime unavailable: {connectError} — retrying automatically.
-        </div>
-      )}
-      {connected && workspaceMatch && !workspaceMatch.ok && (
-        <div className="warning-banner" role="alert">
-          Bundled runtime is read-only: {workspaceMatch.reason} Resource refresh actions are blocked until the workspace identity matches.
-        </div>
-      )}
-      {saveError && (
-        <div className="warning-banner error-banner" role="alert">
-          {saveError}
-          <button className="banner-dismiss" onClick={() => setSaveError(null)} aria-label="Dismiss save error">
-            ×
-          </button>
-        </div>
-      )}
+      <StatusArea items={statusItems} />
 
       <div style={{ flex: 1, minHeight: 0 }}>
         <Group orientation="horizontal">
@@ -1105,6 +1133,7 @@ export default function App() {
       </div>
 
       {settingsOpen && <SettingsModal config={config} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)} />}
+      {whatsNew && <WhatsNewPanel currentVersion={whatsNew.currentVersion} onClose={() => setWhatsNew(null)} />}
     </div>
   );
 }

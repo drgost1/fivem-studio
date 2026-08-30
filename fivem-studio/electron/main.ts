@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Notification, clipboard } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Notification, clipboard, screen } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
@@ -65,6 +65,9 @@ import { RevertStore, type RevertMode } from "./revertStore";
 import { detectConventionalClientInstalls } from "./clientInstallDiscovery";
 import { WorkspaceSearchService } from "./workspaceSearch";
 import { newestCrashReport } from "./crashTriage";
+import { loadWindowState, saveWindowState } from "./windowState";
+import { listRecentWorkspaces, recordRecentWorkspace, resolveRecentWorkspace } from "./recentWorkspaces";
+import { consumeWhatsNew } from "./whatsNew";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -292,6 +295,10 @@ function artifactStatePath(target: CfxTarget): string {
   return path.join(app.getPath("userData"), `artifact-install-${target}.json`);
 }
 
+function recentWorkspacesPath(): string {
+  return path.join(app.getPath("userData"), "recent-workspaces.json");
+}
+
 function resolvedSystemTheme(): "dark" | "light" {
   return nativeTheme.shouldUseDarkColors ? "dark" : "light";
 }
@@ -303,11 +310,16 @@ function applyNativeTheme(theme: ThemePreference): void {
 }
 
 function createWindow() {
-  const configuredTheme = loadConfig().theme;
+  const startupConfig = loadConfig();
+  const configuredTheme = startupConfig.theme;
   const windowTheme = configuredTheme === "system" ? resolvedSystemTheme() : configuredTheme;
+  const statePath = path.join(app.getPath("userData"), "window-state.json");
+  const storedState = loadWindowState(statePath, screen.getAllDisplays().map((display) => display.workArea));
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: storedState.x,
+    y: storedState.y,
+    width: storedState.width,
+    height: storedState.height,
     minWidth: 1024,
     minHeight: 640,
     title: "QB Studio",
@@ -319,6 +331,27 @@ function createWindow() {
       sandbox: true,
     },
   });
+  mainWindow.webContents.setZoomFactor(startupConfig.uiScale);
+  if (storedState.maximized) mainWindow.maximize();
+
+  let windowStateTimer: ReturnType<typeof setTimeout> | null = null;
+  const persistWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const bounds = mainWindow.getNormalBounds();
+    try {
+      saveWindowState(statePath, { ...bounds, maximized: mainWindow.isMaximized() });
+    } catch {
+      // Window-state persistence must never block use or shutdown.
+    }
+  };
+  const queueWindowState = () => {
+    if (windowStateTimer) clearTimeout(windowStateTimer);
+    windowStateTimer = setTimeout(persistWindowState, 250);
+  };
+  mainWindow.on("resize", queueWindowState);
+  mainWindow.on("move", queueWindowState);
+  mainWindow.on("maximize", queueWindowState);
+  mainWindow.on("unmaximize", queueWindowState);
 
   const devUrl = process.env.ELECTRON_START_URL;
   if (devUrl) {
@@ -365,6 +398,8 @@ function createWindow() {
   mainWindow.on("focus", () => windowEmbed.onHostFocusGained());
 
   mainWindow.on("close", (event) => {
+    if (windowStateTimer) clearTimeout(windowStateTimer);
+    persistWindowState();
     if (allowCloseWithUnsavedChanges || dirtyFileCount === 0 || !mainWindow) return;
     event.preventDefault();
     const plural = dirtyFileCount === 1 ? "file has" : "files have";
@@ -384,6 +419,7 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    if (windowStateTimer) clearTimeout(windowStateTimer);
     mainWindow = null;
   });
 }
@@ -415,6 +451,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   const startupConfig = loadConfig();
+  try { recordRecentWorkspace(recentWorkspacesPath(), startupConfig); } catch { /* non-critical app history */ }
   applyNativeTheme(startupConfig.theme);
   nativeTheme.on("updated", () => {
     const systemTheme = resolvedSystemTheme();
@@ -483,11 +520,31 @@ function registerIpcHandlers() {
       scopedFxServerExe(candidate.enhancedFxServerExePath, "enhanced", txDataPath);
       scopedFxServerExe(candidate.redmFxServerExePath, "redm", txDataPath);
       const saved = saveConfig(config);
+      try { recordRecentWorkspace(recentWorkspacesPath(), saved); } catch { /* non-critical app history */ }
       applyNativeTheme(saved.theme);
+      mainWindow?.webContents.setZoomFactor(saved.uiScale);
       return saved;
     }),
   );
   ipcMain.handle("theme:system", () => resolvedSystemTheme());
+  ipcMain.handle("recents:list", () => listRecentWorkspaces(recentWorkspacesPath()));
+  ipcMain.handle("recents:select", async (_e, idValue: unknown, allowDiscard: unknown) => {
+    if (dirtyFileCount > 0 && allowDiscard !== true) throw new Error("Save or explicitly discard open editor changes before switching workspaces.");
+    const id = requireString(idValue, "Recent workspace id", 24);
+    const recent = resolveRecentWorkspace(recentWorkspacesPath(), id);
+    agent.resetConversation();
+    await mcpDisconnect();
+    stopManagedRuntime();
+    luaLanguageServer.stop();
+    const saved = saveConfig({
+      ...loadConfig(),
+      txDataPath: recent.txDataPath,
+      selectedProfile: recent.profile,
+      activeCfxTarget: recent.target,
+    });
+    try { recordRecentWorkspace(recentWorkspacesPath(), saved); } catch { /* non-critical app history */ }
+    return saved;
+  });
 
   // --- conventional local client discovery and setup diagnostics ---
   ipcMain.handle("installs:detectClients", () => {
@@ -829,7 +886,11 @@ function registerIpcHandlers() {
       const executable = serverExeFor(config, target);
       if (!executable) throw new Error(`Choose and save the ${cfxTargetLabel(target)} server executable first.`);
       const selectedTrack = target === "enhanced" ? "recommended" : requireArtifactTrack(track);
-      return installArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(target));
+      return installArtifactUpdate(executable, config.txDataPath, selectedTrack, artifactStatePath(target), (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("artifacts:progress", { ...progress, target });
+        }
+      });
     }),
   );
 
@@ -844,6 +905,13 @@ function registerIpcHandlers() {
     dirtyFileCount = Math.max(0, Math.min(10000, Math.floor(valid)));
   });
   ipcMain.handle("app:checkForUpdate", () => checkForAppUpdate(app.getVersion()));
+  ipcMain.handle("app:consumeWhatsNew", () => {
+    try {
+      return consumeWhatsNew(path.join(app.getPath("userData"), "last-seen-version.json"), app.getVersion(), app.isPackaged);
+    } catch {
+      return null;
+    }
+  });
 
   // --- on-demand Lua language intelligence ---
   // The executable is part of the verified application bundle. The renderer

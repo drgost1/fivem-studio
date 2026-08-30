@@ -4,6 +4,7 @@ export interface StudioConfig {
   txDataPath: string | null;
   selectedProfile: string | null;
   theme: ThemePreference;
+  uiScale: number;
   activeCfxTarget: CfxTarget;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
@@ -48,6 +49,18 @@ export interface AppUpdateStatus {
   latestVersion: string;
   releaseUrl: string;
   updateAvailable: boolean;
+}
+
+export interface WhatsNewState {
+  previousVersion: string;
+  currentVersion: string;
+}
+
+export interface RecentWorkspaceSummary {
+  id: string;
+  label: string;
+  target: CfxTarget;
+  lastUsedAt: string;
 }
 
 export type CfxTarget = "legacy" | "enhanced" | "redm";
@@ -246,6 +259,13 @@ export interface ArtifactUpdateResult extends ArtifactStatus {
   warning?: string;
 }
 
+export interface ArtifactProgress {
+  target: CfxTarget;
+  phase: "checking" | "downloading" | "extracting" | "validating" | "installing" | "complete";
+  transferredBytes: number;
+  totalBytes: number | null;
+}
+
 export interface CrashReportSummary {
   relativePath: string;
   modifiedAt: string;
@@ -385,6 +405,10 @@ declare global {
         system(): Promise<"dark" | "light">;
         onSystemChanged(callback: (theme: "dark" | "light") => void): () => void;
       };
+      recents: {
+        list(): Promise<RecentWorkspaceSummary[]>;
+        select(id: string, allowDiscard: boolean): Promise<StudioConfig>;
+      };
       installs: {
         detectClients(): Promise<DetectedClientInstalls>;
       };
@@ -469,10 +493,12 @@ declare global {
         check(target: CfxTarget, track: "recommended" | "latest"): Promise<ArtifactStatus>;
         update(target: CfxTarget, track: "recommended" | "latest"): Promise<ArtifactUpdateResult>;
         recoveryNotice(): Promise<string | null>;
+        onProgress(callback: (progress: ArtifactProgress) => void): () => void;
       };
       app: {
         setDirtyCount(count: number): Promise<void>;
         checkForUpdate(): Promise<AppUpdateStatus | null>;
+        consumeWhatsNew(): Promise<WhatsNewState | null>;
       };
       lua: {
         start(): Promise<

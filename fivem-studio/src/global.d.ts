@@ -105,6 +105,38 @@ export interface ResourceDependencyGraph {
   nodes: ResourceDependencyNode[];
 }
 
+export interface ResourceComparisonFile {
+  relativePath: string;
+  kind: "added" | "removed" | "modified";
+  originalContent: string;
+  modifiedContent: string;
+  previewUnavailable: boolean;
+}
+
+export interface ResourceComparison {
+  leftName: string;
+  rightName: string;
+  files: ResourceComparisonFile[];
+  totalChanged: number;
+  scannedFiles: number;
+  skippedCredentialFiles: number;
+  truncated: boolean;
+}
+
+export interface ResourceDuplicateResult {
+  name: string;
+  rootPath: string;
+  manifestPath: string;
+  fileCount: number;
+  skippedDirectories: string[];
+}
+
+export interface EditorBookmark {
+  path: string;
+  line: number;
+  updatedAt: string;
+}
+
 export interface ProfileInfo {
   name: string;
   hasServerCfg: boolean;
@@ -488,6 +520,12 @@ declare global {
         listStatuses(): Promise<ResourceStatusResult>;
         context(filePath: string): Promise<ResourceContext | null>;
         dependencyGraph(): Promise<ResourceDependencyGraph>;
+        compare(leftRoot: string, rightRoot: string): Promise<ResourceComparison>;
+        duplicate(sourceRoot: string, newName: string): Promise<ResourceDuplicateResult>;
+      };
+      bookmarks: {
+        list(): Promise<EditorBookmark[]>;
+        toggle(filePath: string, line: number): Promise<EditorBookmark[]>;
       };
       github: {
         fetchRepoInfo(input: string): Promise<RepoInfo>;

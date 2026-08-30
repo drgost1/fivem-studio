@@ -559,6 +559,8 @@ class LuaLanguageClient {
 }
 
 let singleton: LuaLanguageClient | null = null;
+let activeConsumers = 0;
+let activeMode: "off" | "balanced" | "full" | null = null;
 
 function client(): LuaLanguageClient {
   singleton ??= new LuaLanguageClient();
@@ -569,9 +571,19 @@ export function useLuaLanguageService(active: boolean, mode: "off" | "balanced" 
   const [status, setStatus] = useState<{ state: LuaServiceStatus; message?: string }>({ state: mode === "off" ? "off" : "stopped" });
   useEffect(() => client().subscribe((state, message) => setStatus({ state, message })), []);
   useEffect(() => {
-    if (active) void client().start(mode);
-    else client().stop();
-    return () => client().stop();
+    if (!active) return;
+    activeConsumers += 1;
+    if (activeConsumers === 1 || activeMode !== mode) {
+      activeMode = mode;
+      void client().start(mode);
+    }
+    return () => {
+      activeConsumers = Math.max(0, activeConsumers - 1);
+      if (activeConsumers === 0) {
+        activeMode = null;
+        client().stop();
+      }
+    };
   }, [active, mode]);
   return status;
 }

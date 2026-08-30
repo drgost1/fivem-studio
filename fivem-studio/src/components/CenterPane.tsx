@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import type { FileChangeReview, OpenFile } from "../App";
 import { languageForPath } from "../editorLanguage";
-import type { CrashTriageContext, EditorPreferences, EditorProblem, ResolvedTheme, ResourceContext, ResourceDependencyGraph, WindowCandidate } from "../global";
+import type { CrashTriageContext, EditorBookmark, EditorPreferences, EditorProblem, ResolvedTheme, ResourceComparison, ResourceContext, ResourceDependencyGraph, WindowCandidate } from "../global";
 import { t } from "../i18n";
 import type { LuaServiceStatus } from "../luaLanguageService";
 import { countNewConsoleLines, filterConsoleOutput, newestErrorBlock, type ConsoleSeverity } from "../consoleText";
@@ -9,6 +10,7 @@ import { countNewConsoleLines, filterConsoleOutput, newestErrorBlock, type Conso
 export type CenterTab = "viewport" | "console" | "resources" | "editor";
 
 const CodeEditor = lazy(() => import("./CodeEditor"));
+const ChangeDiff = lazy(() => import("./ChangeDiff"));
 const ChangeReview = lazy(() => import("./ChangeReview"));
 const ManifestFormEditor = lazy(() => import("./ManifestFormEditor"));
 import { parseManifestForm } from "../../electron/manifestModel";
@@ -65,11 +67,13 @@ interface CenterPaneProps {
   onConsoleOutputChange: (output: string) => void;
   onAgentPrompt: (text: string) => void;
   dependencyGraph: ResourceDependencyGraph;
+  bookmarks: EditorBookmark[];
+  onToggleBookmark: (path: string, line: number) => void;
   onSelectFileTab: (path: string) => void;
   onCloseFileTab: (path: string) => void;
   onChange: (path: string, content: string) => void;
   onSave: (path: string, content: string, expectedRevision: string) => Promise<void>;
-  onSelectionChange: (selectedText: string, startLine: number, endLine: number) => void;
+  onSelectionChange: (path: string, selectedText: string, startLine: number, endLine: number) => void;
   onProblemsChange: (path: string, problems: EditorProblem[]) => void;
   onRevealProblem: (problem: EditorProblem) => void;
   onOpenEditorLocation: (path: string, line: number, column: number) => void;
@@ -110,6 +114,8 @@ export default function CenterPane({
   onConsoleOutputChange,
   onAgentPrompt,
   dependencyGraph,
+  bookmarks,
+  onToggleBookmark,
   onSelectFileTab,
   onCloseFileTab,
   onChange,
@@ -133,6 +139,7 @@ export default function CenterPane({
   const openPaths = useMemo(() => openFiles.map((file) => file.path), [openPathKey]);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [rawManifestPaths, setRawManifestPaths] = useState<Set<string>>(() => new Set());
+  const [splitPath, setSplitPath] = useState<string | null>(null);
   const [luaService, setLuaService] = useState<{ status: LuaServiceStatus; message?: string }>({ status: "stopped" });
   const handleLuaStatusChange = useCallback((status: LuaServiceStatus, message?: string) => {
     setLuaService((current) => current.status === status && current.message === message ? current : { status, message });
@@ -145,6 +152,41 @@ export default function CenterPane({
   const isManifest = activeFile?.path.split(/[/\\]/).pop()?.toLowerCase() === "fxmanifest.lua";
   const manifestParse = isManifest && activeFile ? parseManifestForm(activeFile.content) : null;
   const manifestRaw = Boolean(activeFile && (rawManifestPaths.has(activeFile.path) || manifestParse?.ok === false));
+  const breadcrumbs = activeFile && activeResourceContext
+    ? [
+        activeResourceContext.name,
+        ...activeFile.path.slice(activeResourceContext.rootPath.length).replace(/^[\\/]+/, "").split(/[\\/]/).filter(Boolean),
+      ]
+    : [];
+  const splitFile = openFiles.find((file) => file.path === splitPath && file.path !== activePath);
+
+  useEffect(() => {
+    if (splitPath && (!openFiles.some((file) => file.path === splitPath) || splitPath === activePath)) {
+      setSplitPath(null);
+    }
+  }, [activePath, openFiles, splitPath]);
+
+  const renderCodeEditor = (file: OpenFile, revealLocation: CenterPaneProps["editorReveal"] = null) => (
+    <CodeEditor
+      file={file}
+      openPaths={openPaths}
+      language={languageForPath(file.path)}
+      preferences={editorPreferences}
+      resolvedTheme={resolvedTheme}
+      luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
+      reveal={revealLocation}
+      onChange={onChange}
+      onSave={onSave}
+      onSelectionChange={(selectedText, startLine, endLine) => onSelectionChange(file.path, selectedText, startLine, endLine)}
+      onProblemsChange={onProblemsChange}
+      onOpenLocation={onOpenEditorLocation}
+      onLuaStatusChange={handleLuaStatusChange}
+      onAgentPrompt={onAgentPrompt}
+      resourceNames={dependencyGraph.nodes.map((node) => node.name)}
+      bookmarkLines={bookmarks.filter((bookmark) => bookmark.path === file.path).map((bookmark) => bookmark.line)}
+      onToggleBookmark={onToggleBookmark}
+    />
+  );
 
   return (
     <div className="pane" style={{ height: "100%" }}>
@@ -252,6 +294,8 @@ export default function CenterPane({
             runtimeWritable={runtimeWritable}
             resourceLifecycleAvailable={resourceLifecycleAvailable}
             dependencyGraph={dependencyGraph}
+            editorPreferences={editorPreferences}
+            resolvedTheme={resolvedTheme}
             onOpenManifest={(path) => onOpenEditorLocation(path, 1, 1)}
           />
         </div>
@@ -262,7 +306,14 @@ export default function CenterPane({
                 {activeResourceContext && (
                   <div className={`editor-resource-bar ${activeResourceState ?? "unknown"}`} role="status">
                     <span className={`resource-state-dot ${activeResourceState ?? "unknown"}`} aria-hidden="true" />
-                    <strong>{activeResourceContext.name}</strong>
+                    <nav className="editor-breadcrumbs" aria-label={t("editor.breadcrumbs")}>
+                      {breadcrumbs.map((part, index) => (
+                        <span key={`${part}:${index}`}>
+                          {index > 0 && <span className="editor-breadcrumb-separator" aria-hidden="true">/</span>}
+                          <strong>{part}</strong>
+                        </span>
+                      ))}
+                    </nav>
                     <span className="editor-resource-message">
                       {activeResourceState === "stopped"
                         ? t("editor.resourceStopped", { resource: activeResourceContext.name })
@@ -316,25 +367,32 @@ export default function CenterPane({
                 )}
                 <div className="editor-monaco-surface">
                   <Suspense fallback={<div className="editor-empty">Loading editor…</div>}>
-                    {isManifest && !manifestRaw ? (
+                    {splitFile ? (
+                      <Group orientation="horizontal">
+                        <Panel defaultSize="50" minSize="20">
+                          <div className="editor-split-panel">
+                            <div className="editor-split-header" title={activeFile.path}>{labels.get(activeFile.path)}</div>
+                            <div className="editor-split-body">
+                              {isManifest && !manifestRaw
+                                ? <ManifestFormEditor file={activeFile} onChange={onChange} onSave={onSave} />
+                                : renderCodeEditor(activeFile, editorReveal)}
+                            </div>
+                          </div>
+                        </Panel>
+                        <Separator className="resize-handle resize-handle-h" />
+                        <Panel defaultSize="50" minSize="20">
+                          <div className="editor-split-panel">
+                            <div className="editor-split-header" title={splitFile.path}>
+                              <span>{labels.get(splitFile.path)}</span>
+                              <button type="button" onClick={() => setSplitPath(null)} aria-label={t("editor.split.close")}>×</button>
+                            </div>
+                            <div className="editor-split-body">{renderCodeEditor(splitFile)}</div>
+                          </div>
+                        </Panel>
+                      </Group>
+                    ) : isManifest && !manifestRaw ? (
                       <ManifestFormEditor file={activeFile} onChange={onChange} onSave={onSave} />
-                    ) : <CodeEditor
-                      file={activeFile}
-                      openPaths={openPaths}
-                      language={languageForPath(activeFile.path)}
-                      preferences={editorPreferences}
-                      resolvedTheme={resolvedTheme}
-                      luaActive={openFiles.some((openFile) => languageForPath(openFile.path) === "lua")}
-                      reveal={editorReveal}
-                      onChange={onChange}
-                      onSave={onSave}
-                      onSelectionChange={onSelectionChange}
-                      onProblemsChange={onProblemsChange}
-                      onOpenLocation={onOpenEditorLocation}
-                      onLuaStatusChange={handleLuaStatusChange}
-                      onAgentPrompt={onAgentPrompt}
-                      resourceNames={dependencyGraph.nodes.map((node) => node.name)}
-                    />}
+                    ) : renderCodeEditor(activeFile, editorReveal)}
                   </Suspense>
                 </div>
               </div>
@@ -378,6 +436,15 @@ export default function CenterPane({
               )}
               <div className="editor-statusbar">
                 <span>{languageForPath(activeFile.path)}</span>
+                <label className="editor-split-control">
+                  <span>{t("editor.split.label")}</span>
+                  <select value={splitFile?.path ?? ""} onChange={(event) => setSplitPath(event.target.value || null)}>
+                    <option value="">{t("editor.split.none")}</option>
+                    {openFiles.filter((file) => file.path !== activeFile.path).map((file) => (
+                      <option key={file.path} value={file.path}>{labels.get(file.path)}</option>
+                    ))}
+                  </select>
+                </label>
                 {languageForPath(activeFile.path) === "lua" && (
                   <span
                     className={`lua-service-status ${luaService.status}`}
@@ -732,6 +799,8 @@ function ResourcesSection({
   runtimeWritable,
   resourceLifecycleAvailable,
   dependencyGraph,
+  editorPreferences,
+  resolvedTheme,
   onOpenManifest,
 }: {
   connected: boolean;
@@ -739,6 +808,8 @@ function ResourcesSection({
   runtimeWritable: boolean;
   resourceLifecycleAvailable: boolean | null;
   dependencyGraph: ResourceDependencyGraph;
+  editorPreferences: EditorPreferences;
+  resolvedTheme: ResolvedTheme;
   onOpenManifest: (path: string) => void;
 }) {
   const [output, setOutput] = useState("");
@@ -845,6 +916,124 @@ function ResourcesSection({
           </div>
         )}
       </section>
+      <ResourceCompareSection
+        dependencyGraph={dependencyGraph}
+        editorPreferences={editorPreferences}
+        resolvedTheme={resolvedTheme}
+      />
+    </section>
+  );
+}
+
+function ResourceCompareSection({
+  dependencyGraph,
+  editorPreferences,
+  resolvedTheme,
+}: {
+  dependencyGraph: ResourceDependencyGraph;
+  editorPreferences: EditorPreferences;
+  resolvedTheme: ResolvedTheme;
+}) {
+  const [leftRoot, setLeftRoot] = useState("");
+  const [rightRoot, setRightRoot] = useState("");
+  const [comparison, setComparison] = useState<ResourceComparison | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const roots = dependencyGraph.nodes.map((node) => node.rootPath);
+    setLeftRoot((current) => roots.includes(current) ? current : (roots[0] ?? ""));
+    setRightRoot((current) => roots.includes(current) && current !== (roots[0] ?? "") ? current : (roots[1] ?? ""));
+    setComparison(null);
+    setSelectedPath(null);
+  }, [dependencyGraph]);
+
+  async function compare() {
+    if (!leftRoot || !rightRoot || leftRoot === rightRoot) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await window.api.resources.compare(leftRoot, rightRoot);
+      setComparison(result);
+      setSelectedPath(result.files[0]?.relativePath ?? null);
+    } catch (compareError) {
+      setComparison(null);
+      setSelectedPath(null);
+      setError((compareError as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const selected = comparison?.files.find((file) => file.relativePath === selectedPath);
+  return (
+    <section className="resource-compare" aria-labelledby="resource-compare-heading">
+      <div className="dependency-graph-heading">
+        <div>
+          <h3 id="resource-compare-heading">{t("resource.compare.title")}</h3>
+          <span>{t("resource.compare.help")}</span>
+        </div>
+      </div>
+      <div className="resource-compare-controls">
+        <select aria-label={t("resource.compare.left")} value={leftRoot} onChange={(event) => setLeftRoot(event.target.value)}>
+          {dependencyGraph.nodes.map((node) => <option key={node.rootPath} value={node.rootPath}>{node.name}</option>)}
+        </select>
+        <span aria-hidden="true">↔</span>
+        <select aria-label={t("resource.compare.right")} value={rightRoot} onChange={(event) => setRightRoot(event.target.value)}>
+          {dependencyGraph.nodes.map((node) => <option key={node.rootPath} value={node.rootPath}>{node.name}</option>)}
+        </select>
+        <button className="btn small" type="button" disabled={loading || !leftRoot || !rightRoot || leftRoot === rightRoot} onClick={() => void compare()}>
+          {loading ? t("resource.compare.comparing") : t("resource.compare.action")}
+        </button>
+      </div>
+      {error && <div className="error-text" role="alert">{error}</div>}
+      {comparison && (
+        <>
+          <div className="resource-compare-summary">
+            {t("resource.compare.summary", { left: comparison.leftName, right: comparison.rightName, count: comparison.totalChanged })}
+            {comparison.skippedCredentialFiles > 0 && ` ${t("resource.compare.credentials", { count: comparison.skippedCredentialFiles })}`}
+            {comparison.truncated && ` ${t("resource.compare.truncated")}`}
+          </div>
+          {comparison.totalChanged === 0 ? (
+            <div className="operations-empty">{t("resource.compare.identical")}</div>
+          ) : (
+            <div className="resource-compare-workbench">
+              <div className="resource-compare-files">
+                {comparison.files.map((file) => (
+                  <button
+                    type="button"
+                    className={selectedPath === file.relativePath ? "active" : ""}
+                    key={file.relativePath}
+                    onClick={() => setSelectedPath(file.relativePath)}
+                  >
+                    <span className={`resource-compare-kind ${file.kind}`}>{file.kind === "added" ? "+" : file.kind === "removed" ? "−" : "M"}</span>
+                    <span>{file.relativePath}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="resource-compare-preview">
+                {selected?.previewUnavailable ? (
+                  <div className="editor-empty">{t("resource.compare.noPreview")}</div>
+                ) : selected ? (
+                  <Suspense fallback={<div className="editor-empty">{t("resource.compare.loadingPreview")}</div>}>
+                    <ChangeDiff
+                      id={`${comparison.leftName}:${comparison.rightName}:${selected.relativePath}`}
+                      original={selected.originalContent}
+                      modified={selected.modifiedContent}
+                      language={languageForPath(selected.relativePath)}
+                      fontSize={editorPreferences.fontSize}
+                      wordWrap={editorPreferences.wordWrap}
+                      resolvedTheme={resolvedTheme}
+                      compact
+                    />
+                  </Suspense>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }

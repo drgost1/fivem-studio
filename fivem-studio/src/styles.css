@@ -691,6 +691,83 @@ button.tree-node {
   color: var(--text);
   font-weight: 600;
 }
+.editor-breadcrumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.editor-breadcrumbs > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+.editor-breadcrumbs strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-breadcrumb-separator {
+  margin: 0 6px;
+  color: var(--text-2);
+}
+.editor-bookmark-glyph::after {
+  background: var(--accent);
+  border: 1px solid var(--text-0);
+  border-radius: 2px 2px 2px 0;
+  content: "";
+  display: block;
+  height: 9px;
+  margin-left: 5px;
+  margin-top: 3px;
+  transform: rotate(-45deg);
+  width: 9px;
+}
+.bookmarks-empty {
+  color: var(--text-2);
+  padding: 14px;
+}
+.bookmarks-list {
+  display: flex;
+  flex-direction: column;
+}
+.bookmark-row {
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+}
+.bookmark-open,
+.bookmark-remove {
+  background: transparent;
+  border: 0;
+  color: var(--text-0);
+}
+.bookmark-open {
+  align-items: flex-start;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 10px;
+  text-align: left;
+}
+.bookmark-open:hover,
+.bookmark-remove:hover {
+  background: var(--bg-3);
+}
+.bookmark-open span,
+.bookmark-open small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmark-open small {
+  color: var(--text-2);
+}
+.bookmark-remove {
+  padding: 0 10px;
+}
 .editor-resource-bar.stopped {
   background: color-mix(in srgb, var(--red) 8%, var(--bg-2));
 }
@@ -783,6 +860,124 @@ button.tree-node {
 .editor-monaco-surface {
   flex: 1;
   min-height: 0;
+}
+.editor-split-panel,
+.editor-split-body {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+.editor-split-panel {
+  flex-direction: column;
+}
+.editor-split-body {
+  flex: 1;
+}
+.editor-split-header {
+  align-items: center;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+  display: flex;
+  flex: 0 0 25px;
+  font-size: 10px;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-split-header span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-split-header button {
+  background: transparent;
+  border: 0;
+  color: var(--text-1);
+  padding: 2px 4px;
+}
+.editor-split-header button:hover {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+.editor-split-control {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+.editor-split-control select {
+  max-width: 145px;
+}
+.resource-compare {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.resource-compare-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+}
+.resource-compare-controls select {
+  max-width: 220px;
+  min-width: 120px;
+}
+.resource-compare-summary {
+  color: var(--text-1);
+  font-size: 11px;
+  padding: 4px 0 8px;
+}
+.resource-compare-workbench {
+  border: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(140px, 28%) minmax(0, 1fr);
+  height: 340px;
+  min-height: 240px;
+}
+.resource-compare-files {
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+.resource-compare-files button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-1);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  gap: 7px;
+  padding: 6px 8px;
+  text-align: left;
+  width: 100%;
+}
+.resource-compare-files button:hover,
+.resource-compare-files button.active {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+.resource-compare-files button.active {
+  box-shadow: inset 2px 0 var(--accent);
+}
+.resource-compare-kind {
+  color: var(--warn);
+  flex: 0 0 10px;
+}
+.resource-compare-kind.added {
+  color: var(--ok);
+}
+.resource-compare-kind.removed {
+  color: var(--error);
+}
+.resource-compare-preview {
+  min-height: 0;
+  min-width: 0;
 }
 .console-refresh-notice {
   align-self: center;

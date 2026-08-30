@@ -10,6 +10,7 @@ import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
 import StatusArea, { type StatusItem } from "./components/StatusArea";
 import WhatsNewPanel from "./components/WhatsNewPanel";
+import BookmarksPanel from "./components/BookmarksPanel";
 import { t } from "./i18n";
 import { lastConsoleLines } from "./consoleText";
 import type {
@@ -17,6 +18,7 @@ import type {
   CfxTarget,
   CrashTriageContext,
   EditorProblem,
+  EditorBookmark,
   ResolvedProfile,
   ResolvedTheme,
   RecentWorkspaceSummary,
@@ -47,7 +49,7 @@ export interface FileChangeReview {
   diskRevision: string;
 }
 
-type SidebarTab = "resources" | "search" | "github";
+type SidebarTab = "resources" | "search" | "bookmarks" | "github";
 
 const DEFAULT_CONFIG: StudioConfig = {
   txDataPath: null,
@@ -135,6 +137,7 @@ export default function App() {
     serverStateAvailable: false,
   });
   const [dependencyGraph, setDependencyGraph] = useState<ResourceDependencyGraph>({ nodes: [] });
+  const [bookmarks, setBookmarks] = useState<EditorBookmark[]>([]);
   const [resourceAction, setResourceAction] = useState<string | null>(null);
   const [resourceNotice, setResourceNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [activeResourceContext, setActiveResourceContext] = useState<ResourceContext | null>(null);
@@ -146,10 +149,19 @@ export default function App() {
 
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
+  const recentFilePaths = useRef<string[]>([]);
+  const ctrlTabSession = useRef<{ order: string[]; index: number } | null>(null);
+  const activePathRef = useRef<string | null>(null);
+  activePathRef.current = activePath;
   // Viewport, not editor: with no files open yet, defaulting to "editor" leaves the
   // tab strip with nothing highlighted and an empty pane, which reads as a broken state.
   const [centerTab, setCenterTab] = useState<CenterTab>("viewport");
-  const [selection, setSelection] = useState({ selectedText: "", startLine: 0, endLine: 0 });
+  const [selection, setSelection] = useState<{ path: string | null; selectedText: string; startLine: number; endLine: number }>({
+    path: null,
+    selectedText: "",
+    startLine: 0,
+    endLine: 0,
+  });
   const [editorProblems, setEditorProblems] = useState<Record<string, EditorProblem[]>>({});
   const [editorReveal, setEditorReveal] = useState<{ path: string; line: number; column: number; nonce: number } | null>(null);
   const [changeReviews, setChangeReviews] = useState<Record<string, FileChangeReview>>({});
@@ -422,6 +434,14 @@ export default function App() {
     return () => { cancelled = true; };
   }, [resolved.resourcesPath, treeRefreshKey]);
 
+  useEffect(() => {
+    if (!config.txDataPath || !config.selectedProfile) {
+      setBookmarks([]);
+      return;
+    }
+    void window.api.bookmarks.list().then(setBookmarks).catch(() => setBookmarks([]));
+  }, [config.txDataPath, config.selectedProfile]);
+
   // Bump the tree refresh token whenever the watcher reports a change.
   useEffect(() => {
     return window.api.fs.onChanged(() => {
@@ -453,16 +473,59 @@ export default function App() {
     window.api.app.setDirtyCount(openFiles.filter((f) => f.dirty).length);
   }, [openFiles]);
 
+  useEffect(() => {
+    const open = new Set(openFiles.map((file) => file.path));
+    const pruned = recentFilePaths.current.filter((path) => open.has(path));
+    for (const file of openFiles) if (!pruned.includes(file.path)) pruned.push(file.path);
+    if (activePath && !ctrlTabSession.current) {
+      recentFilePaths.current = [activePath, ...pruned.filter((path) => path !== activePath)];
+    } else {
+      recentFilePaths.current = pruned;
+    }
+  }, [activePath, openFiles]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !event.ctrlKey || recentFilePaths.current.length < 2) return;
+      event.preventDefault();
+      if (!ctrlTabSession.current) {
+        const order = [...recentFilePaths.current];
+        ctrlTabSession.current = { order, index: Math.max(0, order.indexOf(activePathRef.current ?? "")) };
+      }
+      const session = ctrlTabSession.current;
+      const direction = event.shiftKey ? -1 : 1;
+      session.index = (session.index + direction + session.order.length) % session.order.length;
+      setActivePath(session.order[session.index]);
+      setCenterTab("editor");
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Control" || !ctrlTabSession.current) return;
+      const selected = activePathRef.current;
+      const order = ctrlTabSession.current.order;
+      recentFilePaths.current = selected ? [selected, ...order.filter((path) => path !== selected)] : order;
+      ctrlTabSession.current = null;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
   // A selection belongs to one editor model. Switching files or leaving the editor
   // must not leave a stale snippet attached to the next agent request.
   useEffect(() => {
-    setSelection({ selectedText: "", startLine: 0, endLine: 0 });
+    setSelection({ path: null, selectedText: "", startLine: 0, endLine: 0 });
   }, [activePath, centerTab]);
 
   // Keep the agent's view of the editor current: which file is open and what's selected.
   // Non-editor tabs deliberately expose neither a path nor a previous selection.
   useEffect(() => {
-    void window.api.agent.setEditorContext({ path: centerTab === "editor" ? activePath : null, ...selection }).catch(() => {
+    void window.api.agent.setEditorContext({
+      ...selection,
+      path: centerTab === "editor" ? (selection.path ?? activePath) : null,
+    }).catch(() => {
       // Context is advisory; a later editor move will retry it and chat remains usable.
     });
   }, [activePath, centerTab, selection]);
@@ -640,6 +703,14 @@ export default function App() {
 
   function revealEditorProblem(problem: EditorProblem) {
     void openEditorLocation(problem.path, problem.line, problem.column);
+  }
+
+  async function toggleBookmark(path: string, line: number) {
+    try {
+      setBookmarks(await window.api.bookmarks.toggle(path, line));
+    } catch (error) {
+      setSaveError(`Could not update bookmark: ${(error as Error).message}`);
+    }
   }
 
   function closeTab(path: string) {
@@ -1035,6 +1106,14 @@ export default function App() {
                   {t("search.tab")}
                 </button>
                 <button
+                  className={`tab ${sidebarTab === "bookmarks" ? "active" : ""}`}
+                  role="tab"
+                  aria-selected={sidebarTab === "bookmarks"}
+                  onClick={() => setSidebarTab("bookmarks")}
+                >
+                  {t("bookmarks.tab")}
+                </button>
+                <button
                   className={`tab ${sidebarTab === "github" ? "active" : ""}`}
                   role="tab"
                   aria-selected={sidebarTab === "github"}
@@ -1068,6 +1147,14 @@ export default function App() {
                       runtimeWritable={runtimeWritable}
                       resourceAction={resourceAction}
                       onResourceAction={runResourceLifecycle}
+                      onResourceDuplicated={(sourceName, result) => {
+                        setTreeRefreshKey((key) => key + 1);
+                        setResourceNotice({
+                          message: t("resource.duplicate.success", { resource: result.name, source: sourceName, count: result.fileCount }),
+                          error: false,
+                        });
+                        void openEditorLocation(result.manifestPath, 1, 1);
+                      }}
                     />
                   </>
                 ) : sidebarTab === "search" ? (
@@ -1078,6 +1165,12 @@ export default function App() {
                     editorPreferences={config.editor}
                     onOpenLocation={(path, line, column) => void openEditorLocation(path, line, column)}
                     onFilesChanged={() => setTreeRefreshKey((key) => key + 1)}
+                  />
+                ) : sidebarTab === "bookmarks" ? (
+                  <BookmarksPanel
+                    bookmarks={bookmarks}
+                    onOpen={(path, line) => void openEditorLocation(path, line, 1)}
+                    onRemove={(path, line) => void toggleBookmark(path, line)}
                   />
                 ) : (
                   <GithubImportPanel projectRoot={resolved.resourcesPath} onImported={() => setTreeRefreshKey((k) => k + 1)} />
@@ -1121,12 +1214,17 @@ export default function App() {
               onConsoleOutputChange={(output) => { latestConsoleOutput.current = output; }}
               onAgentPrompt={(text) => setAgentPrompt({ text, nonce: Date.now() })}
               dependencyGraph={dependencyGraph}
-              onSelectFileTab={setActivePath}
+              bookmarks={bookmarks}
+              onToggleBookmark={(path, line) => void toggleBookmark(path, line)}
+              onSelectFileTab={(path) => {
+                setSelection({ path: null, selectedText: "", startLine: 0, endLine: 0 });
+                setActivePath(path);
+              }}
               onCloseFileTab={closeTab}
               onChange={updateContent}
               onSave={saveFile}
-              onSelectionChange={(selectedText, startLine, endLine) =>
-                setSelection({ selectedText, startLine, endLine })
+              onSelectionChange={(path, selectedText, startLine, endLine) =>
+                setSelection({ path, selectedText, startLine, endLine })
               }
               onProblemsChange={handleEditorProblems}
               onRevealProblem={revealEditorProblem}
@@ -1148,7 +1246,7 @@ export default function App() {
               config={config}
               resolvedTheme={resolvedTheme}
               workspaceMatch={workspaceMatch}
-              selection={selection.selectedText ? { ...selection, path: activePath } : null}
+              selection={selection.selectedText ? selection : null}
               suggestedPrompt={agentPrompt}
               activePath={activePath}
               activeResourceName={activeResourceContext?.name ?? null}

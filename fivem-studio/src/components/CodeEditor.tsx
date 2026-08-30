@@ -25,6 +25,8 @@ interface CodeEditorProps {
   onLuaStatusChange: (status: LuaServiceStatus, message?: string) => void;
   onAgentPrompt: (text: string) => void;
   resourceNames: string[];
+  bookmarkLines: number[];
+  onToggleBookmark: (path: string, line: number) => void;
 }
 
 const SERVER_CFG_DOCS: Record<string, { detail: string; insertText: string }> = {
@@ -78,6 +80,8 @@ export default function CodeEditor({
   onLuaStatusChange,
   onAgentPrompt,
   resourceNames,
+  bookmarkLines,
+  onToggleBookmark,
 }: CodeEditorProps) {
   const monacoInstance = useMonaco();
   const luaStatus = useLuaLanguageService(luaActive, preferences.luaIntelligence);
@@ -88,10 +92,12 @@ export default function CodeEditor({
   const onProblemsChangeRef = useRef(onProblemsChange);
   const onOpenLocationRef = useRef(onOpenLocation);
   const onAgentPromptRef = useRef(onAgentPrompt);
+  const onToggleBookmarkRef = useRef(onToggleBookmark);
   const preferencesRef = useRef(preferences);
   const resourceNamesRef = useRef(resourceNames);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const editorDisposablesRef = useRef<monaco.IDisposable[]>([]);
+  const bookmarkDecorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const trackedPathsRef = useRef(new Set<string>());
   fileRef.current = file;
   onSaveRef.current = onSave;
@@ -100,6 +106,7 @@ export default function CodeEditor({
   onProblemsChangeRef.current = onProblemsChange;
   onOpenLocationRef.current = onOpenLocation;
   onAgentPromptRef.current = onAgentPrompt;
+  onToggleBookmarkRef.current = onToggleBookmark;
   preferencesRef.current = preferences;
   resourceNamesRef.current = resourceNames;
 
@@ -136,6 +143,7 @@ export default function CodeEditor({
     "semanticHighlighting.enabled": true,
     renderWhitespace: "selection" as const,
     smoothScrolling: true,
+    glyphMargin: true,
   }), [preferences]);
   const editorPath = useMemo(() => monaco.Uri.file(file.path).toString(true), [file.path]);
 
@@ -170,12 +178,12 @@ export default function CodeEditor({
   useEffect(() => {
     return () => {
       for (const disposable of editorDisposablesRef.current) disposable.dispose();
-      if (!monacoInstance) return;
-      for (const path of trackedPathsRef.current) {
-        monacoInstance.editor.getModel(monacoInstance.Uri.file(path))?.dispose();
-      }
+      editorDisposablesRef.current = [];
+      bookmarkDecorationsRef.current?.clear();
+      bookmarkDecorationsRef.current = null;
+      editorRef.current = null;
     };
-  }, [monacoInstance]);
+  }, []);
 
   useEffect(() => {
     if (!reveal || reveal.path !== file.path || !editorRef.current) return;
@@ -187,6 +195,18 @@ export default function CodeEditor({
     });
   }, [file.path, reveal]);
 
+  useEffect(() => {
+    bookmarkDecorationsRef.current?.set(bookmarkLines.map((line) => ({
+      range: {
+        startLineNumber: line,
+        startColumn: 1,
+        endLineNumber: line,
+        endColumn: 1,
+      },
+      options: { isWholeLine: true, glyphMarginClassName: "editor-bookmark-glyph" },
+    })));
+  }, [bookmarkLines, file.path]);
+
   return (
     <Editor
       path={editorPath}
@@ -197,6 +217,10 @@ export default function CodeEditor({
       onChange={handleChange}
       onMount={(editor, monaco) => {
         editorRef.current = editor;
+        bookmarkDecorationsRef.current = editor.createDecorationsCollection(bookmarkLines.map((line) => ({
+          range: new monaco.Range(line, 1, line, 1),
+          options: { isWholeLine: true, glyphMarginClassName: "editor-bookmark-glyph" },
+        })));
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
           void (async () => {
             if (preferencesRef.current.formatOnSave) {
@@ -214,6 +238,17 @@ export default function CodeEditor({
         editorDisposablesRef.current.push(editor.onDidChangeCursorSelection((event) => {
           const selected = editor.getModel()?.getValueInRange(event.selection) ?? "";
           onSelectionChangeRef.current(selected, event.selection.startLineNumber, event.selection.endLineNumber);
+        }));
+        editorDisposablesRef.current.push(editor.addAction({
+          id: "qb-studio.toggle-bookmark",
+          label: t("bookmarks.toggle"),
+          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyK],
+          contextMenuGroupId: "navigation",
+          contextMenuOrder: 1,
+          run: () => {
+            const position = editor.getPosition();
+            if (position) onToggleBookmarkRef.current(fileRef.current.path, position.lineNumber);
+          },
         }));
         const promptForSelection = (instruction: string) => {
           const selection = editor.getSelection();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DirEntry } from "../global";
+import type { DirEntry, ResourceDuplicateResult } from "../global";
 import { t } from "../i18n";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 
@@ -146,6 +146,7 @@ interface ResourceTreeProps {
   runtimeWritable: boolean;
   resourceAction: string | null;
   onResourceAction: (kind: ResourceAction, name: string) => Promise<unknown>;
+  onResourceDuplicated: (sourceName: string, result: ResourceDuplicateResult) => void;
 }
 
 interface MenuState {
@@ -166,6 +167,7 @@ export default function ResourceTree({
   runtimeWritable,
   resourceAction,
   onResourceAction,
+  onResourceDuplicated,
 }: ResourceTreeProps) {
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +199,18 @@ export default function ResourceTree({
 
   async function deleteEntry(entry: DirEntry) {
     await onDeleteEntry(entry.path, entry.name);
+  }
+
+  async function duplicateEntry(entry: DirEntry) {
+    if (!entry.resourceName) return;
+    const proposed = prompt(t("resource.duplicate.prompt"), `${entry.resourceName}-copy`);
+    if (proposed === null || !proposed.trim()) return;
+    try {
+      const result = await window.api.resources.duplicate(entry.path, proposed.trim());
+      onResourceDuplicated(entry.resourceName, result);
+    } catch (error) {
+      alert((error as Error).message);
+    }
   }
 
   function openContextMenu(entry: DirEntry, x: number, y: number) {
@@ -266,6 +280,9 @@ export default function ResourceTree({
           onClose={() => setMenu(null)}
           items={[
             ...lifecycleMenuItems(),
+            ...(menu.entry.resourceName
+              ? [{ label: t("resource.context.duplicate"), onClick: () => void duplicateEntry(menu.entry) }]
+              : []),
             { label: "Rename", onClick: () => setRenamingPath(menu.entry.path) },
             { label: "Show in Explorer", onClick: () => window.api.shell.showItemInFolder(menu.entry.path) },
             { label: "Delete", danger: true, onClick: () => deleteEntry(menu.entry) },

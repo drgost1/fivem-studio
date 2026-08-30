@@ -94,6 +94,12 @@ const api = {
     listStatuses: () => ipcRenderer.invoke("resources:listStatuses"),
     context: (filePath: string) => ipcRenderer.invoke("resources:context", filePath),
     dependencyGraph: () => ipcRenderer.invoke("resources:dependencyGraph"),
+    compare: (leftRoot: string, rightRoot: string) => ipcRenderer.invoke("resources:compare", leftRoot, rightRoot),
+    duplicate: (sourceRoot: string, newName: string) => ipcRenderer.invoke("resources:duplicate", sourceRoot, newName),
+  },
+  bookmarks: {
+    list: () => ipcRenderer.invoke("bookmarks:list"),
+    toggle: (filePath: string, line: number) => ipcRenderer.invoke("bookmarks:toggle", filePath, line),
   },
   github: {
     fetchRepoInfo: (input: string) => ipcRenderer.invoke("github:fetchRepoInfo", input),

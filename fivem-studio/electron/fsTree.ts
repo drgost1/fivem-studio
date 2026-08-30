@@ -106,12 +106,12 @@ export function writeTextFile(filePath: string, content: string, expectedRevisio
 
 /** Atomically creates a new text file and refuses any existing target, even if
  * another writer wins the race after the caller's initial directory check. */
-export function createTextFile(filePath: string, content: string): string {
+export function createTextFile(filePath: string, content: string | Buffer): string {
   const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`);
   let fd: number | null = null;
   try {
     fd = fs.openSync(tempPath, "wx", 0o600);
-    fs.writeFileSync(fd, content, "utf8");
+    fs.writeFileSync(fd, content);
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;

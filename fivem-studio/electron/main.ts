@@ -70,6 +70,9 @@ import { listRecentWorkspaces, recordRecentWorkspace, resolveRecentWorkspace } f
 import { consumeWhatsNew } from "./whatsNew";
 import { buildResourceDependencyGraph } from "./dependencyGraph";
 import { assertFxServerPortAvailable } from "./portPreflight";
+import { BookmarkStore } from "./bookmarkStore";
+import { compareResources } from "./resourceCompare";
+import { duplicateResource } from "./resourceDuplicate";
 
 let mainWindow: BrowserWindow | null = null;
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -90,6 +93,7 @@ const serverOperation = new OperationLock();
 const luaLanguageServer = new LuaLanguageServerProcess();
 let revertStore: RevertStore | null = null;
 let workspaceSearch: WorkspaceSearchService | null = null;
+let bookmarkStore: BookmarkStore | null = null;
 
 // The renderer only receives the coding-oriented runtime controls it renders.
 // Gameplay/admin tooling is deliberately not exposed through this generic bridge.
@@ -476,6 +480,7 @@ app.whenReady().then(() => {
   revertStore = new RevertStore(path.join(app.getPath("userData"), "revert-store"));
   setProjectRevertStore(revertStore);
   workspaceSearch = new WorkspaceSearchService(revertStore);
+  bookmarkStore = new BookmarkStore(path.join(app.getPath("userData"), "bookmarks"));
 
   registerIpcHandlers();
   createWindow();
@@ -783,6 +788,25 @@ function registerIpcHandlers() {
   ipcMain.handle("resources:listStatuses", () => mcpListResourceStatuses());
   ipcMain.handle("resources:context", (_e, filePath: unknown) => activeResourceContext(filePath));
   ipcMain.handle("resources:dependencyGraph", () => buildResourceDependencyGraph(activeResourcesRoot()));
+  ipcMain.handle("resources:compare", (_e, leftRoot: unknown, rightRoot: unknown) => compareResources(
+    activeResourcesRoot(),
+    requireString(leftRoot, "Left resource path"),
+    requireString(rightRoot, "Right resource path"),
+  ));
+  ipcMain.handle("resources:duplicate", (_e, sourceRoot: unknown, newName: unknown) => duplicateResource(
+    activeResourcesRoot(),
+    requireString(sourceRoot, "Source resource path"),
+    requireString(newName, "New resource name", 255),
+  ));
+  ipcMain.handle("bookmarks:list", () => bookmarkStore?.list(activeProfileRoot()) ?? []);
+  ipcMain.handle("bookmarks:toggle", (_e, filePath: unknown, line: unknown) => {
+    if (!bookmarkStore) throw new Error("Bookmarks are not ready yet.");
+    return bookmarkStore.toggle(
+      activeProfileRoot(),
+      scopedProfilePath(filePath),
+      Math.floor(requireFiniteNumber(line, "Bookmark line")),
+    );
+  });
 
   // --- GitHub import ---
   ipcMain.handle("github:fetchRepoInfo", (_e, input: unknown) => fetchRepoInfo(requireString(input, "GitHub repository", 2048)));

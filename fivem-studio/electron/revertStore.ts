@@ -25,8 +25,14 @@ const CREDENTIAL_EXTENSIONS = new Set([".key", ".keystore", ".p12", ".pem", ".pf
 const CREDENTIAL_CONTENT_PATTERNS = [
   /\b(?:(?:set|setr|sets)\s+)?(?:mysql_connection_string|rcon_password|steam_webapikey|sv_licensekey)\b/i,
   /-----BEGIN (?:ENCRYPTED |RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
-  /["']?(?:access[_-]?token|api[_-]?key|client[_-]?secret|private[_-]?key)["']?\s*[:=]\s*["'][^"'\r\n]+/i,
+  /["']?(?:access[_-]?token|api[_-]?key|client[_-]?secret|private[_-]?key|password|passwd|secret)["']?\s*[:=]\s*(?:"[^"\r\n]+"|'[^'\r\n]+')/i,
+  /(?:^|\n)\s*(?:(?:set|setr|sets)\s+)?[A-Za-z0-9_.-]*(?:password|passwd|token|api[_-]?key|client[_-]?secret|private[_-]?key|secret)[A-Za-z0-9_.-]*\s*(?::|=|\s)\s*(?:"[^"\r\n]+"|'[^'\r\n]+'|[^\s#;]{8,})/i,
+  /(?:^|\n)\s*[A-Z][A-Z0-9_]*(?:TOKEN|PASSWORD|PASSWD|API_KEY|CLIENT_SECRET|PRIVATE_KEY)[A-Z0-9_]*\s*=\s*\S{8,}/,
   /\bauthorization\s*[:=]\s*["']?bearer\s+/i,
+  /\b(?:sk-ant-|sk-|ghp_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{12,}\b/i,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@[^\s]+/i,
 ];
 
 interface RevertEntry {
@@ -158,12 +164,41 @@ function parseDocument(raw: string): RevertDocument {
 /** Conservative policy shared by all programmatic-write callers. The store
  * never persists either a known credential file or prior text that looks like
  * an actual provider/server credential. */
-export function isCredentialBearingFile(filePath: string, priorContent?: string): boolean {
+export function isCredentialBearingPath(filePath: string): boolean {
   const base = path.basename(filePath).toLowerCase();
   if (CREDENTIAL_FILENAMES.has(base) || base.startsWith(".env.")) return true;
   if (CREDENTIAL_EXTENSIONS.has(path.extname(base))) return true;
-  if (/(?:^|[._-])(?:secret|secrets|credential|credentials)(?:[._-]|$)/i.test(base)) return true;
-  return typeof priorContent === "string" && CREDENTIAL_CONTENT_PATTERNS.some((pattern) => pattern.test(priorContent));
+  if (/(?:^|[._-])(?:secret|secrets|credential|credentials|token|tokens|api[-_]?key|private[-_]?key)(?:[._-]|$)/i.test(base)) return true;
+  if (filePath.split(/[\\/]+/).some((part) => /^(?:secret|secrets|credentials)$/i.test(part))) return true;
+  return false;
+}
+
+export function hasCredentialBearingContent(content: string): boolean {
+  return CREDENTIAL_CONTENT_PATTERNS.some((pattern) => pattern.test(content));
+}
+
+export function isCredentialBearingFile(filePath: string, priorContent?: string): boolean {
+  return isCredentialBearingPath(filePath)
+    || (typeof priorContent === "string" && hasCredentialBearingContent(priorContent));
+}
+
+/** Remove common credential forms before local tool output enters a hosted
+ * model's context. This is deliberately conservative; false-positive
+ * redaction is safer than sending a usable secret to a third party. */
+export function redactCredentialText(value: string): string {
+  return value
+    .replace(/-----BEGIN (?:ENCRYPTED |RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:ENCRYPTED |RSA |EC |OPENSSH )?PRIVATE KEY-----/gi, "<redacted-private-key>")
+    .replace(
+      /(^\s*(?:(?:set|setr|sets)\s+)?(?:mysql_connection_string|rcon_password|steam_webapikey|sv_licensekey|[A-Za-z0-9_.-]*(?:password|passwd|token|api[_-]?key|client[_-]?secret|private[_-]?key|secret)[A-Za-z0-9_.-]*)\s*(?::|=|\s)\s*)(?:"[^"]*"|'[^']*'|[^\r\n]*)/gim,
+      "$1<redacted>",
+    )
+    .replace(/(["'](?:access[_-]?token|api[_-]?key|client[_-]?secret|private[_-]?key|password|passwd|secret)["']\s*:\s*)["'][^"'\r\n]*["']/gi, "$1\"<redacted>\"")
+    .replace(/(\b[A-Za-z0-9_.-]*(?:password|passwd|token|api[_-]?key|client[_-]?secret|private[_-]?key|secret)[A-Za-z0-9_.-]*\b\s*(?::|=|\s)\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, "$1<redacted>")
+    .replace(/(\bauthorization\s*[:=]\s*["']?bearer\s+)[^\s"']+/gi, "$1<redacted>")
+    .replace(/\b(?:sk-ant-|sk-|ghp_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{12,}\b/gi, "<redacted-token>")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "<redacted-token>")
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "<redacted-token>")
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted>@");
 }
 
 export class RevertStore {

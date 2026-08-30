@@ -9,6 +9,7 @@
 
 import { mcpCallTool, mcpToolDefinitions, type McpToolDefinition } from "../mcpClient";
 import { PROJECT_TOOL_NAMES, projectToolDefinitions, runProjectTool } from "../projectTools";
+import { redactCredentialText } from "../revertStore";
 import {
   requestToolApproval,
   type ToolApprovalRequestEvent,
@@ -79,6 +80,7 @@ How to work:
 - To find where something lives, use search_project rather than asking the developer.
 - Always read an existing file before writing it, preserve everything you weren't asked to change, and pass the exact revision returned by read_project_file. Use expected_revision="new" only to create a path that does not exist.
 - Read-only tools run immediately. File writes and runtime mutations require the developer's explicit approval in QB Studio; if approval is denied, respect that decision and continue without retrying the same mutation.
+- Credential-bearing files are intentionally withheld and console/editor text is redacted before you receive it. Never ask the developer to bypass that boundary or paste a secret into chat.
 - After editing a resource, offer to restart that resource and verify the change through console output when appropriate.
 - When something fails, read the console before theorizing about why.
 - Be concise. Report what you did and what the tools actually returned, not what you expect they would return.
@@ -145,8 +147,11 @@ export async function runToolCall(
     content = PROJECT_TOOL_NAMES.has(name)
       ? (await runProjectTool(name, input)) || "(no output)"
       : (await mcpCallTool(name, input)) || "(no output)";
+    if (name === "get_console_output") content = redactCredentialText(content);
   } catch (err) {
-    content = (err as Error).message;
+    content = name === "get_console_output"
+      ? redactCredentialText((err as Error).message)
+      : (err as Error).message;
     isError = true;
   }
 

@@ -9,24 +9,52 @@ permissions:
   contents: read
 
 jobs:
-  validate-windows:
+  quality:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm audit signatures
-      - run: npm run prepare:luals
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm run dist
-      - run: npm run verify:package
-      - uses: actions/upload-artifact@v7
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify npm registry signatures
+        run: npm audit signatures
+      - name: Check repository invariants
+        run: npm run check:static
+      - name: Audit complete dependency graph
+        run: npm run audit:dependencies
+      - name: Prepare verified LuaLS bundle
+        run: npm run prepare:luals
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  package:
+    needs: quality
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build Windows installer
+        run: npm run dist
+      - name: Verify packaged application
+        run: npm run verify:package
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: qb-studio-unsigned-${{ github.sha }}
           path: release/QB-Studio-Setup-*.exe

@@ -486,15 +486,20 @@ function openConsoleWindow(): void {
     void consoleWindow.loadFile(path.join(__dirname, "../dist/index.html"), { query: { view: "console" } });
   }
   consoleWindow.once("ready-to-show", () => consoleWindow?.show());
-  consoleWindow.webContents.on("will-navigate", (event, target) => {
+  const allowedNavigation = (target: string) => {
     try {
-      const allowed = devUrl
+      return devUrl
         ? new URL(target).origin === new URL(devUrl).origin
         : target === consoleWindow?.webContents.getURL();
-      if (!allowed) event.preventDefault();
     } catch {
-      event.preventDefault();
+      return false;
     }
+  };
+  consoleWindow.webContents.on("will-navigate", (event, target) => {
+    if (!allowedNavigation(target)) event.preventDefault();
+  });
+  consoleWindow.webContents.on("will-redirect", (event, target) => {
+    if (!allowedNavigation(target)) event.preventDefault();
   });
   consoleWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   consoleWindow.on("closed", () => { consoleWindow = null; });
@@ -592,15 +597,17 @@ function registerIpcHandlers() {
     return consoleClearGeneration;
   });
   ipcMain.handle("console:clearGeneration", () => consoleClearGeneration);
-  ipcMain.handle("console:setRefreshInterval", (_e, value: unknown) => {
-    const interval = requireFiniteNumber(value, "Console refresh interval");
-    if (![0, 1_000, 2_000, 5_000, 10_000, 30_000].includes(interval)) throw new Error("Unsupported console refresh interval.");
-    const saved = saveConfig({ ...loadConfig(), consoleRefreshIntervalMs: interval });
-    for (const window of [mainWindow, consoleWindow]) {
-      if (window && !window.isDestroyed()) window.webContents.send("console:refreshIntervalChanged", saved.consoleRefreshIntervalMs);
-    }
-    return saved.consoleRefreshIntervalMs;
-  });
+  ipcMain.handle("console:setRefreshInterval", (_e, value: unknown) =>
+    serverOperation.run("the console refresh interval change", () => {
+      const interval = requireFiniteNumber(value, "Console refresh interval");
+      if (![0, 1_000, 2_000, 5_000, 10_000, 30_000].includes(interval)) throw new Error("Unsupported console refresh interval.");
+      const saved = saveConfig({ ...loadConfig(), consoleRefreshIntervalMs: interval });
+      for (const window of [mainWindow, consoleWindow]) {
+        if (window && !window.isDestroyed()) window.webContents.send("console:refreshIntervalChanged", saved.consoleRefreshIntervalMs);
+      }
+      return saved.consoleRefreshIntervalMs;
+    }),
+  );
   ipcMain.handle("config:set", (_e, config: unknown) =>
     serverOperation.run("the Settings change", async () => {
       if (typeof config !== "object" || config === null || Array.isArray(config)) throw new Error("Configuration must be an object.");
@@ -608,12 +615,6 @@ function registerIpcHandlers() {
       const previous = loadConfig();
       const switchingProfile =
         candidate.txDataPath !== previous.txDataPath || candidate.selectedProfile !== previous.selectedProfile;
-      if (switchingProfile) {
-        agent.resetConversation();
-        await mcpDisconnect();
-        stopManagedRuntime();
-        luaLanguageServer.stop();
-      }
       if (candidate.txDataPath !== null && candidate.txDataPath !== undefined) scopedTxDataPath(candidate.txDataPath);
       if (typeof candidate.openaiBaseUrl === "string") parseProviderUrl(candidate.openaiBaseUrl);
       if (typeof candidate.theme === "string" && candidate.theme.startsWith("custom:")) {
@@ -628,12 +629,25 @@ function registerIpcHandlers() {
       scopedFxServerExe(candidate.legacyFxServerExePath, "legacy", txDataPath);
       scopedFxServerExe(candidate.enhancedFxServerExePath, "enhanced", txDataPath);
       scopedFxServerExe(candidate.redmFxServerExePath, "redm", txDataPath);
-      const saved = saveConfig(config);
+      // Console refresh is edited by the console itself, not by Settings. Read
+      // its latest persisted value inside the same operation lock so a stale,
+      // hidden renderer draft cannot overwrite it.
+      const saved = saveConfig({ ...candidate, consoleRefreshIntervalMs: previous.consoleRefreshIntervalMs });
+      if (switchingProfile) {
+        agent.resetConversation();
+        await mcpDisconnect();
+        stopManagedRuntime();
+        luaLanguageServer.stop();
+      }
       previewThemePreference = null;
       try { recordRecentWorkspace(recentWorkspacesPath(), saved); } catch { /* non-critical app history */ }
       applyNativeTheme(saved.theme);
       discordPresence.update(saved.discordPresenceEnabled, saved.activeCfxTarget, app.getVersion());
       mainWindow?.webContents.setZoomFactor(saved.uiScale);
+      consoleWindow?.webContents.setZoomFactor(saved.uiScale);
+      for (const window of [mainWindow, consoleWindow]) {
+        if (window && !window.isDestroyed()) window.webContents.send("config:changed", saved);
+      }
       return saved;
     }),
   );
@@ -803,12 +817,10 @@ function registerIpcHandlers() {
       replacement,
     ),
   );
-  ipcMain.handle("search:applyReplace", (_e, searchId: unknown, selectedIds: unknown, replacement: unknown) => {
+  ipcMain.handle("search:applyReplace", (_e, applyToken: unknown) => {
     const result = requireWorkspaceSearch().apply(
       activeResourcesRoot(),
-      requireString(searchId, "Search id", 128),
-      selectedIds,
-      replacement,
+      requireString(applyToken, "Replacement preview token", 128),
     );
     for (const absolutePath of result.changedPaths) {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:fileWritten", absolutePath);
@@ -832,11 +844,27 @@ function registerIpcHandlers() {
     const newTarget = resolveInsideRoot(path.dirname(oldTarget), name);
     // Parent remains in the active profile root; resolve again to catch links.
     resolveInsideRoot(activeProfileRoot(), path.relative(activeProfileRoot(), newTarget));
-    return renamePath(oldTarget, name);
+    const rollbackBookmarks = bookmarkStore?.remapPathWithRollback(activeProfileRoot(), oldTarget, newTarget);
+    try {
+      return renamePath(oldTarget, name);
+    } catch (error) {
+      try { rollbackBookmarks?.(); } catch (rollbackError) {
+        throw new Error(`Rename failed and bookmark rollback also failed: ${(error as Error).message}; ${(rollbackError as Error).message}`);
+      }
+      throw error;
+    }
   });
   ipcMain.handle("fs:delete", async (_e, targetPath: unknown) => {
     const target = scopedProfilePath(targetPath);
-    await shell.trashItem(target);
+    const rollbackBookmarks = bookmarkStore?.removePathWithRollback(activeProfileRoot(), target);
+    try {
+      await shell.trashItem(target);
+    } catch (error) {
+      try { rollbackBookmarks?.(); } catch (rollbackError) {
+        throw new Error(`Delete failed and bookmark rollback also failed: ${(error as Error).message}; ${(rollbackError as Error).message}`);
+      }
+      throw error;
+    }
   });
   ipcMain.handle("fs:watchRoot", (_e, _dirPath: unknown) => {
     if (!mainWindow) return;

@@ -37,3 +37,22 @@ test("atomic agent creates refuse an existing target", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("editor reads refuse binary and malformed UTF-8 before decoding", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-binary-read-"));
+  try {
+    const nulBytes = path.join(root, "asset.bin");
+    fs.writeFileSync(nulBytes, Buffer.from([0x61, 0x00, 0x62]));
+    assert.throws(() => readTextFileSnapshot(nulBytes), /binary or non-UTF-8/);
+
+    const invalidUtf8 = path.join(root, "invalid.lua");
+    fs.writeFileSync(invalidUtf8, Buffer.from([0x70, 0x72, 0x69, 0x6e, 0x74, 0x28, 0xff, 0x29]));
+    assert.throws(() => readTextFileSnapshot(invalidUtf8), /binary or non-UTF-8/);
+
+    const unicode = path.join(root, "unicode.lua");
+    fs.writeFileSync(unicode, "print('你好')\n", "utf8");
+    assert.equal(readTextFileSnapshot(unicode).content, "print('你好')\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

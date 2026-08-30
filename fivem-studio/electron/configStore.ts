@@ -4,8 +4,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { app, safeStorage } from "electron";
-import { providerUrlOr } from "./localUrl";
+import { parseProviderUrl, providerUrlOr } from "./localUrl";
 
 export interface StudioConfig {
   txDataPath: string | null; // path to the txAdmin txData folder (holds one subfolder per server profile)
@@ -66,7 +68,7 @@ const DEFAULTS: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
-  discordPresenceEnabled: true,
+  discordPresenceEnabled: false,
   agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
@@ -122,8 +124,32 @@ export function loadConfig(): StudioConfig {
  * Credentials have a separate write-only store below. */
 export function saveConfig(config: unknown): StudioConfig {
   const normalized = normalizeConfig(config);
-  fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify(normalized, null, 2), "utf8");
+  const previous = loadConfig();
+  if (
+    providerCredentialStorageNames(previous.openaiBaseUrl).current !==
+    providerCredentialStorageNames(normalized.openaiBaseUrl).current
+  ) {
+    // Attribute and consume any old slug while the previous persisted URL is
+    // still authoritative. Once the config switches, a colliding new endpoint
+    // must not be able to claim that legacy credential as its own.
+    loadProviderKey(previous.openaiBaseUrl);
+  }
+  const target = configPath();
+  const directory = path.dirname(target);
+  const temporary = path.join(directory, `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`);
+  fs.mkdirSync(directory, { recursive: true });
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(normalized, null, 2), "utf8");
+    const handle = fs.openSync(temporary, "r+");
+    try {
+      fs.fsyncSync(handle);
+    } finally {
+      fs.closeSync(handle);
+    }
+    fs.renameSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
   return loadConfig();
 }
 
@@ -249,10 +275,11 @@ function credentialPath(name: string): string {
   return path.join(app.getPath("userData"), `${name}-key.bin`);
 }
 
-function credentialCandidates(name: string): string[] {
+function credentialCandidates(name: string, legacyNames: string[] = []): string[] {
+  const directories = [app.getPath("userData"), ...previousProductUserDataPaths()];
   return [...new Set([
-    credentialPath(name),
-    ...previousProductUserDataPaths().map((directory) => path.join(directory, `${name}-key.bin`)),
+    ...directories.map((directory) => path.join(directory, `${name}-key.bin`)),
+    ...legacyNames.flatMap((legacyName) => directories.map((directory) => path.join(directory, `${legacyName}-key.bin`))),
   ])];
 }
 
@@ -261,9 +288,39 @@ function credentialCandidates(name: string): string[] {
  * provider (say Gemini -> Groq) would otherwise silently send the previous
  * provider's key and fail auth for no visible reason.
  */
-function endpointSlug(baseUrl: string): string {
+function legacyEndpointSlug(baseUrl: string): string {
   const cleaned = baseUrl.trim().replace(/\/+$/, "").replace(/^https?:\/\//, "");
   return `provider-${cleaned.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 80) || "unset"}`;
+}
+
+/** Stable, collision-resistant credential identity. URL parsing canonicalizes
+ * scheme/host casing, default ports and dot segments before the complete URL
+ * (including its path) is hashed. */
+export function providerCredentialStorageNames(baseUrl: string): { current: string; legacy: string } {
+  const canonical = parseProviderUrl(baseUrl).toString();
+  return {
+    current: `provider-${createHash("sha256").update(canonical).digest("hex")}`,
+    legacy: legacyEndpointSlug(canonical),
+  };
+}
+
+/** The old truncated slug contains no endpoint identity, so it is only safe to
+ * attribute to the endpoint currently persisted in Studio's config. Settings
+ * drafts must never inherit or delete a colliding endpoint's legacy key. */
+export function providerCredentialStorageAccess(
+  requestedBaseUrl: string,
+  persistedBaseUrl: string,
+): { current: string; legacy: string | null } {
+  const requested = providerCredentialStorageNames(requestedBaseUrl);
+  const persisted = providerCredentialStorageNames(persistedBaseUrl);
+  return {
+    current: requested.current,
+    legacy: requested.current === persisted.current ? requested.legacy : null,
+  };
+}
+
+function currentProviderCredentialStorageAccess(baseUrl: string): { current: string; legacy: string | null } {
+  return providerCredentialStorageAccess(baseUrl, loadConfig().openaiBaseUrl);
 }
 
 function saveCredential(name: string, key: string): void {
@@ -279,9 +336,9 @@ function saveCredential(name: string, key: string): void {
   fs.writeFileSync(target, safeStorage.encryptString(key));
 }
 
-function loadCredential(name: string): string {
+function loadCredential(name: string, legacyNames: string[] = []): string {
   const current = credentialPath(name);
-  for (const candidate of credentialCandidates(name)) {
+  for (const candidate of credentialCandidates(name, legacyNames)) {
     try {
       const raw = fs.readFileSync(candidate);
       const asText = raw.toString("utf8");
@@ -318,11 +375,28 @@ export function hasApiKey(): boolean {
 // Callers pass the endpoint explicitly so Settings can read/write the key for a
 // provider the user has selected but not saved yet.
 export function saveProviderKey(baseUrl: string, key: string): void {
-  saveCredential(endpointSlug(baseUrl), key);
+  const names = currentProviderCredentialStorageAccess(baseUrl);
+  saveCredential(names.current, key);
+  if (!key && names.legacy) {
+    // Older builds would have cleared this slug. Preserve that behavior so a
+    // deleted current-endpoint key cannot be resurrected by the compatibility
+    // fallback. A draft endpoint is deliberately not allowed to remove it.
+    saveCredential(names.legacy, "");
+  }
 }
 
 export function loadProviderKey(baseUrl: string): string {
-  return loadCredential(endpointSlug(baseUrl));
+  const names = currentProviderCredentialStorageAccess(baseUrl);
+  // Copy the legacy value only when the persisted endpoint establishes its
+  // ownership. A Settings draft that happens to share the truncated slug must
+  // require key re-entry instead of receiving another provider's credential.
+  const value = loadCredential(names.current, names.legacy ? [names.legacy] : []);
+  if (value && names.legacy) {
+    // Migration is deliberately one-shot. Retaining an identity-free slug
+    // would let a different endpoint claim it after a later config switch.
+    saveCredential(names.legacy, "");
+  }
+  return value;
 }
 
 export function hasProviderKey(baseUrl: string): boolean {

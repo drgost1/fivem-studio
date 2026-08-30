@@ -55,6 +55,31 @@ const SERVER_CFG_DOCS: Record<string, { detail: string; insertText: string }> = 
   },
 };
 
+// Split editors can share Monaco models. Reference-count each mounted editor's
+// interest so closing the final tab disposes the final model without one split
+// accidentally disposing a model that the other split still renders.
+const modelOwners = new Map<string, number>();
+
+function modelKey(monacoInstance: typeof monaco, path: string): string {
+  return monacoInstance.Uri.file(path).toString(true).toLowerCase();
+}
+
+function retainModel(monacoInstance: typeof monaco, path: string): void {
+  const key = modelKey(monacoInstance, path);
+  modelOwners.set(key, (modelOwners.get(key) ?? 0) + 1);
+}
+
+function releaseModel(monacoInstance: typeof monaco, path: string): void {
+  const key = modelKey(monacoInstance, path);
+  const owners = modelOwners.get(key) ?? 0;
+  if (owners > 1) {
+    modelOwners.set(key, owners - 1);
+    return;
+  }
+  modelOwners.delete(key);
+  monacoInstance.editor.getModel(monacoInstance.Uri.file(path))?.dispose();
+}
+
 function severityName(severity: number): EditorProblem["severity"] {
   // Monaco's marker severities are bit flags ordered Hint=1 through Error=8.
   if (severity >= 8) return "error";
@@ -157,10 +182,19 @@ export default function CodeEditor({
     if (!monacoInstance) return;
     const current = new Set(openPaths);
     for (const previous of trackedPathsRef.current) {
-      if (!current.has(previous)) monacoInstance.editor.getModel(monacoInstance.Uri.file(previous))?.dispose();
+      if (!current.has(previous)) releaseModel(monacoInstance, previous);
     }
+    for (const path of current) if (!trackedPathsRef.current.has(path)) retainModel(monacoInstance, path);
     trackedPathsRef.current = current;
   }, [monacoInstance, openPaths]);
+
+  useEffect(() => {
+    if (!monacoInstance) return;
+    return () => {
+      for (const path of trackedPathsRef.current) releaseModel(monacoInstance, path);
+      trackedPathsRef.current.clear();
+    };
+  }, [monacoInstance]);
 
   useEffect(() => {
     if (!monacoInstance) return;

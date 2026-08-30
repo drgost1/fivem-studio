@@ -14,10 +14,12 @@ import BookmarksPanel from "./components/BookmarksPanel";
 import { t } from "./i18n";
 import { lastConsoleLines } from "./consoleText";
 import { activateTheme } from "./theme";
+import { PerPathSaveQueue, reconcileSuccessfulSave } from "../electron/editorSaveReconciliation";
 import type {
   AppUpdateStatus,
   CfxTarget,
   CrashTriageContext,
+  FileSnapshot,
   EditorProblem,
   EditorBookmark,
   ResolvedProfile,
@@ -71,7 +73,7 @@ const DEFAULT_CONFIG: StudioConfig = {
   redmArtifactTrack: "recommended",
   consoleRefreshIntervalMs: 2_000,
   notifyOnServerExit: true,
-  discordPresenceEnabled: true,
+  discordPresenceEnabled: false,
   agentSpendWarningUsd: 5,
   editor: {
     fontSize: 13,
@@ -132,6 +134,7 @@ export default function App() {
   const [whatsNew, setWhatsNew] = useState<WhatsNewState | null>(null);
   const serverStatusEpoch = useRef(0);
   const observedServerRunning = useRef<boolean | null>(null);
+  const serverLaunchedInIdentity = useRef(false);
   const intentionalServerStop = useRef(false);
   const latestConsoleOutput = useRef("");
   const [crashTriage, setCrashTriage] = useState<CrashTriageContext | null>(null);
@@ -159,6 +162,16 @@ export default function App() {
   const [resolved, setResolved] = useState<ResolvedProfile>(EMPTY_PROFILE);
 
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
+  const openFilesRef = useRef<OpenFile[]>([]);
+  const saveQueueRef = useRef(new PerPathSaveQueue());
+  const fileRefreshGeneration = useRef(new Map<string, number>());
+  const pendingOpensRef = useRef(new Map<string, Promise<boolean>>());
+  const openGenerationRef = useRef(0);
+  const updateOpenFiles = useCallback((update: OpenFile[] | ((current: OpenFile[]) => OpenFile[])) => {
+    const next = typeof update === "function" ? update(openFilesRef.current) : update;
+    openFilesRef.current = next;
+    setOpenFiles(next);
+  }, []);
   const [activePath, setActivePath] = useState<string | null>(null);
   const recentFilePaths = useRef<string[]>([]);
   const ctrlTabSession = useRef<{ order: string[]; index: number } | null>(null);
@@ -349,12 +362,19 @@ export default function App() {
       if (!status.running) setServerStartedAt(null);
       if (wasRunning === true && !status.running) {
         const wasIntentional = intentionalServerStop.current;
+        const wasStudioLaunched = serverLaunchedInIdentity.current;
         intentionalServerStop.current = false;
-        if (!wasIntentional) {
-          const consoleTail = lastConsoleLines(latestConsoleOutput.current, 50);
-          void window.api.server.crashReport()
-            .then((report) => setCrashTriage({ report, consoleTail, detectedAt: new Date().toISOString() }))
-            .catch(() => setCrashTriage({ report: null, consoleTail, detectedAt: new Date().toISOString() }));
+        serverLaunchedInIdentity.current = false;
+        if (!wasIntentional && wasStudioLaunched) {
+          const cachedTail = lastConsoleLines(latestConsoleOutput.current, 50);
+          void Promise.all([
+            window.api.mcp.callTool("get_console_output", { lines: 50 })
+              .then((output) => lastConsoleLines(output, 50))
+              .catch(() => cachedTail),
+            window.api.server.crashReport().catch(() => null),
+          ]).then(([consoleTail, report]) => {
+            if (isCurrent()) setCrashTriage({ report, consoleTail, detectedAt: new Date().toISOString() });
+          });
           void window.api.server.notifyUnexpectedExit(status.target).catch(() => {
             // Desktop notifications are advisory; the in-app crash context remains available.
           });
@@ -370,6 +390,26 @@ export default function App() {
       setServerStatusError((err as Error).message || "Server status is unavailable.");
     }
   }, [config.activeCfxTarget, config.legacyFxServerExePath, config.enhancedFxServerExePath, config.redmFxServerExePath]);
+
+  // A running observation belongs to one configured executable/workspace. Do
+  // not interpret the first stopped result after switching targets as a crash.
+  useEffect(() => {
+    serverStatusEpoch.current += 1;
+    observedServerRunning.current = null;
+    serverLaunchedInIdentity.current = false;
+    intentionalServerStop.current = false;
+    latestConsoleOutput.current = "";
+    setCrashTriage(null);
+    setServerNotice(null);
+    setServerStartedAt(null);
+  }, [
+    config.activeCfxTarget,
+    config.legacyFxServerExePath,
+    config.enhancedFxServerExePath,
+    config.redmFxServerExePath,
+    config.txDataPath,
+    config.selectedProfile,
+  ]);
 
   // FXServer runs in the background. Poll the exact configured executable so
   // the top-bar control remains truthful after a restart or a stop initiated
@@ -450,15 +490,25 @@ export default function App() {
   // watcher at that profile's folder so external changes (Explorer moves,
   // renames, etc.) get picked up automatically.
   useEffect(() => {
+    let cancelled = false;
     if (!config.txDataPath || !config.selectedProfile) {
       setResolved(EMPTY_PROFILE);
-      window.api.fs.watchRoot(null);
-      return;
+      void window.api.fs.watchRoot(null);
+      return () => { cancelled = true; };
     }
-    window.api.txdata.resolveProfile(config.txDataPath, config.selectedProfile).then((r) => {
-      setResolved(r);
-      window.api.fs.watchRoot(r.profileRoot);
-    });
+    void window.api.txdata.resolveProfile(config.txDataPath, config.selectedProfile)
+      .then((nextResolved) => {
+        if (cancelled) return;
+        setResolved(nextResolved);
+        void window.api.fs.watchRoot(nextResolved.profileRoot);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setResolved(EMPTY_PROFILE);
+        void window.api.fs.watchRoot(null);
+        setSaveError(`Could not resolve the selected workspace: ${(error as Error).message}`);
+      });
+    return () => { cancelled = true; };
   }, [config.txDataPath, config.selectedProfile]);
 
   useEffect(() => {
@@ -568,10 +618,13 @@ export default function App() {
     };
   }, [activePath, resolved.resourcesPath]);
 
+  const dirtyOpenFileCount = openFiles.reduce((count, file) => count + (file.dirty ? 1 : 0), 0);
+
   // Keep the main process informed about unsaved work so it can warn on quit.
+  // Content-only edits after the first dirty transition no longer emit IPC.
   useEffect(() => {
-    window.api.app.setDirtyCount(openFiles.filter((f) => f.dirty).length);
-  }, [openFiles]);
+    window.api.app.setDirtyCount(dirtyOpenFileCount);
+  }, [dirtyOpenFileCount]);
 
   // Discord receives a deliberately small activity projection. The main
   // process strips the path down to a bounded basename and derives language;
@@ -667,14 +720,18 @@ export default function App() {
   useEffect(() => {
     return window.api.agent.onFileWritten(async (absolutePath) => {
       setTreeRefreshKey((k) => k + 1);
-      const open = openFiles.find((f) => f.path === absolutePath);
-      if (!open) return;
+      const generation = (fileRefreshGeneration.current.get(absolutePath) ?? 0) + 1;
+      fileRefreshGeneration.current.set(absolutePath, generation);
+      if (!openFilesRef.current.some((file) => file.path === absolutePath)) return;
       try {
         const snapshot = await window.api.fs.readFile(absolutePath);
+        if (fileRefreshGeneration.current.get(absolutePath) !== generation) return;
+        const open = openFilesRef.current.find((file) => file.path === absolutePath);
+        if (!open) return;
         if (snapshot.content === open.content) {
-          if (!open.dirty) {
-            setOpenFiles((files) => files.map((f) => f.path === absolutePath ? { ...f, revision: snapshot.revision } : f));
-          }
+          if (!open.dirty) updateOpenFiles((files) => files.map((file) =>
+            file.path === absolutePath ? { ...file, revision: snapshot.revision } : file,
+          ));
           return;
         }
         const review: FileChangeReview = {
@@ -693,7 +750,7 @@ export default function App() {
           setCenterTab("editor");
           setReviewPath(absolutePath);
         } else {
-          setOpenFiles((files) => files.map((f) =>
+          updateOpenFiles((files) => files.map((f) =>
             f.path === absolutePath ? { ...f, ...snapshot, dirty: false } : f,
           ));
         }
@@ -701,7 +758,7 @@ export default function App() {
         // file may have been removed again — the tree refresh above covers it
       }
     });
-  }, [openFiles]);
+  }, [updateOpenFiles]);
 
   async function handleSaveSettings(next: StudioConfig) {
     const profileChanged = next.txDataPath !== config.txDataPath || next.selectedProfile !== config.selectedProfile;
@@ -729,7 +786,10 @@ export default function App() {
     setConfig(saved);
     void window.api.recents.list().then(setRecentWorkspaces).catch(() => setRecentWorkspaces([]));
     if (profileChanged) {
-      setOpenFiles([]);
+      openGenerationRef.current += 1;
+      pendingOpensRef.current.clear();
+      fileRefreshGeneration.current.clear();
+      updateOpenFiles([]);
       setActivePath(null);
       setCenterTab("viewport");
       setEditorProblems({});
@@ -766,7 +826,10 @@ export default function App() {
       setConnected(false);
       setRuntimeIdentity(null);
       setWorkspaceMatch(null);
-      setOpenFiles([]);
+      openGenerationRef.current += 1;
+      pendingOpensRef.current.clear();
+      fileRefreshGeneration.current.clear();
+      updateOpenFiles([]);
       setActivePath(null);
       setCenterTab("viewport");
       setEditorProblems({});
@@ -782,20 +845,41 @@ export default function App() {
   }
 
   async function openFile(path: string): Promise<boolean> {
-    if (openFiles.some((f) => f.path === path)) {
+    if (openFilesRef.current.some((file) => file.path === path)) {
       setActivePath(path);
       setCenterTab("editor");
       return true;
     }
+    const existingRequest = pendingOpensRef.current.get(path);
+    if (existingRequest) return existingRequest;
+    const generation = openGenerationRef.current;
+    const request = (async (): Promise<boolean> => {
+      try {
+        let snapshot: FileSnapshot | null = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const refreshGeneration = fileRefreshGeneration.current.get(path) ?? 0;
+          snapshot = await window.api.fs.readFile(path);
+          if ((fileRefreshGeneration.current.get(path) ?? 0) === refreshGeneration) break;
+          snapshot = null;
+        }
+        if (!snapshot) throw new Error("The file kept changing while it was opening. Try again after the current write finishes.");
+        if (openGenerationRef.current !== generation) return false;
+        updateOpenFiles((files) => files.some((file) => file.path === path)
+          ? files
+          : [...files, { path, ...snapshot, dirty: false }]);
+        setActivePath(path);
+        setCenterTab("editor");
+        return true;
+      } catch (err) {
+        alert((err as Error).message);
+        return false;
+      }
+    })();
+    pendingOpensRef.current.set(path, request);
     try {
-      const snapshot = await window.api.fs.readFile(path);
-      setOpenFiles((files) => [...files, { path, ...snapshot, dirty: false }]);
-      setActivePath(path);
-      setCenterTab("editor");
-      return true;
-    } catch (err) {
-      alert((err as Error).message);
-      return false;
+      return await request;
+    } finally {
+      if (pendingOpensRef.current.get(path) === request) pendingOpensRef.current.delete(path);
     }
   }
 
@@ -845,11 +929,11 @@ export default function App() {
   }
 
   function closeTab(path: string) {
-    const file = openFiles.find((f) => f.path === path);
+    const file = openFilesRef.current.find((f) => f.path === path);
     if (file?.dirty && !confirm(`${path.split(/[/\\]/).pop()} has unsaved changes.\n\nClose it and discard them?`)) {
       return;
     }
-    setOpenFiles((files) => files.filter((f) => f.path !== path));
+    updateOpenFiles((files) => files.filter((f) => f.path !== path));
     setChangeReviews((current) => {
       if (!(path in current)) return current;
       const next = { ...current };
@@ -864,7 +948,7 @@ export default function App() {
       return next;
     });
     if (activePath === path) {
-      const remaining = openFiles.filter((f) => f.path !== path);
+      const remaining = openFilesRef.current.filter((f) => f.path !== path);
       setActivePath(remaining.length ? remaining[remaining.length - 1].path : null);
       // Closing the last file would otherwise leave the editor selected with nothing
       // in it and no tab highlighted — fall back to the viewport instead.
@@ -873,7 +957,7 @@ export default function App() {
   }
 
   function updateContent(path: string, content: string) {
-    setOpenFiles((files) => files.map((f) => (f.path === path ? { ...f, content, dirty: true } : f)));
+    updateOpenFiles((files) => files.map((f) => (f.path === path ? { ...f, content, dirty: true } : f)));
   }
 
   async function runResourceLifecycle(
@@ -933,7 +1017,7 @@ export default function App() {
   }
 
   function handlePathRenamed(oldPath: string, newPath: string) {
-    setOpenFiles((files) => files.map((f) => {
+    updateOpenFiles((files) => files.map((f) => {
       const remapped = remapPath(f.path, oldPath, newPath);
       return remapped ? { ...f, path: remapped } : f;
     }));
@@ -954,13 +1038,17 @@ export default function App() {
         }))];
       }),
     ));
+    setBookmarks((current) => current.map((bookmark) => ({
+      ...bookmark,
+      path: remapPath(bookmark.path, oldPath, newPath) ?? bookmark.path,
+    })));
     setTreeRefreshKey((k) => k + 1);
   }
 
   function handlePathDeleted(deletedPath: string) {
     const affected = (p: string) => p === deletedPath || p.startsWith(deletedPath + "\\") || p.startsWith(deletedPath + "/");
-    const remaining = openFiles.filter((f) => !affected(f.path));
-    setOpenFiles(remaining);
+    const remaining = openFilesRef.current.filter((f) => !affected(f.path));
+    updateOpenFiles(remaining);
     setChangeReviews((current) => Object.fromEntries(
       Object.entries(current).filter(([reviewedPath]) => !affected(reviewedPath)),
     ));
@@ -968,6 +1056,7 @@ export default function App() {
     setEditorProblems((current) => Object.fromEntries(
       Object.entries(current).filter(([problemPath]) => !affected(problemPath)),
     ));
+    setBookmarks((current) => current.filter((bookmark) => !affected(bookmark.path)));
     if (activePath && affected(activePath)) {
       setActivePath(remaining.length ? remaining[remaining.length - 1].path : null);
       if (remaining.length === 0) setCenterTab("viewport");
@@ -993,11 +1082,16 @@ export default function App() {
     }
   }
 
-  async function saveFile(path: string, content: string, expectedRevision: string) {
+  async function performSave(path: string, content: string, expectedRevision: string) {
     setSaveError(null);
     try {
-      const revision = await window.api.fs.writeFile(path, content, expectedRevision);
-      setOpenFiles((files) => files.map((f) => (f.path === path ? { ...f, content, revision, dirty: false } : f)));
+      // A queued save may have captured the revision that preceded an earlier
+      // queued write. Always serialize against the latest reconciled revision.
+      const current = openFilesRef.current.find((file) => file.path === path);
+      const revision = await window.api.fs.writeFile(path, content, current?.revision ?? expectedRevision);
+      updateOpenFiles((files) => files.map((file) => file.path === path
+        ? reconcileSuccessfulSave(file, content, revision)
+        : file));
 
       if (config.editor.restartResourceOnSave && runtimeWritable) {
         const context = await window.api.resources.context(path).catch(() => null);
@@ -1011,11 +1105,12 @@ export default function App() {
       if ((err as Error).message.includes("changed on disk")) {
         try {
           const disk = await window.api.fs.readFile(path);
+          const latestEditor = openFilesRef.current.find((file) => file.path === path);
           const review: FileChangeReview = {
             id: ++reviewNonce.current,
             path,
             kind: "conflict",
-            originalContent: content,
+            originalContent: latestEditor?.content ?? content,
             modifiedContent: disk.content,
             originalLabel: "Your unsaved editor version",
             modifiedLabel: "Current version on disk",
@@ -1031,6 +1126,10 @@ export default function App() {
       }
       throw new Error(message);
     }
+  }
+
+  async function saveFile(path: string, content: string, expectedRevision: string) {
+    await saveQueueRef.current.run(path.toLowerCase(), () => performSave(path, content, expectedRevision));
   }
 
   function openChangeReview(path: string) {
@@ -1051,13 +1150,18 @@ export default function App() {
   }
 
   async function useDiskVersion(review: FileChangeReview) {
+    const observed = openFilesRef.current.find((file) => file.path === review.path);
+    if (!observed) return;
     try {
       const latest = await window.api.fs.readFile(review.path);
-      setOpenFiles((files) => files.map((file) => file.path === review.path ? {
-        ...file,
-        ...latest,
-        dirty: false,
-      } : file));
+      const current = openFilesRef.current.find((file) => file.path === review.path);
+      if (!current || current.content !== observed.content || current.revision !== observed.revision) {
+        setSaveError(`Could not reload ${review.path.split(/[/\\]/).pop()}: the editor changed while the disk version was loading.`);
+        return;
+      }
+      updateOpenFiles((files) => files.map((file) => file.path === review.path
+        ? { ...file, ...latest, dirty: false }
+        : file));
       setSaveError(null);
       clearChangeReview(review.path);
     } catch (error) {
@@ -1095,6 +1199,7 @@ export default function App() {
       if (result.recoveryNotice) setArtifactNotice(result.recoveryNotice);
       setServerRunning(true);
       observedServerRunning.current = true;
+      serverLaunchedInIdentity.current = !result.alreadyRunning;
       setServerStartedAt(Date.now());
       setServerPids([result.pid]);
       setServerTarget(result.target);
@@ -1124,6 +1229,7 @@ export default function App() {
       const result = await window.api.server.stop(serverTarget);
       setServerRunning(false);
       observedServerRunning.current = false;
+      serverLaunchedInIdentity.current = false;
       setServerStartedAt(null);
       setServerPids([]);
       setServerStatusError(null);

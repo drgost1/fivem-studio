@@ -7,6 +7,11 @@ const api = {
   config: {
     get: () => ipcRenderer.invoke("config:get"),
     set: (config: unknown) => ipcRenderer.invoke("config:set", config),
+    onChanged: (callback: (config: unknown) => void) => {
+      const listener = (_e: unknown, config: unknown) => callback(config);
+      ipcRenderer.on("config:changed", listener);
+      return () => ipcRenderer.removeListener("config:changed", listener);
+    },
   },
   console: {
     openPopout: () => ipcRenderer.invoke("console:openPopout"),
@@ -62,8 +67,7 @@ const api = {
     run: (request: unknown) => ipcRenderer.invoke("search:run", request),
     previewReplace: (searchId: string, selectedIds: string[], replacement: string) =>
       ipcRenderer.invoke("search:previewReplace", searchId, selectedIds, replacement),
-    applyReplace: (searchId: string, selectedIds: string[], replacement: string) =>
-      ipcRenderer.invoke("search:applyReplace", searchId, selectedIds, replacement),
+    applyReplace: (applyToken: string) => ipcRenderer.invoke("search:applyReplace", applyToken),
   },
   fs: {
     listDir: (dirPath: string) => ipcRenderer.invoke("fs:listDir", dirPath),

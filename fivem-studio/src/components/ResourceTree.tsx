@@ -44,7 +44,9 @@ function TreeNode({
     }
     if (!expanded && children === null) {
       try {
-        setChildren(await window.api.fs.listDir(entry.path));
+        const loaded = await window.api.fs.listDir(entry.path);
+        setChildren(loaded);
+        setError(null);
       } catch (err) {
         setError((err as Error).message);
       }
@@ -57,12 +59,19 @@ function TreeNode({
   // watcher-driven refreshKey ticks, regardless of current expand state.
   useEffect(() => {
     if (children === null) return;
-    window.api.fs
+    let cancelled = false;
+    void window.api.fs
       .listDir(entry.path)
-      .then(setChildren)
-      .catch((err) => setError((err as Error).message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
+      .then((loaded) => {
+        if (cancelled) return;
+        setChildren(loaded);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => { cancelled = true; };
+  }, [entry.path, refreshKey]); // children intentionally only gates the initial subscription
 
   const isRenaming = renamingPath === entry.path;
   const resourceState = entry.resourceName && serverStateAvailable
@@ -74,7 +83,28 @@ function TreeNode({
       <div
         className={`tree-node ${selectedPath === entry.path ? "selected" : ""}`}
         style={{ paddingLeft: 8 + depth * 12 }}
-        onClick={toggle}
+        role="treeitem"
+        tabIndex={0}
+        aria-selected={selectedPath === entry.path}
+        aria-expanded={entry.isDirectory ? expanded : undefined}
+        onClick={() => void toggle()}
+        onKeyDown={(event) => {
+          if (isRenaming) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void toggle();
+          } else if (event.key === "ArrowRight" && entry.isDirectory && !expanded) {
+            event.preventDefault();
+            void toggle();
+          } else if (event.key === "ArrowLeft" && entry.isDirectory && expanded) {
+            event.preventDefault();
+            setExpanded(false);
+          } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onContextMenu(entry, bounds.left + 20, bounds.top + 20);
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -109,7 +139,7 @@ function TreeNode({
         )}
       </div>
       {expanded && entry.isDirectory && (
-        <div>
+        <div role="group">
           {error && <div className="tree-empty">{error}</div>}
           {children?.length === 0 && <div className="tree-empty">(empty)</div>}
           {children?.map((child) => (
@@ -169,20 +199,30 @@ export default function ResourceTree({
   onResourceAction,
   onResourceDuplicated,
 }: ResourceTreeProps) {
-  const [entries, setEntries] = useState<DirEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [loadedTree, setLoadedTree] = useState<{ rootPath: string; entries: DirEntry[] } | null>(null);
+  const [loadError, setLoadError] = useState<{ rootPath: string; message: string } | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     if (!rootPath) {
-      setEntries([]);
-      return;
+      setLoadedTree(null);
+      setLoadError(null);
+      return () => { cancelled = true; };
     }
-    window.api.fs
+    setLoadError(null);
+    void window.api.fs
       .listDir(rootPath)
-      .then(setEntries)
-      .catch((err) => setError((err as Error).message));
+      .then((loaded) => {
+        if (cancelled) return;
+        setLoadedTree({ rootPath, entries: loaded });
+        setLoadError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError({ rootPath, message: (err as Error).message });
+      });
+    return () => { cancelled = true; };
   }, [rootPath, refreshKey]);
 
   async function commitRename(entry: DirEntry, newName: string) {
@@ -248,31 +288,40 @@ export default function ResourceTree({
   if (!rootPath) {
     return <div className="tree-empty">No profile selected — open Settings and pick your txData folder and profile.</div>;
   }
-  if (error) {
-    return <div className="tree-empty">{error}</div>;
+  if (loadedTree?.rootPath !== rootPath) {
+    if (loadError?.rootPath === rootPath) {
+      return <div className="tree-empty">{loadError.message}</div>;
+    }
+    return <div className="tree-empty" role="status">Loading resources…</div>;
   }
+  const entries = loadedTree.entries;
   if (entries.length === 0) {
-    return <div className="tree-empty">(empty folder)</div>;
+    return <div className="tree-empty">{loadError?.rootPath === rootPath ? loadError.message : "(empty folder)"}</div>;
   }
 
   return (
     <div>
-      {entries.map((entry) => (
-        <TreeNode
-          key={entry.path}
-          entry={entry}
-          depth={0}
-          selectedPath={selectedPath}
-          onOpenFile={onOpenFile}
-          refreshKey={refreshKey}
-          renamingPath={renamingPath}
-          onCommitRename={commitRename}
-          onCancelRename={() => setRenamingPath(null)}
-          onContextMenu={openContextMenu}
-          resourceStates={resourceStates}
-          serverStateAvailable={serverStateAvailable}
-        />
-      ))}
+      {loadError?.rootPath === rootPath && (
+        <div className="tree-empty" role="alert">{loadError.message}</div>
+      )}
+      <div role="tree" aria-label="Workspace resources">
+        {entries.map((entry) => (
+          <TreeNode
+            key={entry.path}
+            entry={entry}
+            depth={0}
+            selectedPath={selectedPath}
+            onOpenFile={onOpenFile}
+            refreshKey={refreshKey}
+            renamingPath={renamingPath}
+            onCommitRename={commitRename}
+            onCancelRename={() => setRenamingPath(null)}
+            onContextMenu={openContextMenu}
+            resourceStates={resourceStates}
+            serverStateAvailable={serverStateAvailable}
+          />
+        ))}
+      </div>
       {menu && (
         <ContextMenu
           x={menu.x}

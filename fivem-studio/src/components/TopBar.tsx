@@ -71,11 +71,18 @@ export default function TopBar({
   const statusTitle = !connected
     ? "QB Studio could not reach its bundled coding runtime."
     : `${workspaceMatch?.reason ?? (runtimeIdentity ? `${runtimeIdentity.mcp.name} ${runtimeIdentity.mcp.version}` : "Bundled coding runtime")}. ${availabilityNote}`;
+  const serverButtonLabel = serverAction === "starting"
+    ? "Starting server"
+    : serverAction === "stopping"
+      ? "Stopping server"
+      : serverRunning
+        ? `Stop ${serverLabel} server`
+        : `Start ${activeLabel} server`;
   return (
     <div className="topbar">
       <span className="brand">QB Studio</span>
       <div className="spacer" />
-      <div className="status-pill" title={statusTitle}>
+      <div className="status-pill runtime-status" title={statusTitle}>
         <span className={`status-dot ${runtimeReady ? "connected" : connected ? "limited" : "disconnected"}`} />
         {statusLabel}
       </div>
@@ -91,7 +98,8 @@ export default function TopBar({
             : t("server.status.stopped", { server: activeLabel })}
       </div>
       <button
-        className="btn"
+        className="btn topbar-action"
+        aria-label={serverButtonLabel}
         onClick={serverRunning ? onStopServer : onLaunchServer}
         disabled={serverAction !== null || (!serverRunning && (!activeServerPath || !serverConfigured))}
         title={
@@ -106,19 +114,20 @@ export default function TopBar({
               : activeServerPath
         }
       >
-        {serverAction === "starting"
-          ? "Starting…"
-          : serverAction === "stopping"
-            ? "Stopping…"
-            : serverRunning
-              ? `■ Stop ${serverLabel} server`
-              : `▶ Start ${activeLabel} server`}
+        <span className="topbar-label">
+          {serverAction === "starting" || serverAction === "stopping" ? `${serverButtonLabel}…` : `${serverRunning ? "■" : "▶"} ${serverButtonLabel}`}
+        </span>
+        <span className="topbar-compact" aria-hidden="true">
+          {serverAction ? "…" : serverRunning ? "■" : "▶"}
+        </span>
       </button>
-      <button className="btn" onClick={onLaunchClient} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} ${clientExecutable} path in Settings`}>
-        ▶ Launch {activeLabel}
+      <button className="btn topbar-action" aria-label={`Launch ${activeLabel}`} onClick={onLaunchClient} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} ${clientExecutable} path in Settings`}>
+        <span className="topbar-label">▶ Launch {activeLabel}</span>
+        <span className="topbar-compact" aria-hidden="true">▶ C</span>
       </button>
-      <button className="btn" onClick={onOpenWorkspace} disabled={!workspacePath} title={workspacePath ?? t("workspace.choose")}>
-        {t("workspace.open")}
+      <button className="btn topbar-action" aria-label={t("workspace.open")} onClick={onOpenWorkspace} disabled={!workspacePath} title={workspacePath ?? t("workspace.choose")}>
+        <span className="topbar-label">{t("workspace.open")}</span>
+        <span className="topbar-compact" aria-hidden="true">⌂</span>
       </button>
       <select
         className="topbar-workspaces"
@@ -132,8 +141,9 @@ export default function TopBar({
           <option key={workspace.id} value={workspace.id}>{workspace.label} · {labelFor(workspace.target)}</option>
         ))}
       </select>
-      <button className="btn" onClick={onOpenSettings}>
-        ⚙ Settings
+      <button className="btn topbar-action" aria-label="Settings" onClick={onOpenSettings} title="Settings">
+        <span className="topbar-label">⚙ Settings</span>
+        <span className="topbar-compact" aria-hidden="true">⚙</span>
       </button>
     </div>
   );

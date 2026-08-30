@@ -6,33 +6,48 @@ on:
       timezone: America/Chicago
   workflow_dispatch:
 
-permissions:
-  contents: read
-  issues: write
+permissions: {}
 
 concurrency:
   group: dependency-drift
   cancel-in-progress: false
 
 jobs:
-  luals:
+  check-luals:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      pinned: ${{ steps.check.outputs.pinned }}
+      latest: ${{ steps.check.outputs.latest }}
+      release_url: ${{ steps.check.outputs.release_url }}
+      outdated: ${{ steps.check.outputs.outdated }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - name: Check pinned LuaLS release
         id: check
         run: node scripts/check-luals-current.mjs
+
+  maintain-issue:
+    needs: check-luals
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
       - name: Maintain dependency issue
-        uses: actions/github-script@v9
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         env:
-          PINNED_VERSION: ${{ steps.check.outputs.pinned }}
-          LATEST_VERSION: ${{ steps.check.outputs.latest }}
-          RELEASE_URL: ${{ steps.check.outputs.release_url }}
-          OUTDATED: ${{ steps.check.outputs.outdated }}
+          PINNED_VERSION: ${{ needs.check-luals.outputs.pinned }}
+          LATEST_VERSION: ${{ needs.check-luals.outputs.latest }}
+          RELEASE_URL: ${{ needs.check-luals.outputs.release_url }}
+          OUTDATED: ${{ needs.check-luals.outputs.outdated }}
         with:
           script: |
             const title = "LuaLS dependency is out of date";

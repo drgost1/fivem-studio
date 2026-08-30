@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 
 export interface DirEntry {
   name: string;
@@ -52,6 +53,13 @@ export function readTextFileSnapshot(filePath: string): FileSnapshot {
     throw new Error(`${filePath} is ${(stat.size / 1024 / 1024).toFixed(1)}MB — too large to open in the editor.`);
   }
   const bytes = fs.readFileSync(filePath);
+  // Buffer.toString("utf8") silently replaces malformed byte sequences. That
+  // is dangerous in an editor: a later save would persist those replacement
+  // characters and corrupt the original binary. Reject unsupported encodings
+  // while the source bytes are still intact.
+  if (bytes.includes(0) || !isUtf8(bytes)) {
+    throw new Error(`${filePath} appears to be a binary or non-UTF-8 file and cannot be opened in the text editor.`);
+  }
   return { content: bytes.toString("utf8"), revision: contentRevision(bytes) };
 }
 

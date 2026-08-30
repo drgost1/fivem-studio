@@ -18,6 +18,7 @@ const MAX_SCANNED_FILES = 5_000;
 const MAX_PREVIEW_BYTES = 24 * 1024 * 1024;
 const SESSION_TTL_MS = 15 * 60 * 1_000;
 const MAX_SESSIONS = 4;
+const MAX_PREVIEWS = 8;
 
 export interface WorkspaceSearchRequest {
   query: string;
@@ -67,6 +68,7 @@ export interface WorkspaceReplaceFilePreview {
 
 export interface WorkspaceReplacePreview {
   searchId: string;
+  applyToken: string;
   files: WorkspaceReplaceFilePreview[];
   totalHits: number;
 }
@@ -103,6 +105,18 @@ interface SearchSession {
   truncated: boolean;
   createdAt: number;
   files: SearchFileSession[];
+}
+
+interface PreparedReplaceFile extends WorkspaceReplaceFilePreview {
+  revision: string;
+}
+
+interface ReplacePreviewSession {
+  token: string;
+  searchId: string;
+  workspaceRoot: string;
+  createdAt: number;
+  changes: PreparedReplaceFile[];
 }
 
 function forwardSlashes(value: string): string {
@@ -203,6 +217,7 @@ function expandReplacement(template: string, match: InternalMatch, content: stri
 
 export class WorkspaceSearchService {
   private readonly sessions = new Map<string, SearchSession>();
+  private readonly previews = new Map<string, ReplacePreviewSession>();
 
   constructor(private readonly revertStore: RevertStore) {}
 
@@ -343,16 +358,37 @@ export class WorkspaceSearchService {
     const changes = this.buildChanges(session, selectedIds, replacement);
     const bytes = changes.reduce((total, file) => total + Buffer.byteLength(file.originalContent) + Buffer.byteLength(file.modifiedContent), 0);
     if (bytes > MAX_PREVIEW_BYTES) throw new Error("The replacement preview is too large. Narrow the scope or include globs.");
-    return { searchId, files: changes, totalHits: changes.reduce((total, file) => total + file.hitCount, 0) };
+    const applyToken = randomUUID();
+    this.previews.set(applyToken, {
+      token: applyToken,
+      searchId,
+      workspaceRoot: session.workspaceRoot,
+      createdAt: Date.now(),
+      changes,
+    });
+    this.pruneSessions();
+    return {
+      searchId,
+      applyToken,
+      files: changes.map(({ revision: _revision, ...file }) => file),
+      totalHits: changes.reduce((total, file) => total + file.hitCount, 0),
+    };
   }
 
-  apply(workspaceRoot: string, searchId: string, selectedIds: unknown, replacement: unknown): WorkspaceReplaceApplyResult {
-    const session = this.requireSession(workspaceRoot, searchId);
-    if (session.truncated) throw new Error("Narrow this search before replacing; truncated results cannot be applied.");
-    const changes = this.buildChanges(session, selectedIds, replacement);
+  apply(workspaceRoot: string, applyToken: string): WorkspaceReplaceApplyResult {
+    this.pruneSessions();
+    if (typeof applyToken !== "string" || applyToken.length > 128) throw new Error("Replacement preview token is invalid.");
+    const preview = this.previews.get(applyToken);
+    if (!preview || normalizedRoot(preview.workspaceRoot) !== normalizedRoot(workspaceRoot)) {
+      throw new Error("This replacement preview expired, was already applied, or belongs to another workspace. Preview it again.");
+    }
+    // Consume before touching disk. Retrying an ambiguous request must never
+    // apply a reviewed batch twice.
+    this.previews.delete(applyToken);
+    const changes = preview.changes;
     const prepared = this.revertStore.prepareBatch(
       workspaceRoot,
-      `Search replace: ${session.query.slice(0, 80)}`,
+      `Search replace: ${this.sessions.get(preview.searchId)?.query.slice(0, 80) ?? "reviewed batch"}`,
       changes.map((file) => ({ filePath: file.filePath, nextContent: file.modifiedContent })),
     );
     if (!prepared || prepared.fileCount !== changes.length) {
@@ -365,8 +401,7 @@ export class WorkspaceSearchService {
     let hitsApplied = 0;
     for (const change of changes) {
       try {
-        const source = session.files.find((file) => file.filePath === change.filePath)!;
-        writeTextFile(change.filePath, change.modifiedContent, source.revision);
+        writeTextFile(change.filePath, change.modifiedContent, change.revision);
         changedPaths.push(change.filePath);
         hitsApplied += change.hitCount;
       } catch (error) {
@@ -375,7 +410,7 @@ export class WorkspaceSearchService {
     }
     const finalized = this.revertStore.retainBatchEntries(workspaceRoot, prepared.id, changedPaths);
     return {
-      searchId,
+      searchId: preview.searchId,
       batchId: finalized?.id ?? null,
       filesChanged: changedPaths.length,
       hitsApplied,
@@ -384,7 +419,7 @@ export class WorkspaceSearchService {
     };
   }
 
-  private buildChanges(session: SearchSession, selectedIds: unknown, replacement: unknown): WorkspaceReplaceFilePreview[] {
+  private buildChanges(session: SearchSession, selectedIds: unknown, replacement: unknown): PreparedReplaceFile[] {
     if (!Array.isArray(selectedIds) || selectedIds.length === 0 || selectedIds.length > MAX_UI_MATCHES || selectedIds.some((id) => typeof id !== "string" || id.length > 64)) {
       throw new Error("Select between 1 and 5000 search hits before replacing.");
     }
@@ -396,7 +431,7 @@ export class WorkspaceSearchService {
     const selected = new Set(selectedMatchIds);
     for (const id of selected) if (!known.has(id)) throw new Error("The replacement selection is stale. Run the search again.");
 
-    const changes: WorkspaceReplaceFilePreview[] = [];
+    const changes: PreparedReplaceFile[] = [];
     for (const file of session.files) {
       const matches = file.matches.filter((match) => selected.has(match.id));
       if (matches.length === 0) continue;
@@ -415,6 +450,7 @@ export class WorkspaceSearchService {
           originalContent: file.content,
           modifiedContent: modified,
           hitCount: matches.length,
+          revision: file.revision,
         });
       }
     }
@@ -434,6 +470,8 @@ export class WorkspaceSearchService {
   private pruneSessions(): void {
     const cutoff = Date.now() - SESSION_TTL_MS;
     for (const [id, session] of this.sessions) if (session.createdAt < cutoff) this.sessions.delete(id);
+    for (const [token, preview] of this.previews) if (preview.createdAt < cutoff) this.previews.delete(token);
     while (this.sessions.size > MAX_SESSIONS) this.sessions.delete(this.sessions.keys().next().value!);
+    while (this.previews.size > MAX_PREVIEWS) this.previews.delete(this.previews.keys().next().value!);
   }
 }

@@ -11,8 +11,11 @@ import {
   buildServerProcessStopScript,
   buildServerLaunchArgs,
   buildServerLaunchEnvironment,
+  buildServerProcessEnvironment,
   buildServerSpawnOptions,
   extractValidatedZip,
+  findRunningArtifactSwapPids,
+  guardArtifactSwapAfterBackup,
   parseArtifactDownloadPage,
   parseProcessIds,
   parseServerStopOutput,
@@ -197,6 +200,19 @@ test("server launch uses current txAdmin boot configuration without deprecated E
   assert.deepEqual(buildServerLaunchEnvironment("C:\\Local Dev\\txData"), {
     TXHOST_DATA_PATH: path.resolve("C:\\Local Dev\\txData"),
   });
+  const launchEnv = buildServerProcessEnvironment("C:\\Local Dev\\txData", {
+    SystemRoot: "C:\\Windows",
+    PATH: "C:\\Windows\\System32",
+    USERPROFILE: "C:\\Users\\developer",
+    OPENAI_API_KEY: "must-not-reach-fxserver",
+    CI_JOB_TOKEN: "also-secret",
+  });
+  assert.deepEqual(launchEnv, {
+    SystemRoot: "C:\\Windows",
+    PATH: "C:\\Windows\\System32",
+    USERPROFILE: "C:\\Users\\developer",
+    TXHOST_DATA_PATH: path.resolve("C:\\Local Dev\\txData"),
+  });
   const spawnOptions = buildServerSpawnOptions("C:\\Artifact", "C:\\Local Dev\\txData");
   assert.equal(spawnOptions.cwd, "C:\\Artifact");
   assert.equal(spawnOptions.detached, false);
@@ -277,6 +293,45 @@ test("archive path and process-output validation are narrow", () => {
   assert.deepEqual(parseProcessIds("123\r\nnot-a-pid\r\n456\r\n0"), [123, 456]);
 });
 
+test("post-backup process probing checks both exact executable identities", async () => {
+  const original = path.resolve("server", "FXServer.exe");
+  const backup = path.resolve("server.ghz-backup-11111111-1111-4111-8111-111111111111", "FXServer.exe");
+  const probed: string[] = [];
+  const found = await findRunningArtifactSwapPids(original, backup, async (candidate) => {
+    probed.push(candidate);
+    return candidate === original ? [42] : [42, 84];
+  });
+  assert.deepEqual(probed, [original, backup]);
+  assert.deepEqual(found, [42, 84]);
+});
+
+test("a server appearing after backup creation restores the old artifact or remains safely pending", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghz-artifact-swap-race-"));
+  const artifactRoot = path.join(root, "server");
+  const backupPath = path.join(root, "server.ghz-backup-11111111-1111-4111-8111-111111111111");
+  const executablePath = path.join(artifactRoot, "FXServer.exe");
+  try {
+    fs.mkdirSync(backupPath);
+    fs.writeFileSync(path.join(backupPath, "FXServer.exe"), "old");
+    await assert.rejects(
+      () => guardArtifactSwapAfterBackup(executablePath, artifactRoot, backupPath, "FXServer.exe", async () => [42]),
+      /previous artifact was restored.*no new artifact was installed/i,
+    );
+    assert.equal(fs.readFileSync(executablePath, "utf8"), "old");
+    assert.equal(fs.existsSync(backupPath), false);
+
+    fs.renameSync(artifactRoot, backupPath);
+    fs.mkdirSync(artifactRoot);
+    await assert.rejects(
+      () => guardArtifactSwapAfterBackup(executablePath, artifactRoot, backupPath, "FXServer.exe", async () => [84]),
+      /safely pending/i,
+    );
+    assert.equal(fs.readFileSync(path.join(backupPath, "FXServer.exe"), "utf8"), "old");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("an interrupted directory swap restores the backup, and a completed swap finalizes its record", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ghz-artifact-recovery-"));
   const id = "11111111-1111-4111-8111-111111111111";
@@ -307,6 +362,58 @@ test("an interrupted directory swap restores the backup, and a completed swap fi
   };
 
   try {
+    // Schema v2 journals exist before download/extraction. Recovery cleans
+    // partial generated paths while leaving the original artifact untouched.
+    createLayout(artifactRoot, "old");
+    fs.mkdirSync(stagePath);
+    fs.writeFileSync(path.join(stagePath, "partial"), "partial");
+    fs.writeFileSync(archivePath, "partial archive");
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(
+      journalPath,
+      JSON.stringify({
+        schemaVersion: 2,
+        phase: "staging",
+        executablePath: configuredExe,
+        executableName: "FXServer.exe",
+        artifactRoot,
+        archivePath,
+        stagePath,
+        backupPath,
+      }),
+    );
+    assert.match(recoverInterruptedArtifactUpdate(configuredExe, statePath) ?? "", /before replacement/i);
+    assert.equal(fs.readFileSync(configuredExe, "utf8"), "old");
+    assert.equal(fs.existsSync(stagePath), false);
+    assert.equal(fs.existsSync(archivePath), false);
+    assert.equal(fs.existsSync(journalPath), false);
+    fs.rmSync(artifactRoot, { recursive: true });
+
+    // Schema v2 requires a durable replacement-created transition. Merely
+    // losing the stage while both roots exist must roll back, not claim that
+    // the unconfirmed root was installed successfully.
+    createLayout(backupPath, "old");
+    createLayout(artifactRoot, "unconfirmed");
+    fs.writeFileSync(
+      journalPath,
+      JSON.stringify({
+        schemaVersion: 2,
+        phase: "backup-created",
+        executablePath: configuredExe,
+        executableName: "FXServer.exe",
+        artifactRoot,
+        archivePath,
+        stagePath,
+        backupPath,
+        record,
+      }),
+    );
+    assert.match(recoverInterruptedArtifactUpdate(configuredExe, statePath) ?? "", /completion was not durably recorded/i);
+    assert.equal(fs.readFileSync(configuredExe, "utf8"), "old");
+    assert.equal(fs.existsSync(backupPath), false);
+    assert.equal(fs.existsSync(statePath), false);
+    fs.rmSync(artifactRoot, { recursive: true });
+
     // Simulate a crash after the old root moved aside but before the staged root moved into place.
     createLayout(backupPath, "old");
     createLayout(stagePath, "new");
@@ -338,9 +445,10 @@ test("an interrupted directory swap restores the backup, and a completed swap fi
     fs.writeFileSync(
       journalPath,
       JSON.stringify({
-        schemaVersion: 1,
-        phase: "backup-created",
+        schemaVersion: 2,
+        phase: "replacement-created",
         executablePath: configuredExe,
+        executableName: "FXServer.exe",
         artifactRoot,
         archivePath,
         stagePath,
@@ -352,6 +460,29 @@ test("an interrupted directory swap restores the backup, and a completed swap fi
     assert.equal(fs.readFileSync(configuredExe, "utf8"), "new");
     assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).build, 35245);
     assert.equal(fs.existsSync(backupPath), true);
+    assert.equal(fs.existsSync(journalPath), false);
+
+    // A durable schema-v2 completion remains authoritative if the user removes
+    // the optional rollback backup before deferred install-record recovery.
+    fs.rmSync(statePath);
+    fs.rmSync(backupPath, { recursive: true });
+    fs.writeFileSync(
+      journalPath,
+      JSON.stringify({
+        schemaVersion: 2,
+        phase: "replacement-created",
+        executablePath: configuredExe,
+        executableName: "FXServer.exe",
+        artifactRoot,
+        archivePath,
+        stagePath,
+        backupPath,
+        record,
+      }),
+    );
+    assert.match(recoverInterruptedArtifactUpdate(configuredExe, statePath) ?? "", /rollback backup is no longer present/i);
+    assert.equal(fs.readFileSync(configuredExe, "utf8"), "new");
+    assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).build, 35245);
     assert.equal(fs.existsSync(journalPath), false);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

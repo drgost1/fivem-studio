@@ -453,6 +453,7 @@ export interface WorkspaceReplaceFilePreview {
 
 export interface WorkspaceReplacePreview {
   searchId: string;
+  applyToken: string;
   files: WorkspaceReplaceFilePreview[];
   totalHits: number;
 }
@@ -476,6 +477,7 @@ declare global {
       config: {
         get(): Promise<StudioConfig>;
         set(config: StudioConfig): Promise<StudioConfig>;
+        onChanged(callback: (config: StudioConfig) => void): () => void;
       };
       console: {
         openPopout(): Promise<void>;
@@ -518,7 +520,7 @@ declare global {
       search: {
         run(request: WorkspaceSearchRequest): Promise<WorkspaceSearchResult>;
         previewReplace(searchId: string, selectedIds: string[], replacement: string): Promise<WorkspaceReplacePreview>;
-        applyReplace(searchId: string, selectedIds: string[], replacement: string): Promise<WorkspaceReplaceApplyResult>;
+        applyReplace(applyToken: string): Promise<WorkspaceReplaceApplyResult>;
       };
       fs: {
         listDir(dirPath: string): Promise<DirEntry[]>;

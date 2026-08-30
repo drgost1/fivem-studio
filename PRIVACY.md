@@ -15,7 +15,7 @@ QBCore Framework does not operate a QB Studio cloud service or user database.
 QB Studio is a local development tool. Some features make network requests when
 the user invokes them or configures an external service. Stable builds also
 make one public GitHub release request at startup to provide a passive update
-notice. Default-enabled Discord Rich Presence shares a deliberately narrow
+notice. Opt-in Discord Rich Presence shares a deliberately narrow
 activity through the local Discord desktop client and can be disabled in
 Settings, as described below.
 
@@ -64,7 +64,7 @@ policies of a provider selected by the user.
 
 ## Other network features
 
-- **Discord Rich Presence:** Enabled by default and disableable in Settings.
+- **Discord Rich Presence:** Disabled by default and enableable in Settings.
   QB Studio connects to the locally running Discord desktop app without a bot,
   OAuth login, token, or Discord credential. It supplies only the application
   identity and version, the current app area, the broad active target (FiveM

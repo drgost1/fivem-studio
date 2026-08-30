@@ -72,21 +72,48 @@ test("replace previews selected capture groups, skips stale files, and undoes on
     const selected = search.files.flatMap((file) => file.matches.map((match) => match.id));
     const preview = f.service.preview(f.root, search.id, selected, "new_$1");
     assert.equal(preview.totalHits, 3);
+    assert.ok(preview.applyToken);
     assert.equal(preview.files.find((file) => file.filePath === first)?.modifiedContent, "new_alpha new_beta\n");
 
     fs.writeFileSync(second, "changed elsewhere\n");
-    const applied = f.service.apply(f.root, search.id, selected, "new_$1");
+    const applied = f.service.apply(f.root, preview.applyToken);
     assert.equal(applied.filesChanged, 1);
     assert.equal(applied.hitsApplied, 2);
     assert.deepEqual(applied.skipped.map((entry) => entry.path), ["qb-first/second.lua"]);
     assert.ok(applied.batchId);
     assert.equal(fs.readFileSync(first, "utf8"), "new_alpha new_beta\n");
     assert.equal(fs.readFileSync(second, "utf8"), "changed elsewhere\n");
+    assert.throws(() => f.service.apply(f.root, preview.applyToken), /already applied/);
 
     const undone = f.store.revertBatch(f.root, applied.batchId!, "all");
     assert.equal(undone.status, "reverted");
     assert.equal(fs.readFileSync(first, "utf8"), "old_alpha old_beta\n");
     assert.equal(fs.readFileSync(second, "utf8"), "changed elsewhere\n");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("apply is bound to the exact reviewed selection and replacement", () => {
+  const f = fixture();
+  try {
+    const target = path.join(f.firstResource, "client.lua");
+    fs.writeFileSync(target, "old_alpha old_beta\n");
+    const search = f.service.search(f.root, f.firstResource, {
+      query: "old_(\\w+)",
+      regex: true,
+      caseSensitive: true,
+      wholeWord: false,
+      include: [],
+      exclude: [],
+    });
+    const selected = [search.files[0]!.matches[0]!.id];
+    const preview = f.service.preview(f.root, search.id, selected, "reviewed_$1");
+    assert.equal(preview.files[0]?.modifiedContent, "reviewed_alpha old_beta\n");
+
+    const applied = f.service.apply(f.root, preview.applyToken);
+    assert.equal(applied.hitsApplied, 1);
+    assert.equal(fs.readFileSync(target, "utf8"), "reviewed_alpha old_beta\n");
   } finally {
     f.cleanup();
   }

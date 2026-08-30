@@ -14,6 +14,7 @@ import type {
 } from "../global";
 import { t } from "../i18n";
 import { COST_LABEL, PROVIDER_PRESETS, matchPreset } from "../providerPresets";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import SetupChecklist from "./SetupChecklist";
 
 interface SettingsModalProps {
@@ -79,6 +80,15 @@ export default function SettingsModal({ config, themePacks, onThemePreview, onRe
   const [rconPreview, setRconPreview] = useState<DevelopmentRconPreview | null>(null);
   const [rconBusy, setRconBusy] = useState(false);
   const [themeBusy, setThemeBusy] = useState<"import" | "reload" | null>(null);
+
+  // The console (including its popout) owns this preference. Keep the hidden
+  // field current while Settings is open so saving an unrelated setting cannot
+  // restore the interval that was present when the modal first mounted.
+  useEffect(() => {
+    setDraft((current) => current.consoleRefreshIntervalMs === config.consoleRefreshIntervalMs
+      ? current
+      : { ...current, consoleRefreshIntervalMs: config.consoleRefreshIntervalMs });
+  }, [config.consoleRefreshIntervalMs]);
 
   /** Asks the endpoint what it actually serves, rather than making the user guess a model id. */
   async function loadModels() {
@@ -447,9 +457,11 @@ export default function SettingsModal({ config, themePacks, onThemePreview, onRe
     setBusy(true);
     setSaveError(null);
     try {
+      // Profile-switch confirmation and main-process validation must succeed
+      // before any write-only credentials are changed.
+      await onSave(draft);
       if (apiKeyDraft.trim()) await window.api.agent.setApiKey(apiKeyDraft.trim());
       if (localKeyDraft.trim()) await window.api.agent.setProviderKey(draft.openaiBaseUrl, localKeyDraft.trim());
-      await onSave(draft);
       onClose();
     } catch (err) {
       setSaveError((err as Error).message || "Could not save settings.");
@@ -499,12 +511,20 @@ export default function SettingsModal({ config, themePacks, onThemePreview, onRe
     }
   }
 
-  return (
-    <div className="modal-backdrop" onClick={() => artifactBusy === null && !rconBusy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
-        <h3 id="settings-title">Settings</h3>
+  const operationBusy = busy || creatingWorkspace || artifactBusy !== null || detectingExecutable !== null
+    || loadingModels || themeBusy !== null || rconBusy;
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, !operationBusy);
 
-        {saveError && <div className="error-text" role="alert">{saveError}</div>}
+  useEffect(() => {
+    if (saveError) document.getElementById("settings-save-error")?.focus();
+  }, [saveError]);
+
+  return (
+    <div className="modal-backdrop" onClick={() => !operationBusy && onClose()}>
+      <div ref={dialogRef} className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <h3 id="settings-title" data-dialog-initial-focus tabIndex={-1}>Settings</h3>
+
+        {saveError && <div id="settings-save-error" className="error-text settings-save-error" role="alert" tabIndex={-1}>{saveError}</div>}
 
         <div className="settings-divider">{t("appearance.section")}</div>
         <label className="field-label">{t("appearance.theme")}</label>
@@ -583,7 +603,7 @@ export default function SettingsModal({ config, themePacks, onThemePreview, onRe
           </select>
         </label>
         <div className="field-hint">
-          Enabled by default. Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
+          Off by default. When enabled, Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
         </div>
 
         <SetupChecklist
@@ -1140,10 +1160,10 @@ export default function SettingsModal({ config, themePacks, onThemePreview, onRe
         )}
 
         <div className="modal-actions">
-          <button className="btn" onClick={onClose} disabled={artifactBusy !== null || rconBusy}>
+          <button className="btn" onClick={onClose} disabled={operationBusy}>
             Cancel
           </button>
-          <button className="btn primary" onClick={save} disabled={busy || artifactBusy !== null || rconBusy}>
+          <button className="btn primary" onClick={save} disabled={operationBusy}>
             {busy ? "Connecting…" : "Save & Connect"}
           </button>
         </div>

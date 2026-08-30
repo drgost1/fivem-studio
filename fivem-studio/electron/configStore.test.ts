@@ -2,7 +2,53 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { normalizeConfig } from "./configStore";
+import {
+  normalizeConfig,
+  providerCredentialStorageAccess,
+  providerCredentialStorageNames,
+} from "./configStore";
+
+test("provider credential filenames hash the complete canonical endpoint and retain the legacy migration name", () => {
+  const sharedPrefix = `https://example.com/${"a".repeat(100)}`;
+  const first = providerCredentialStorageNames(`${sharedPrefix}/provider-one/v1`);
+  const second = providerCredentialStorageNames(`${sharedPrefix}/provider-two/v1`);
+  assert.match(first.current, /^provider-[a-f0-9]{64}$/);
+  assert.notEqual(first.current, second.current, "full URLs that collided under the truncated slug must stay distinct");
+  assert.equal(first.legacy, second.legacy, "fixture exercises the legacy truncated-slug collision");
+
+  assert.equal(
+    providerCredentialStorageNames("https://EXAMPLE.com:443/v1").current,
+    providerCredentialStorageNames("https://example.com/v1").current,
+    "URL canonicalization must not fork storage for equivalent endpoints",
+  );
+});
+
+test("legacy provider keys are available only to the persisted endpoint, never a colliding draft", () => {
+  const sharedPrefix = `https://example.com/${"a".repeat(100)}`;
+  const persisted = `${sharedPrefix}/provider-one/v1`;
+  const draft = `${sharedPrefix}/provider-two/v1`;
+  const persistedNames = providerCredentialStorageNames(persisted);
+  const draftNames = providerCredentialStorageNames(draft);
+  assert.equal(persistedNames.legacy, draftNames.legacy, "fixture must collide under the legacy slug");
+
+  assert.deepEqual(providerCredentialStorageAccess(persisted, persisted), {
+    current: persistedNames.current,
+    legacy: persistedNames.legacy,
+  });
+  assert.deepEqual(providerCredentialStorageAccess(draft, persisted), {
+    current: draftNames.current,
+    legacy: null,
+  }, "a draft endpoint may neither migrate nor clear the persisted endpoint's legacy key");
+});
+
+test("canonical-equivalent provider URLs retain current-endpoint migration and clear access", () => {
+  const access = providerCredentialStorageAccess(
+    "https://EXAMPLE.com:443/v1",
+    "https://example.com/v1",
+  );
+  const names = providerCredentialStorageNames("https://example.com/v1");
+  assert.deepEqual(access, { current: names.current, legacy: names.legacy });
+});
 
 test("single-path Enhanced settings migrate into the Enhanced slots", () => {
   const server = path.resolve("old-enhanced", "cfx-server.exe");
@@ -85,9 +131,9 @@ test("unexpected server-exit notifications default on and accept an explicit pre
 });
 
 test("privacy-safe Discord presence defaults on and accepts an explicit preference", () => {
-  assert.equal(normalizeConfig({}).discordPresenceEnabled, true);
+  assert.equal(normalizeConfig({}).discordPresenceEnabled, false);
   assert.equal(normalizeConfig({ discordPresenceEnabled: false }).discordPresenceEnabled, false);
-  assert.equal(normalizeConfig({ discordPresenceEnabled: "false" }).discordPresenceEnabled, true);
+  assert.equal(normalizeConfig({ discordPresenceEnabled: "false" }).discordPresenceEnabled, false);
 });
 
 test("agent spend warnings are configurable and bounded", () => {

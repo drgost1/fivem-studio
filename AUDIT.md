@@ -36,9 +36,16 @@ add player or gameplay controls.
   cannot terminate a newer workspace runtime.
 - Use short-lived opaque IDs for local-client preview candidates and revalidate
   window ownership before native reparenting operations.
+- Added workspace search/replace with bounded previews and revision checks,
+  resource import/duplication staging, console filtering and crash triage, and
+  demand-driven Lua language-server integration.
 - Added an NSIS installer, CI, semantic versioning, a single installer release
-  asset, signed GitHub build and SBOM attestations, an MIT license, and
-  QB Studio branding.
+  asset, GitHub build and complete-lockfile SBOM attestations, an MIT license,
+  and QB Studio branding.
+- Hardened release qualification with exact Node/npm pins, immutable GitHub
+  Action SHAs, complete moderate-threshold dependency auditing, least-privilege
+  workflow jobs, cross-platform desktop test discovery, and package-content
+  invariants.
 
 ## Next priorities
 
@@ -60,14 +67,17 @@ add player or gameplay controls.
    backpressure and a fixed memory cap.
 3. Add a diagnostics page for txAdmin attachment, missing license/RCON config,
    port collisions, FXServer state, and actionable fixes.
-4. Add first-class resource creation templates and manifest validation.
-5. Add workspace search/replace and source-control-aware rename previews.
+4. Add first-class resource creation templates and extend manifest validation
+   beyond the current safe import, duplicate, and form-editing workflows.
+5. Add source-control-aware rename previews.
 
 ### P2 — polish
 
 1. Add a distinctive signed app icon and a small onboarding walkthrough.
-2. Add opt-in local crash diagnostics with automatic secret/path redaction.
-3. Add Lua language-server integration and configurable formatting/linting.
+2. Add an exportable diagnostics bundle with an explicit redaction preview,
+   building on the current local crash triage.
+3. Add configurable lint profiles alongside the existing Lua language-server
+   diagnostics and formatting.
 
 ## Known constraints
 
@@ -79,3 +89,7 @@ add player or gameplay controls.
   supported setup/deployer flow.
 - Initial installers are unsigned and will accumulate reputation slowly until
   code signing is added.
+- Semantic-release publishes before the separate least-privilege GitHub
+  attestation job can run. A release is not considered attested until that job
+  succeeds; publication and attestation are not atomic under the current
+  workflow integration.

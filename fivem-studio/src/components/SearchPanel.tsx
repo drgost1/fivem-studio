@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { languageForPath } from "../editorLanguage";
 import type {
@@ -12,9 +12,34 @@ import type {
   WorkspaceSearchResult,
 } from "../global";
 import { t } from "../i18n";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 const ChangeDiff = lazy(() => import("./ChangeDiff"));
 const INITIAL_VISIBLE_MATCHES = 50;
+
+function SearchPreviewDialogFrame({
+  canClose,
+  onClose,
+  children,
+}: {
+  canClose: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const dialogRef = useDialogFocus<HTMLElement>(onClose, canClose);
+  return (
+    <section
+      ref={dialogRef}
+      className="search-preview-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="search-preview-title"
+      tabIndex={-1}
+    >
+      {children}
+    </section>
+  );
+}
 
 interface SearchPanelProps {
   workspaceRoot: string | null;
@@ -56,6 +81,7 @@ export default function SearchPanel({
   const [undoResult, setUndoResult] = useState<RevertResult | null>(null);
   const [busy, setBusy] = useState<"search" | "preview" | "apply" | "undo" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   useEffect(() => {
     if (!activeResource && scope === "resource") setScope("workspace");
@@ -64,6 +90,7 @@ export default function SearchPanel({
 
   const resourceScopeIdentity = scope === "resource" ? (activeResource?.rootPath ?? null) : null;
   useEffect(() => {
+    requestGeneration.current += 1;
     setResult(null);
     setSelected(new Set());
     setExpandedFiles(new Set());
@@ -71,12 +98,14 @@ export default function SearchPanel({
     setApplied(null);
     setUndoResult(null);
     setError(null);
-  }, [query, scope, regex, caseSensitive, wholeWord, include, exclude, resourceScopeIdentity]);
+    setBusy(null);
+  }, [query, scope, regex, caseSensitive, wholeWord, include, exclude, resourceScopeIdentity, workspaceRoot]);
 
   const selectedIds = useMemo(() => [...selected], [selected]);
 
   async function runSearch() {
     if (!workspaceRoot) return;
+    const generation = ++requestGeneration.current;
     setBusy("search");
     setError(null);
     setPreview(null);
@@ -93,21 +122,24 @@ export default function SearchPanel({
         include: parseGlobs(include),
         exclude: parseGlobs(exclude),
       });
+      if (requestGeneration.current !== generation) return;
       setResult(found);
       setSelected(new Set(found.files.flatMap((file) => file.matches.map((match) => match.id))));
       setExpandedFiles(new Set(found.files[0] ? [found.files[0].filePath] : []));
       setVisibleByFile({});
     } catch (searchError) {
+      if (requestGeneration.current !== generation) return;
       setResult(null);
       setSelected(new Set());
       setExpandedFiles(new Set());
       setError((searchError as Error).message || t("search.error.run"));
     } finally {
-      setBusy(null);
+      if (requestGeneration.current === generation) setBusy(null);
     }
   }
 
   function toggleFile(file: WorkspaceSearchFileResult) {
+    requestGeneration.current += 1;
     setPreview(null);
     setApplied(null);
     setSelected((current) => {
@@ -122,6 +154,7 @@ export default function SearchPanel({
   }
 
   function toggleMatch(id: string) {
+    requestGeneration.current += 1;
     setPreview(null);
     setApplied(null);
     setSelected((current) => {
@@ -134,53 +167,67 @@ export default function SearchPanel({
 
   async function previewReplacement() {
     if (!result) return;
+    const generation = ++requestGeneration.current;
     setBusy("preview");
     setError(null);
     try {
       const next = await window.api.search.previewReplace(result.id, selectedIds, replacement);
+      if (requestGeneration.current !== generation) return;
       setPreview(next);
       setPreviewFileIndex(0);
     } catch (previewError) {
+      if (requestGeneration.current !== generation) return;
       setError((previewError as Error).message || t("search.error.preview"));
     } finally {
-      setBusy(null);
+      if (requestGeneration.current === generation) setBusy(null);
     }
   }
 
   async function applyReplacement() {
     if (!result || !preview) return;
+    const generation = ++requestGeneration.current;
     setBusy("apply");
     setError(null);
     try {
-      const next = await window.api.search.applyReplace(result.id, selectedIds, replacement);
+      const next = await window.api.search.applyReplace(preview.applyToken);
+      if (requestGeneration.current !== generation) return;
       setApplied(next);
       setPreview(null);
       setUndoResult(null);
       onFilesChanged();
     } catch (applyError) {
+      if (requestGeneration.current !== generation) return;
+      // Apply tokens are deliberately single-use even when preparation or
+      // revision checks fail; return to results so the next attempt is backed
+      // by a newly reviewed preview rather than a consumed capability.
+      setPreview(null);
       setError((applyError as Error).message || t("search.error.apply"));
     } finally {
-      setBusy(null);
+      if (requestGeneration.current === generation) setBusy(null);
     }
   }
 
   async function undoBatch(mode: "all" | "safe") {
     if (!applied?.batchId) return;
+    const generation = ++requestGeneration.current;
     setBusy("undo");
     setError(null);
     try {
       const next = await window.api.revert.apply(applied.batchId, mode);
+      if (requestGeneration.current !== generation) return;
       setUndoResult(next);
       onFilesChanged();
     } catch (undoError) {
+      if (requestGeneration.current !== generation) return;
       setError((undoError as Error).message || t("search.error.undo"));
     } finally {
-      setBusy(null);
+      if (requestGeneration.current === generation) setBusy(null);
     }
   }
 
   if (!workspaceRoot) return <div className="search-empty">{t("search.noWorkspace")}</div>;
   const activePreviewFile = preview?.files[Math.min(previewFileIndex, Math.max(0, preview.files.length - 1))];
+  const controlsFrozen = busy !== null || preview !== null;
 
   return (
     <div className="search-panel">
@@ -188,6 +235,7 @@ export default function SearchPanel({
         <div className="search-query-row">
           <input
             value={query}
+            disabled={controlsFrozen}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && busy === null) void runSearch();
@@ -200,14 +248,15 @@ export default function SearchPanel({
           </button>
         </div>
         <div className="search-option-row">
-          <label><input type="checkbox" checked={regex} onChange={(event) => setRegex(event.target.checked)} />{t("search.regex")}</label>
-          <label><input type="checkbox" checked={caseSensitive} onChange={(event) => setCaseSensitive(event.target.checked)} />{t("search.caseSensitive")}</label>
-          <label><input type="checkbox" checked={wholeWord} onChange={(event) => setWholeWord(event.target.checked)} />{t("search.wholeWord")}</label>
+          <label><input type="checkbox" checked={regex} disabled={controlsFrozen} onChange={(event) => setRegex(event.target.checked)} />{t("search.regex")}</label>
+          <label><input type="checkbox" checked={caseSensitive} disabled={controlsFrozen} onChange={(event) => setCaseSensitive(event.target.checked)} />{t("search.caseSensitive")}</label>
+          <label><input type="checkbox" checked={wholeWord} disabled={controlsFrozen} onChange={(event) => setWholeWord(event.target.checked)} />{t("search.wholeWord")}</label>
         </div>
         <label className="search-field-label">
           {t("search.scope")}
           <select
             value={scope}
+            disabled={controlsFrozen}
             onChange={(event) => {
               scopeManuallyChanged.current = true;
               setScope(event.target.value as "resource" | "workspace");
@@ -223,17 +272,19 @@ export default function SearchPanel({
           <summary>{t("search.fileFilters")}</summary>
           <label className="search-field-label">
             {t("search.include")}
-            <input value={include} onChange={(event) => setInclude(event.target.value)} placeholder={t("search.includePlaceholder")} />
+            <input value={include} disabled={controlsFrozen} onChange={(event) => setInclude(event.target.value)} placeholder={t("search.includePlaceholder")} />
           </label>
           <label className="search-field-label">
             {t("search.exclude")}
-            <input value={exclude} onChange={(event) => setExclude(event.target.value)} placeholder={t("search.excludePlaceholder")} />
+            <input value={exclude} disabled={controlsFrozen} onChange={(event) => setExclude(event.target.value)} placeholder={t("search.excludePlaceholder")} />
           </label>
         </details>
         <div className="search-replace-row">
           <input
             value={replacement}
+            disabled={controlsFrozen}
             onChange={(event) => {
+              requestGeneration.current += 1;
               setReplacement(event.target.value);
               setPreview(null);
               setApplied(null);
@@ -318,6 +369,7 @@ export default function SearchPanel({
               <summary>
                 <input
                   type="checkbox"
+                  disabled={controlsFrozen}
                   checked={selectedCount === file.matches.length}
                   aria-checked={selectedCount > 0 && selectedCount < file.matches.length ? "mixed" : selectedCount === file.matches.length}
                   onClick={(event) => event.stopPropagation()}
@@ -330,9 +382,9 @@ export default function SearchPanel({
                 {file.matches.slice(0, visibleCount).map((match) => (
                   <div className="search-match" key={match.id}>
                     <label>
-                      <input type="checkbox" checked={selected.has(match.id)} onChange={() => toggleMatch(match.id)} />
+                      <input type="checkbox" checked={selected.has(match.id)} disabled={controlsFrozen} onChange={() => toggleMatch(match.id)} />
                     </label>
-                    <button type="button" onClick={() => onOpenLocation(match.filePath, match.line, match.column)}>
+                    <button type="button" disabled={controlsFrozen} onClick={() => onOpenLocation(match.filePath, match.line, match.column)}>
                       <span className="search-match-location">{match.line}:{match.column}</span>
                       {match.before.map((line, index) => (
                         <code className="context" key={`before-${index}`}>{match.line - match.before.length + index}  {line}</code>
@@ -364,14 +416,14 @@ export default function SearchPanel({
 
       {preview && activePreviewFile && (
         <div className="search-preview-backdrop" role="presentation">
-          <section className="search-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="search-preview-title">
+          <SearchPreviewDialogFrame canClose={busy === null} onClose={() => setPreview(null)}>
             <header>
               <div>
                 <strong id="search-preview-title">{t("search.previewTitle")}</strong>
                 <span>{t("search.previewSummary", { files: preview.files.length, hits: preview.totalHits })}</span>
               </div>
               <div className="search-preview-actions">
-                <button className="btn" type="button" onClick={() => setPreview(null)} disabled={busy !== null}>{t("search.backToResults")}</button>
+                <button className="btn" type="button" data-dialog-initial-focus onClick={() => setPreview(null)} disabled={busy !== null}>{t("search.backToResults")}</button>
                 <button className="btn primary" type="button" onClick={() => void applyReplacement()} disabled={busy !== null}>
                   {busy === "apply" ? t("search.applying") : t("search.apply")}
                 </button>
@@ -394,7 +446,7 @@ export default function SearchPanel({
               <div className="search-preview-diff">
                 <Suspense fallback={<div className="search-empty">{t("search.loadingDiff")}</div>}>
                   <ChangeDiff
-                    id={`${preview.searchId}:${activePreviewFile.filePath}`}
+                    id={`${preview.applyToken}:${activePreviewFile.filePath}`}
                     original={activePreviewFile.originalContent}
                     modified={activePreviewFile.modifiedContent}
                     language={languageForPath(activePreviewFile.filePath)}
@@ -405,7 +457,7 @@ export default function SearchPanel({
                 </Suspense>
               </div>
             </div>
-          </section>
+          </SearchPreviewDialogFrame>
         </div>
       )}
     </div>

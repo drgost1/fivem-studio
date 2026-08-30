@@ -18,6 +18,16 @@ interface StoredBookmark {
 
 const MAX_BOOKMARKS = 500;
 
+function pathKey(value: string): string {
+  return value.replace(/\\/g, "/").toLowerCase();
+}
+
+function sameOrChild(candidate: string, parent: string): boolean {
+  const childKey = pathKey(candidate);
+  const parentKey = pathKey(parent).replace(/\/+$/, "");
+  return childKey === parentKey || childKey.startsWith(`${parentKey}/`);
+}
+
 export class BookmarkStore {
   constructor(private readonly storageRoot: string) {}
 
@@ -77,5 +87,51 @@ export class BookmarkStore {
     else current.unshift({ relativePath, line, updatedAt: new Date().toISOString() });
     this.write(workspaceRoot, current);
     return this.list(workspaceRoot);
+  }
+
+  /** Persist bookmark path changes in the same rename operation that moved the
+   * file or directory. The store write itself is atomic (temporary + rename). */
+  remapPath(workspaceRoot: string, oldPath: string, newPath: string): EditorBookmark[] {
+    this.remapPathWithRollback(workspaceRoot, oldPath, newPath);
+    return this.list(workspaceRoot);
+  }
+
+  /** Stage a durable bookmark rename and return a rollback for the matching
+   * filesystem operation. */
+  remapPathWithRollback(workspaceRoot: string, oldPath: string, newPath: string): () => void {
+    const oldRelative = path.relative(workspaceRoot, resolveInsideRoot(workspaceRoot, path.relative(workspaceRoot, oldPath)));
+    const newRelative = path.relative(workspaceRoot, resolveInsideRoot(workspaceRoot, path.relative(workspaceRoot, newPath)));
+    const current = this.read(workspaceRoot);
+    let changed = false;
+    const remapped = current.map((bookmark) => {
+      if (!sameOrChild(bookmark.relativePath, oldRelative)) return bookmark;
+      changed = true;
+      return {
+        ...bookmark,
+        relativePath: newRelative + bookmark.relativePath.slice(oldRelative.length),
+      };
+    });
+    if (!changed) return () => undefined;
+    const unique = remapped.filter((bookmark, index, all) =>
+      all.findIndex((candidate) => pathKey(candidate.relativePath) === pathKey(bookmark.relativePath) && candidate.line === bookmark.line) === index,
+    );
+    this.write(workspaceRoot, unique);
+    return () => this.write(workspaceRoot, current);
+  }
+
+  removePath(workspaceRoot: string, removedPath: string): EditorBookmark[] {
+    this.removePathWithRollback(workspaceRoot, removedPath);
+    return this.list(workspaceRoot);
+  }
+
+  /** Remove matching bookmarks before a destructive filesystem operation and
+   * return a rollback that restores the exact previous durable state. */
+  removePathWithRollback(workspaceRoot: string, removedPath: string): () => void {
+    const removedRelative = path.relative(workspaceRoot, resolveInsideRoot(workspaceRoot, path.relative(workspaceRoot, removedPath)));
+    const current = this.read(workspaceRoot);
+    const remaining = current.filter((bookmark) => !sameOrChild(bookmark.relativePath, removedRelative));
+    if (remaining.length === current.length) return () => undefined;
+    this.write(workspaceRoot, remaining);
+    return () => this.write(workspaceRoot, current);
   }
 }

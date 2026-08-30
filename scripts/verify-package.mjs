@@ -10,11 +10,16 @@ import { extractFile, listPackage } from "@electron/asar";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = path.join(root, "release");
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, "fivem-studio", "package.json"), "utf8"));
 const installers = fs.existsSync(releaseDir)
   ? fs.readdirSync(releaseDir).filter((name) => /^QB-Studio-Setup-.*\.exe$/i.test(name))
   : [];
 if (installers.length !== 1) throw new Error(`Expected exactly one QB Studio installer, found ${installers.length}.`);
 const [installer] = installers;
+const expectedInstaller = `QB-Studio-Setup-${desktopPackage.version}-x64.exe`;
+if (installer !== expectedInstaller) {
+  throw new Error(`Expected installer ${expectedInstaller}, found ${installer}.`);
+}
 if (fs.statSync(path.join(releaseDir, installer)).size < 10 * 1024 * 1024) {
   throw new Error("The installer is unexpectedly small.");
 }
@@ -35,6 +40,21 @@ const luaLanguageServer = path.join(
 if (!fs.existsSync(luaLanguageServer) || fs.statSync(luaLanguageServer).size < 500_000) {
   throw new Error("The packaged Lua language server is missing or incomplete.");
 }
+const luaLanguageServerRoot = path.join(releaseDir, "win-unpacked", "resources", "lua-language-server");
+const luaLicense = path.join(luaLanguageServerRoot, "LICENSE");
+if (!fs.existsSync(luaLicense) || fs.statSync(luaLicense).size < 1_000) {
+  throw new Error("The packaged Lua language server license is missing or incomplete.");
+}
+const expectedLuaRelease = JSON.parse(fs.readFileSync(path.join(root, "scripts", "luals-release.json"), "utf8"));
+const packagedLuaRelease = JSON.parse(
+  fs.readFileSync(path.join(luaLanguageServerRoot, "QB_STUDIO_BUNDLE.json"), "utf8"),
+);
+if (
+  packagedLuaRelease.version !== expectedLuaRelease.version ||
+  packagedLuaRelease.sha256 !== expectedLuaRelease.sha256
+) {
+  throw new Error("The packaged Lua language server does not match the reviewed release manifest.");
+}
 const luaLibrary = path.join(releaseDir, "win-unpacked", "resources", "lua-library", "qb-studio-cfx.lua");
 if (!fs.existsSync(luaLibrary) || fs.statSync(luaLibrary).size < 1_000) {
   throw new Error("The packaged QBCore/Cfx Lua definitions are missing or incomplete.");
@@ -45,6 +65,20 @@ if (!fs.existsSync(packagedExe)) throw new Error("The unpacked QB Studio executa
 
 const appArchive = path.join(releaseDir, "win-unpacked", "resources", "app.asar");
 if (!fs.existsSync(appArchive)) throw new Error("The packaged Electron app archive is missing.");
+const koffiNative = path.join(
+  releaseDir,
+  "win-unpacked",
+  "resources",
+  "app.asar.unpacked",
+  "node_modules",
+  "@koromix",
+  "koffi-win32-x64",
+  "win32_x64",
+  "koffi.node",
+);
+if (!fs.existsSync(koffiNative) || fs.statSync(koffiNative).size < 100_000) {
+  throw new Error("The packaged native window-integration module is missing or incomplete.");
+}
 
 function verifyPackagedRenderer() {
   const entries = new Set(
@@ -53,6 +87,24 @@ function verifyPackagedRenderer() {
   const required = ["dist/index.html", "dist/manifest.json", "dist-electron/main.js", "dist-electron/preload.js"];
   for (const entry of required) {
     if (!entries.has(entry)) throw new Error(`Required packaged app entry is missing: ${entry}`);
+  }
+
+  for (const entry of entries) {
+    if (/^dist-electron\/.*(?:\.test\.js|\.map)$/i.test(entry)) {
+      throw new Error(`Development-only Electron output was packaged: ${entry}`);
+    }
+    if (/(^|\/)(?:\.env(?:\..*)?|agent_bridge|[^/]*\.config\.local\.json)(?:\/|$)/i.test(entry)) {
+      throw new Error(`Forbidden app archive content found: ${entry}`);
+    }
+  }
+
+  const packagedMetadata = JSON.parse(extractFile(appArchive, "package.json").toString("utf8"));
+  if (
+    packagedMetadata.name !== desktopPackage.name ||
+    packagedMetadata.version !== desktopPackage.version ||
+    packagedMetadata.private !== true
+  ) {
+    throw new Error("The packaged application metadata does not match the release source.");
   }
 
   const html = extractFile(appArchive, "dist/index.html").toString("utf8");

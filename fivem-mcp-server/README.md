@@ -22,5 +22,11 @@ npm test
 npm run bundle
 ```
 
+Standalone HTTP mode fails closed unless `MCP_TOKEN` is set. Clients must send
+that value as `Authorization: Bearer <MCP_TOKEN>`. For a deliberate local-only
+development session, unauthenticated HTTP can be enabled explicitly with
+`MCP_UNSAFE_ALLOW_NO_TOKEN=1`; the listener remains restricted to numeric
+loopback addresses. Stdio mode does not require an HTTP token.
+
 The desktop release starts this runtime automatically with an ephemeral port
 and bearer token.

@@ -13,7 +13,13 @@ import { loadConfig } from "./configStore";
 import { createTextFile, listDir, readTextFile, readTextFileSnapshot, writeTextFile, resolveProfile } from "./fsTree";
 import { ensureParentInsideRoot, resolveInsideRoot } from "./pathSafety";
 import type { McpToolDefinition } from "./mcpClient";
-import type { RevertStore } from "./revertStore";
+import {
+  hasCredentialBearingContent,
+  isCredentialBearingFile,
+  isCredentialBearingPath,
+  redactCredentialText,
+  type RevertStore,
+} from "./revertStore";
 
 /** Far smaller than the editor's 2MB limit: a file that's merely slow to open
  *  in an editor will blow out a model's context window. */
@@ -68,8 +74,15 @@ export function setEditorContext(context: EditorContext): void {
   };
 }
 
+export function sanitizeEditorContextForAgent(context: EditorContext): EditorContext {
+  if (context.path && isCredentialBearingPath(context.path)) {
+    return { ...context, selectedText: context.selectedText ? "[credential-bearing selection withheld]" : "" };
+  }
+  return { ...context, selectedText: redactCredentialText(context.selectedText) };
+}
+
 export function getEditorContext(): EditorContext {
-  return editorContext;
+  return sanitizeEditorContextForAgent(editorContext);
 }
 
 export interface ProjectWritePreview {
@@ -138,6 +151,40 @@ export function previewProjectWrite(input: Record<string, unknown>): ProjectWrit
   return buildProjectWritePreview(root, input);
 }
 
+/** Pure read boundary used by the hosted agent and focused security tests. */
+export function readProjectFileForAgent(root: string, requestedPath: string): string {
+  const target = resolveInsideRoot(root, requestedPath);
+  const shown = path.relative(root, target);
+  if (isCredentialBearingPath(target)) {
+    return `Credential-bearing file withheld from the agent: ${shown}.`;
+  }
+  const stat = fs.statSync(target);
+  if (stat.size > MAX_READ_BYTES) {
+    return `File is ${stat.size} bytes, above the agent edit limit of ${MAX_READ_BYTES}; use the editor instead.`;
+  }
+  const snapshot = readTextFileSnapshot(target);
+  if (isCredentialBearingFile(target, snapshot.content)) {
+    return `Credential-bearing file content withheld from the agent: ${shown}.`;
+  }
+  return `Revision: ${snapshot.revision}\n\n${snapshot.content}`;
+}
+
+export function searchProjectForAgent(root: string, requestedPath: string, query: string): string {
+  const scope = resolveInsideRoot(root, requestedPath);
+  if (!query) return "No search query given.";
+  const { matches, omittedCredentialFiles } = searchTree(scope, query, root);
+  if (matches.length === 0) {
+    const note = omittedCredentialFiles > 0 ? ` ${omittedCredentialFiles} credential-bearing file(s) were not searched.` : "";
+    return `No matches for "${query}".${note}`;
+  }
+  const capped = matches.slice(0, MAX_SEARCH_MATCHES);
+  const notes: string[] = [];
+  if (matches.length > MAX_SEARCH_MATCHES) notes.push(`showing first ${MAX_SEARCH_MATCHES} of ${matches.length}`);
+  if (omittedCredentialFiles > 0) notes.push(`${omittedCredentialFiles} credential-bearing file(s) were not searched`);
+  const note = notes.length > 0 ? `\n\n(${notes.join("; ")})` : "";
+  return capped.join("\n") + note;
+}
+
 /** Called after the agent writes, so the renderer can refresh a stale open buffer. */
 let onFileWritten: ((absolutePath: string) => void) | null = null;
 let revertStore: RevertStore | null = null;
@@ -173,7 +220,7 @@ export function projectToolDefinitions(): McpToolDefinition[] {
     },
     {
       name: "read_project_file",
-      description: "Read a file and its revision from the resources folder. Pass that revision back when writing so concurrent edits are never overwritten.",
+      description: "Read a non-credential file and its revision from the resources folder. Credential-bearing paths or content are withheld. Pass the revision back when writing so concurrent edits are never overwritten.",
       input_schema: {
         type: "object",
         properties: { path: { type: "string", description: "e.g. 'qb-inventory/fxmanifest.lua'" } },
@@ -200,7 +247,7 @@ export function projectToolDefinitions(): McpToolDefinition[] {
     {
       name: "search_project",
       description:
-        "Search the resources folder for a string and return matching lines with their file and line number. Use this to find which resource defines something.",
+        "Search non-credential files in the resources folder for a string and return matching lines with their file and line number. Credential-bearing files and matching secret values are withheld.",
       input_schema: {
         type: "object",
         properties: {
@@ -232,12 +279,19 @@ export async function runProjectTool(name: string, input: Record<string, unknown
       return "The open editor file is outside the active resources folder and is not shared with the agent.";
     }
     const shown = path.relative(root, safePath);
+    if (isCredentialBearingPath(safePath)) {
+      return `Open file: ${shown}\n\n[credential-bearing file withheld from the agent]`;
+    }
     if (ctx.selectedText) {
       return `Open file: ${shown}\nSelected lines ${ctx.startLine}-${ctx.endLine}:\n\n${ctx.selectedText}`;
     }
     // No selection — hand back the whole file, which is what "look at what I have open" means.
     try {
-      return `Open file: ${shown} (nothing selected)\n\n${truncate(readTextFile(safePath))}`;
+      const content = readTextFile(safePath);
+      if (hasCredentialBearingContent(content)) {
+        return `Open file: ${shown} (nothing selected)\n\n[credential-bearing file content withheld from the agent]`;
+      }
+      return `Open file: ${shown} (nothing selected)\n\n${truncate(content)}`;
     } catch {
       return `Open file: ${shown} (nothing selected, and the file could not be read).`;
     }
@@ -257,13 +311,7 @@ export async function runProjectTool(name: string, input: Record<string, unknown
     }
 
     case "read_project_file": {
-      const target = resolveInsideRoot(root, String(input.path ?? ""));
-      const stat = fs.statSync(target);
-      if (stat.size > MAX_READ_BYTES) {
-        return `File is ${stat.size} bytes, above the agent edit limit of ${MAX_READ_BYTES}; use the editor instead.`;
-      }
-      const snapshot = readTextFileSnapshot(target);
-      return `Revision: ${snapshot.revision}\n\n${snapshot.content}`;
+      return readProjectFileForAgent(root, String(input.path ?? ""));
     }
 
     case "write_project_file": {
@@ -297,15 +345,8 @@ export async function runProjectTool(name: string, input: Record<string, unknown
     }
 
     case "search_project": {
-      const scope = resolveInsideRoot(root, String(input.path ?? ""));
       const query = String(input.query ?? "");
-      if (!query) return "No search query given.";
-      const matches = searchTree(scope, query, root);
-      if (matches.length === 0) return `No matches for "${query}".`;
-      const capped = matches.slice(0, MAX_SEARCH_MATCHES);
-      const note =
-        matches.length > MAX_SEARCH_MATCHES ? `\n\n(showing first ${MAX_SEARCH_MATCHES} of ${matches.length})` : "";
-      return capped.join("\n") + note;
+      return searchProjectForAgent(root, String(input.path ?? ""), query);
     }
 
     default:
@@ -318,9 +359,10 @@ function truncate(text: string): string {
   return `${text.slice(0, MAX_READ_BYTES)}\n\n[truncated — file is ${text.length} characters, showing the first ${MAX_READ_BYTES}]`;
 }
 
-function searchTree(dir: string, query: string, root: string): string[] {
+function searchTree(dir: string, query: string, root: string): { matches: string[]; omittedCredentialFiles: number } {
   const needle = query.toLowerCase();
   const results: string[] = [];
+  let omittedCredentialFiles = 0;
 
   const walk = (current: string) => {
     if (results.length >= MAX_SEARCH_MATCHES * 2) return;
@@ -343,10 +385,19 @@ function searchTree(dir: string, query: string, root: string): string[] {
       }
       try {
         if (fs.statSync(full).size > MAX_SEARCHABLE_FILE_BYTES) continue;
-        const lines = fs.readFileSync(full, "utf8").split(/\r?\n/);
+        if (isCredentialBearingPath(full)) {
+          omittedCredentialFiles += 1;
+          continue;
+        }
+        const content = fs.readFileSync(full, "utf8");
+        if (hasCredentialBearingContent(content)) {
+          omittedCredentialFiles += 1;
+          continue;
+        }
+        const lines = content.split(/\r?\n/);
         lines.forEach((line, i) => {
           if (line.toLowerCase().includes(needle)) {
-            results.push(`${path.relative(root, full)}:${i + 1}: ${line.trim().slice(0, 200)}`);
+            results.push(`${path.relative(root, full)}:${i + 1}: ${redactCredentialText(line.trim().slice(0, 200))}`);
           }
         });
       } catch {
@@ -356,5 +407,5 @@ function searchTree(dir: string, query: string, root: string): string[] {
   };
 
   walk(dir);
-  return results;
+  return { matches: results, omittedCredentialFiles };
 }

@@ -58,14 +58,15 @@ interface ArtifactInstallRecord {
 }
 
 interface ArtifactTransactionJournal {
-  schemaVersion: 1;
-  phase: "prepared" | "backup-created";
+  schemaVersion: 1 | 2;
+  phase: "staging" | "prepared" | "backup-created" | "replacement-created";
   executablePath: string;
+  executableName: ArtifactTarget["executableName"];
   artifactRoot: string;
   archivePath: string;
   stagePath: string;
   backupPath: string;
-  record: ArtifactInstallRecord;
+  record?: ArtifactInstallRecord;
 }
 
 const DOWNLOAD_PAGE = "https://docs.fivem.net/docs/server-download/";
@@ -194,6 +195,32 @@ export function buildServerLaunchEnvironment(txDataPath: string): Record<string,
   return { TXHOST_DATA_PATH: path.resolve(txDataPath) };
 }
 
+const SERVER_ENVIRONMENT_ALLOWLIST = [
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "PATH",
+  "PATHEXT",
+  "TEMP",
+  "TMP",
+  "LOCALAPPDATA",
+  "APPDATA",
+  "USERPROFILE",
+  "ProgramData",
+] as const;
+
+/** FXServer needs a small set of Windows/runtime paths, but never inherits
+ * provider keys, CI tokens, or arbitrary credentials from Studio's process. */
+export function buildServerProcessEnvironment(
+  txDataPath: string,
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const allowed = Object.fromEntries(
+    SERVER_ENVIRONMENT_ALLOWLIST.flatMap((name) => source[name] ? [[name, source[name]]] : []),
+  );
+  return { ...allowed, ...buildServerLaunchEnvironment(txDataPath) };
+}
+
 export function buildServerSpawnOptions(artifactRoot: string, txDataPath: string): SpawnOptions {
   return {
     cwd: artifactRoot,
@@ -203,7 +230,7 @@ export function buildServerSpawnOptions(artifactRoot: string, txDataPath: string
     windowsHide: true,
     shell: false,
     stdio: "ignore",
-    env: { ...process.env, ...buildServerLaunchEnvironment(txDataPath) },
+    env: buildServerProcessEnvironment(txDataPath),
   };
 }
 
@@ -319,6 +346,63 @@ export async function findRunningServerPids(executablePath: string): Promise<num
     throw new Error("Another Cfx.re server process is running but Windows hid its executable path. Stop it before continuing.");
   }
   return parseProcessIds(stdout);
+}
+
+/** Probe both names that the same executable can have across the directory
+ * swap. Keeping this injectable makes the exact-path race boundary testable
+ * without depending on a live Windows process table. */
+export async function findRunningArtifactSwapPids(
+  originalExecutablePath: string,
+  backupExecutablePath: string,
+  probe: (executablePath: string) => Promise<number[]> = findRunningServerPids,
+): Promise<number[]> {
+  const paths = normalizedPath(originalExecutablePath) === normalizedPath(backupExecutablePath)
+    ? [originalExecutablePath]
+    : [originalExecutablePath, backupExecutablePath];
+  const results = await Promise.all(paths.map((candidate) => probe(candidate)));
+  return [...new Set(results.flat())];
+}
+
+/** Abort the swap if a server appears after the old root was renamed. The old
+ * directory is restored when Windows permits it; otherwise the intact backup
+ * and journal remain as a recoverable pending state. */
+export async function guardArtifactSwapAfterBackup(
+  originalExecutablePath: string,
+  artifactRoot: string,
+  backupPath: string,
+  executableName: ArtifactTarget["executableName"],
+  probe: (executablePath: string) => Promise<number[]> = findRunningServerPids,
+): Promise<void> {
+  let processError: Error | null = null;
+  try {
+    const postBackupPids = await findRunningArtifactSwapPids(
+      originalExecutablePath,
+      path.join(backupPath, executableName),
+      probe,
+    );
+    if (postBackupPids.length > 0) {
+      processError = new Error(
+        `matching process${postBackupPids.length === 1 ? "" : "es"} ${postBackupPids.join(", ")} appeared`,
+      );
+    }
+  } catch (error) {
+    processError = error instanceof Error ? error : new Error(String(error));
+  }
+  if (!processError) return;
+
+  try {
+    fs.renameSync(backupPath, artifactRoot);
+  } catch (rollbackError) {
+    throw new Error(
+      `The local server may have started while its artifact folder was being replaced. No new artifact was installed, ` +
+        `and automatic restoration is safely pending at ${backupPath}. Process check: ${processError.message}. ` +
+        `Restoration error: ${(rollbackError as Error).message}`,
+    );
+  }
+  throw new Error(
+    `The local server started during the artifact swap. The previous artifact was restored and no new artifact was installed. ` +
+      processError.message,
+  );
 }
 
 export interface StopLocalServerResult {
@@ -925,17 +1009,26 @@ function readTransactionJournal(exePath: string, statePath: string): ArtifactTra
   const executableName: ArtifactTarget["executableName"] | null =
     lowerName === "fxserver.exe" ? "FXServer.exe" : lowerName === "cfx-server.exe" ? "cfx-server.exe" : null;
   const record = journal.record;
+  const legacy = journal.schemaVersion === 1;
+  const current = journal.schemaVersion === 2;
   if (
-    journal.schemaVersion !== 1 ||
-    (journal.phase !== "prepared" && journal.phase !== "backup-created") ||
+    (!legacy && !current) ||
+    (legacy && journal.phase !== "prepared" && journal.phase !== "backup-created") ||
+    (current && journal.phase !== "staging" && journal.phase !== "prepared" && journal.phase !== "backup-created" && journal.phase !== "replacement-created") ||
     !executableName ||
     typeof journal.executablePath !== "string" ||
     normalizedPath(journal.executablePath) !== normalizedPath(configured) ||
+    (current && journal.executableName !== executableName) ||
     typeof journal.artifactRoot !== "string" ||
     normalizedPath(journal.artifactRoot) !== normalizedPath(path.dirname(configured)) ||
     typeof journal.archivePath !== "string" ||
     typeof journal.stagePath !== "string" ||
-    typeof journal.backupPath !== "string" ||
+    typeof journal.backupPath !== "string"
+  ) {
+    throw new Error(`An artifact update recovery journal failed validation: ${journalPath}`);
+  }
+  const recordRequired = legacy || journal.phase !== "staging";
+  if (recordRequired && (
     typeof record !== "object" ||
     record === null ||
     record.schemaVersion !== 1 ||
@@ -944,21 +1037,38 @@ function readTransactionJournal(exePath: string, statePath: string): ArtifactTra
     record.backupPath !== journal.backupPath ||
     !Number.isSafeInteger(record.build) ||
     record.build < 1
-  ) {
+  )) {
     throw new Error(`An artifact update recovery journal failed validation: ${journalPath}`);
   }
   assertGeneratedSibling(journal.archivePath, journal.artifactRoot, "ghz-download", ".zip");
   assertGeneratedSibling(journal.stagePath, journal.artifactRoot, "ghz-stage");
   assertGeneratedSibling(journal.backupPath, journal.artifactRoot, "ghz-backup");
-  return journal as ArtifactTransactionJournal;
+  return { ...journal, executableName, record } as ArtifactTransactionJournal;
 }
 
-function cleanupJournalPath(targetPath: string, recursive: boolean): void {
+function cleanupJournalPath(targetPath: string, recursive: boolean): boolean {
   try {
     fs.rmSync(targetPath, { recursive, force: true });
   } catch {
     // Antivirus may briefly hold a generated archive/stage; never broaden cleanup beyond the journaled path.
   }
+  return !fs.existsSync(targetPath);
+}
+
+function finishPreReplacementRecovery(
+  journal: ArtifactTransactionJournal,
+  journalPath: string,
+  message: string,
+): string {
+  const stageClean = cleanupJournalPath(journal.stagePath, true);
+  const archiveClean = cleanupJournalPath(journal.archivePath, false);
+  if (!stageClean || !archiveClean) {
+    throw new Error(
+      `An interrupted artifact update is safely pending cleanup. Close programs holding ${journal.stagePath} or ${journal.archivePath}, then retry.`,
+    );
+  }
+  fs.rmSync(journalPath, { force: true });
+  return message;
 }
 
 /** Repair the only crash-sensitive directory-swap states before launch/check/update. */
@@ -966,22 +1076,68 @@ export function recoverInterruptedArtifactUpdate(exePath: string, statePath: str
   const journal = readTransactionJournal(exePath, statePath);
   if (!journal) return null;
   const journalPath = transactionPath(statePath);
-  const rootValid = hasCompleteArtifactLayout(journal.artifactRoot, journal.record.executableName);
-  const backupValid = hasCompleteArtifactLayout(journal.backupPath, journal.record.executableName);
+  const rootValid = hasCompleteArtifactLayout(journal.artifactRoot, journal.executableName);
+  const backupValid = hasCompleteArtifactLayout(journal.backupPath, journal.executableName);
+  const backupExists = fs.existsSync(journal.backupPath);
   const stageExists = fs.existsSync(journal.stagePath);
 
-  if (journal.phase === "prepared" && rootValid && !backupValid) {
-    cleanupJournalPath(journal.stagePath, true);
-    cleanupJournalPath(journal.archivePath, false);
+  // In schema v2 this phase transition is the durable proof that the staged
+  // directory landed. The backup is a rollback convenience, not evidence of
+  // completion; if a user removed it after an install-record warning, recovery
+  // must still finish the record instead of misclassifying the new root as the
+  // untouched previous artifact.
+  if (journal.schemaVersion === 2 && journal.phase === "replacement-created" && rootValid && !stageExists) {
+    if (!journal.record) throw new Error(`An artifact update recovery journal has no completed install record: ${journalPath}`);
+    writeInstallRecord(statePath, journal.record);
+    if (!cleanupJournalPath(journal.archivePath, false)) {
+      throw new Error(
+        `The artifact install record was recovered, but cleanup is safely pending for ${journal.archivePath}. Close the program holding it, then retry.`,
+      );
+    }
     fs.rmSync(journalPath, { force: true });
-    return "Recovered an interrupted artifact update before replacement; the previous server artifacts were unchanged.";
+    return `Recovered completed Cfx.re build ${journal.record.build}.` +
+      (backupExists
+        ? ` The previous artifacts remain at ${journal.backupPath}.`
+        : " The rollback backup is no longer present.");
   }
 
-  if (journal.phase === "backup-created" && rootValid && backupValid && !stageExists) {
+  if (rootValid && !backupExists && !(journal.schemaVersion === 2 && journal.phase === "replacement-created")) {
+    return finishPreReplacementRecovery(
+      journal,
+      journalPath,
+      "Recovered an interrupted artifact update before replacement; the previous server artifacts were unchanged.",
+    );
+  }
+
+  const replacementWasJournaled = journal.schemaVersion === 1 && journal.phase === "backup-created";
+  if (replacementWasJournaled && rootValid && backupValid && !stageExists) {
+    if (!journal.record) throw new Error(`An artifact update recovery journal has no completed install record: ${journalPath}`);
     writeInstallRecord(statePath, journal.record);
-    cleanupJournalPath(journal.archivePath, false);
+    if (!cleanupJournalPath(journal.archivePath, false)) {
+      throw new Error(
+        `The artifact install record was recovered, but cleanup is safely pending for ${journal.archivePath}. Close the program holding it, then retry.`,
+      );
+    }
     fs.rmSync(journalPath, { force: true });
     return `Recovered completed Cfx.re build ${journal.record.build}; the previous artifacts remain at ${journal.backupPath}.`;
+  }
+
+  // Schema v2 no longer infers success merely because staging disappeared:
+  // cleanup or an external actor can remove that directory. Until the
+  // replacement-created phase is durable, prefer the intact rollback backup.
+  if (journal.schemaVersion === 2 && journal.phase === "backup-created" && backupValid) {
+    let preservedPartial: string | null = null;
+    if (fs.existsSync(journal.artifactRoot)) {
+      preservedPartial = safeGeneratedSibling(journal.artifactRoot, "ghz-failed-recovery");
+      fs.renameSync(journal.artifactRoot, preservedPartial);
+    }
+    fs.renameSync(journal.backupPath, journal.artifactRoot);
+    return finishPreReplacementRecovery(
+      journal,
+      journalPath,
+      "Recovered the previous server artifacts because replacement completion was not durably recorded." +
+        (preservedPartial ? ` The unconfirmed replacement was preserved at ${preservedPartial}.` : ""),
+    );
   }
 
   if (!rootValid && backupValid) {
@@ -991,12 +1147,11 @@ export function recoverInterruptedArtifactUpdate(exePath: string, statePath: str
       fs.renameSync(journal.artifactRoot, preservedPartial);
     }
     fs.renameSync(journal.backupPath, journal.artifactRoot);
-    cleanupJournalPath(journal.stagePath, true);
-    cleanupJournalPath(journal.archivePath, false);
-    fs.rmSync(journalPath, { force: true });
-    return (
+    return finishPreReplacementRecovery(
+      journal,
+      journalPath,
       "Recovered the previous server artifacts after an interrupted update." +
-      (preservedPartial ? ` The incomplete replacement was preserved at ${preservedPartial}.` : "")
+        (preservedPartial ? ` The incomplete replacement was preserved at ${preservedPartial}.` : ""),
     );
   }
 
@@ -1025,6 +1180,23 @@ export async function installArtifactUpdate(
   const backupPath = safeGeneratedSibling(target.root, "ghz-backup");
   let stageExists = false;
   let sha256 = "";
+  let installRecordWritten = false;
+  const journalPath = transactionPath(statePath);
+  const journal: ArtifactTransactionJournal = {
+    schemaVersion: 2,
+    phase: "staging",
+    executablePath: target.executablePath,
+    executableName: target.executableName,
+    artifactRoot: target.root,
+    archivePath,
+    stagePath,
+    backupPath,
+  };
+
+  // Persist every generated cleanup/rollback target before the first download
+  // byte can create it. A process crash can now recover early staging work as
+  // well as the later directory swap.
+  writeJsonDurably(journalPath, journal);
 
   try {
     sha256 = await downloadArchive(status, archivePath, onProgress);
@@ -1051,30 +1223,19 @@ export async function installArtifactUpdate(
       installedAt,
       backupPath,
     };
-    const journal: ArtifactTransactionJournal = {
-      schemaVersion: 1,
-      phase: "prepared",
-      executablePath: target.executablePath,
-      artifactRoot: target.root,
-      archivePath,
-      stagePath,
-      backupPath,
-      record,
-    };
-    const journalPath = transactionPath(statePath);
+    journal.phase = "prepared";
+    journal.record = record;
     writeJsonDurably(journalPath, journal);
     onProgress?.({ phase: "installing", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
 
     const finalCheck = await findRunningServerPids(target.executablePath);
     if (finalCheck.length > 0) {
-      fs.rmSync(journalPath, { force: true });
       throw new Error("The local server started during the update. Stop it in txAdmin and retry.");
     }
 
     try {
       fs.renameSync(target.root, backupPath);
     } catch (backupError) {
-      fs.rmSync(journalPath, { force: true });
       throw new Error(`Could not create the rollback backup; the current artifacts were not changed. ${(backupError as Error).message}`);
     }
 
@@ -1091,9 +1252,15 @@ export async function installArtifactUpdate(
             `Restoration error: ${(rollbackError as Error).message}`,
         );
       }
-      fs.rmSync(journalPath, { force: true });
       throw new Error(`The update was cancelled and the previous artifacts were restored because recovery metadata could not be saved.`);
     }
+
+    await guardArtifactSwapAfterBackup(
+      target.executablePath,
+      target.root,
+      backupPath,
+      target.executableName,
+    );
 
     try {
       fs.renameSync(stagePath, target.root);
@@ -1101,7 +1268,6 @@ export async function installArtifactUpdate(
     } catch (swapError) {
       try {
         fs.renameSync(backupPath, target.root);
-        fs.rmSync(journalPath, { force: true });
       } catch (rollbackError) {
         throw new Error(
           `Artifact replacement failed and automatic rollback also failed. Your intact previous artifact is at ${backupPath}. ` +
@@ -1111,10 +1277,27 @@ export async function installArtifactUpdate(
       throw new Error(`Artifact replacement failed; the previous artifact was restored. ${(swapError as Error).message}`);
     }
 
+    journal.phase = "replacement-created";
+    try {
+      writeJsonDurably(journalPath, journal);
+    } catch (journalError) {
+      try {
+        fs.renameSync(target.root, stagePath);
+        stageExists = true;
+        fs.renameSync(backupPath, target.root);
+      } catch (rollbackError) {
+        throw new Error(
+          `The replacement landed, but completion metadata could not be saved and automatic rollback is safely pending. ` +
+            `Journal error: ${(journalError as Error).message}. Rollback error: ${(rollbackError as Error).message}`,
+        );
+      }
+      throw new Error("The update was cancelled and the previous artifacts were restored because replacement completion could not be saved.");
+    }
+
     let warning: string | undefined;
     try {
       writeInstallRecord(statePath, record);
-      fs.rmSync(journalPath, { force: true });
+      installRecordWritten = true;
     } catch (error) {
       warning =
         `The artifact was installed, but Workbench could not finish its local build record: ${(error as Error).message}. ` +
@@ -1124,17 +1307,23 @@ export async function installArtifactUpdate(
     onProgress?.({ phase: "complete", transferredBytes: status.archiveSize ?? 0, totalBytes: status.archiveSize });
     return result;
   } finally {
-    try {
-      fs.rmSync(archivePath, { force: true });
-    } catch {
-      // The temporary archive can be removed manually if antivirus still holds it.
-    }
+    const archiveClean = cleanupJournalPath(archivePath, false);
+    let stageClean = !stageExists;
     if (stageExists) {
-      try {
-        fs.rmSync(stagePath, { recursive: true, force: true });
-      } catch {
-        // A failed staging directory is intentionally outside both txData and the artifact root.
-      }
+      stageClean = cleanupJournalPath(stagePath, true);
+    }
+    // On any failure before replacement, or after a successful rollback, keep
+    // recovery metadata until all generated paths are actually gone.
+    if (
+      fs.existsSync(journalPath) &&
+      archiveClean &&
+      stageClean &&
+      (installRecordWritten || (
+        hasCompleteArtifactLayout(target.root, target.executableName) &&
+        !fs.existsSync(backupPath)
+      ))
+    ) {
+      fs.rmSync(journalPath, { force: true });
     }
   }
 }

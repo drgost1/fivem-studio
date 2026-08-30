@@ -1104,10 +1104,22 @@ interface ViewportSectionProps {
 
 function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
   const [attachedTitle, setAttachedTitle] = useState<string | null>(null);
+  const [detachPending, setDetachPending] = useState(false);
+  const [embedError, setEmbedError] = useState<string | null>(null);
 
   async function detach() {
-    await window.api.windowEmbed.detach();
-    setAttachedTitle(null);
+    if (detachPending) return;
+    setDetachPending(true);
+    setEmbedError(null);
+    try {
+      await window.api.windowEmbed.detach();
+      setAttachedTitle(null);
+    } catch (error) {
+      // Keep the attached state visible/actionable when native detach fails.
+      setEmbedError((error as Error).message || "Failed to detach the embedded window.");
+    } finally {
+      setDetachPending(false);
+    }
   }
 
   return (
@@ -1120,16 +1132,23 @@ function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
         {attachedTitle && (
           <>
             <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Attached: {attachedTitle}</span>
-            <button className="btn small" onClick={detach}>
-              Detach
+            <button className="btn small" onClick={() => void detach()} disabled={detachPending}>
+              {detachPending ? "Detaching…" : "Detach"}
             </button>
           </>
         )}
       </div>
+      {embedError && <div className="error-text" role="alert">{embedError}</div>}
       {attachedTitle ? (
         <EmbedSurface active={active} />
       ) : (
-        <EmbedPicker clientLabel={clientLabel} onAttached={setAttachedTitle} />
+        <EmbedPicker
+          clientLabel={clientLabel}
+          onAttached={(title) => {
+            setEmbedError(null);
+            setAttachedTitle(title);
+          }}
+        />
       )}
     </div>
   );
@@ -1183,7 +1202,10 @@ function EmbedSurface({ active }: { active: boolean }) {
   // this just covers the component unmounting while the app stays alive.
   useEffect(() => {
     return () => {
-      window.api.windowEmbed.detach();
+      void window.api.windowEmbed.detach().catch(() => {
+        // Component teardown has no remaining UI to recover; main-process
+        // window cleanup remains the authoritative safety net.
+      });
     };
   }, []);
 
@@ -1200,6 +1222,7 @@ function EmbedSurface({ active }: { active: boolean }) {
 function EmbedPicker({ clientLabel, onAttached }: { clientLabel: string; onAttached: (title: string) => void }) {
   const [candidates, setCandidates] = useState<WindowCandidate[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [attachingId, setAttachingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function scan() {
@@ -1217,16 +1240,24 @@ function EmbedPicker({ clientLabel, onAttached }: { clientLabel: string; onAttac
   }
 
   async function attachTo(candidate: WindowCandidate) {
+    if (attachingId || scanning) return;
+    setAttachingId(candidate.id);
     setError(null);
-    const result = await window.api.windowEmbed.attach(candidate.id);
-    if (result.ok) onAttached(candidate.title || candidate.processName);
-    else setError(result.error ?? "Failed to attach to that window.");
+    try {
+      const result = await window.api.windowEmbed.attach(candidate.id);
+      if (result.ok) onAttached(candidate.title || candidate.processName);
+      else setError(result.error ?? "Failed to attach to that window.");
+    } catch (attachError) {
+      setError((attachError as Error).message || "Failed to attach to that window.");
+    } finally {
+      setAttachingId(null);
+    }
   }
 
   return (
     <div>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <button className="btn small primary" onClick={scan} disabled={scanning}>
+        <button className="btn small primary" onClick={scan} disabled={scanning || attachingId !== null}>
           {scanning ? "Scanning…" : `Scan for ${clientLabel} window`}
         </button>
       </div>
@@ -1234,10 +1265,17 @@ function EmbedPicker({ clientLabel, onAttached }: { clientLabel: string; onAttac
       {candidates.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {candidates.map((c) => (
-            <div key={c.id} className="tree-node" style={{ paddingLeft: 8 }} onClick={() => attachTo(c)}>
+            <div
+              key={c.id}
+              className="tree-node"
+              style={{ paddingLeft: 8, opacity: scanning || (attachingId && attachingId !== c.id) ? 0.55 : 1 }}
+              aria-disabled={scanning || attachingId !== null}
+              onClick={() => { if (!scanning && !attachingId) void attachTo(c); }}
+            >
               <span className="icon">🖥</span>
               <span>
                 {c.title || "(untitled window)"} — {c.processName} (pid {c.pid})
+                {attachingId === c.id ? " — attaching…" : ""}
               </span>
             </div>
           ))}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { languageForPath } from "../editorLanguage";
 import type { AgentEvent, AgentFilePreview, ResolvedTheme, RuntimeWorkspaceMatch, StudioConfig, TurnUsage } from "../global";
 import { matchPreset } from "../providerPresets";
@@ -119,6 +119,7 @@ export default function ChatPanel({
   const [usage, setUsage] = useState<SessionUsage | null>(null);
   const [spendWarningDismissed, setSpendWarningDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const followOutputRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isAnthropic = config.agentProvider === "anthropic";
@@ -147,15 +148,19 @@ export default function ChatPanel({
         setUsage((prev) => accumulate(prev, event.usage));
         return;
       }
+      const view = scrollRef.current;
+      followOutputRef.current = !view || view.scrollHeight - view.scrollTop - view.clientHeight < 48;
       setEntries((prev) => applyEvent(prev, event));
       if (event.type === "done") setBusy(false);
     });
   }, []);
 
-  // Keep the newest output in view as it streams in.
-  useEffect(() => {
+  // Follow streaming output only while the reader is already near the end.
+  // Content growth does not itself fire scroll, so this remains true across
+  // deltas until the user deliberately scrolls upward.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && followOutputRef.current) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
   useEffect(() => {
@@ -293,7 +298,14 @@ export default function ChatPanel({
         </div>
       )}
 
-      <div className="chat-messages" ref={scrollRef}>
+      <div
+        className="chat-messages"
+        ref={scrollRef}
+        onScroll={(event) => {
+          const view = event.currentTarget;
+          followOutputRef.current = view.scrollHeight - view.scrollTop - view.clientHeight < 48;
+        }}
+      >
         {ready === false && (
           <div className="chat-message system">
             {isAnthropic

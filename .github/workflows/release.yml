@@ -4,46 +4,120 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
-  artifact-metadata: write
+permissions: {}
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 jobs:
-  release:
+  quality:
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify npm registry signatures
+        run: npm audit signatures
+      - name: Check repository invariants
+        run: npm run check:static
+      - name: Audit complete dependency graph
+        run: npm run audit:dependencies
+      - name: Prepare verified LuaLS bundle
+        run: npm run prepare:luals
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  publish:
+    needs: quality
+    environment: release
+    permissions:
+      contents: write
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      release_created: ${{ steps.assets.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm audit signatures
-      - run: npm run prepare:luals
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm run release
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Publish semantic release
+        run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Inspect attestation inputs
+        id: assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath release)) {
+            "release_created=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $installers = @(Get-ChildItem -LiteralPath release -File -Filter "QB-Studio-Setup-*.exe")
+          if ($installers.Count -eq 0) {
+            "release_created=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if ($installers.Count -ne 1) {
+            throw "Expected one release installer, found $($installers.Count)."
+          }
+          if (-not (Test-Path -LiteralPath release/bom.cdx.json -PathType Leaf)) {
+            throw "The release was published without its SBOM attestation input."
+          }
+          "release_created=true" >> $env:GITHUB_OUTPUT
+      - name: Stage attestation inputs
+        if: steps.assets.outputs.release_created == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qb-studio-attestation-${{ github.sha }}
+          path: |
+            release/QB-Studio-Setup-*.exe
+            release/bom.cdx.json
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    needs: publish
+    if: needs.publish.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download attestation inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: qb-studio-attestation-${{ github.sha }}
+          path: release
       - name: Attest installer provenance
-        if: ${{ hashFiles('release/QB-Studio-Setup-*.exe') != '' }}
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release/QB-Studio-Setup-*.exe
       - name: Attest installer SBOM
-        if: ${{ hashFiles('release/QB-Studio-Setup-*.exe') != '' && hashFiles('release/bom.cdx.json') != '' }}
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release/QB-Studio-Setup-*.exe
           sbom-path: release/bom.cdx.json

@@ -25,18 +25,35 @@ export default function PopoutConsole() {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([window.api.config.get(), window.api.theme.listPacks()]).then(async ([config, packs]) => {
+    let appearanceGeneration = 0;
+    const applyConfig = async (config: Awaited<ReturnType<typeof window.api.config.get>>) => {
       if (cancelled) return;
+      const generation = ++appearanceGeneration;
+      // Interval persistence has its own ordered event. Apply the snapshot
+      // before theme I/O so an older appearance request cannot later overwrite
+      // a newer refresh-interval event.
       setRefreshIntervalMs(config.consoleRefreshIntervalMs);
+      const packs = await window.api.theme.listPacks();
+      const resolved = config.theme === "system" ? await window.api.theme.system() : config.theme;
+      if (cancelled || generation !== appearanceGeneration) return;
       setThemePreference(config.theme);
       setThemePacks(packs);
-      const resolved = config.theme === "system" ? await window.api.theme.system() : config.theme;
-      if (!cancelled) activateTheme(resolved, packs);
+      activateTheme(resolved, packs);
+    };
+    const safelyApplyConfig = (config: Awaited<ReturnType<typeof window.api.config.get>>) => {
+      void applyConfig(config).catch(() => {
+        // Keep the last usable appearance if a theme pack is temporarily unreadable.
+      });
+    };
+    void window.api.config.get().then(safelyApplyConfig).catch(() => {
+      // Defaults remain usable when the persisted config cannot be loaded.
     });
+    const disposeConfig = window.api.config.onChanged(safelyApplyConfig);
     void refreshStatus();
     const timer = window.setInterval(() => void refreshStatus(), 2_000);
     return () => {
       cancelled = true;
+      disposeConfig();
       window.clearInterval(timer);
     };
   }, [refreshStatus]);

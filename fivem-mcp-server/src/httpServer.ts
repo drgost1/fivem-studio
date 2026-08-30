@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-import { config } from "./config.js";
+import { assertHttpAuthentication, config } from "./config.js";
 import { createMcpServer } from "./mcpServer.js";
 
 const MCP_PATH = "/mcp";
@@ -13,13 +13,14 @@ const MAX_REQUEST_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 function isAuthorized(req: http.IncomingMessage): boolean {
-  if (!config.mcp.token) return true; // permitted only because startup enforces loopback
+  if (!config.mcp.token) return config.mcp.unsafeAllowNoToken;
   const header = req.headers["authorization"];
   const expected = `Bearer ${config.mcp.token}`;
   return header === expected;
 }
 
 export function startHttpServer(): http.Server {
+  assertHttpAuthentication();
   // Each connecting agent gets its own McpServer + transport pair, keyed by
   // the MCP session id the transport generates on initialize.
   const transports = new Map<string, { transport: StreamableHTTPServerTransport; lastUsed: number }>();
@@ -138,7 +139,7 @@ export function startHttpServer(): http.Server {
     const port = address && typeof address === "object" ? address.port : config.mcp.port;
     const authNote = config.mcp.token
       ? "an Authorization: Bearer token is required (MCP_TOKEN is set)"
-      : "no auth required (loopback-only development mode)";
+      : "UNSAFE unauthenticated loopback development mode is enabled";
     console.error(
       `qb-studio-runtime listening on http://${config.mcp.host}:${port}${MCP_PATH} (${authNote})`,
     );

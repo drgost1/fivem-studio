@@ -12,7 +12,8 @@ import { startHttpServer } from "../src/httpServer.js";
 test("HTTP transport initializes, lists tools, and returns runtime identity", async () => {
   config.mcp.host = "127.0.0.1";
   config.mcp.port = 0;
-  config.mcp.token = "";
+  config.mcp.token = "transport-test-token";
+  config.mcp.unsafeAllowNoToken = false;
   config.serverData.workspacePath = path.resolve("test-server-data");
   config.serverData.configPath = path.join(config.serverData.workspacePath, "server.cfg");
   const httpServer = startHttpServer();
@@ -23,7 +24,9 @@ test("HTTP transport initializes, lists tools, and returns runtime identity", as
     assert.ok(address && typeof address === "object");
 
     client = new Client({ name: "transport-test", version: "1.0.0" });
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`));
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
+      requestInit: { headers: { Authorization: "Bearer transport-test-token" } },
+    });
     await client.connect(transport);
 
     const tools = await client.listTools();
@@ -56,5 +59,23 @@ test("HTTP transport initializes, lists tools, and returns runtime identity", as
   } finally {
     await client?.close().catch(() => undefined);
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  }
+});
+
+test("HTTP transport fails closed without a token unless unsafe loopback mode is explicit", () => {
+  const previous = { ...config.mcp };
+  try {
+    config.mcp.transport = "http";
+    config.mcp.host = "127.0.0.1";
+    config.mcp.port = 0;
+    config.mcp.token = "";
+    config.mcp.unsafeAllowNoToken = false;
+    assert.throws(() => startHttpServer(), /requires MCP_TOKEN/);
+
+    config.mcp.unsafeAllowNoToken = true;
+    const server = startHttpServer();
+    server.close();
+  } finally {
+    Object.assign(config.mcp, previous);
   }
 });

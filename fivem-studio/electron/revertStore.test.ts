@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 
 import { readTextFileSnapshot, writeTextFile } from "./fsTree";
-import { RevertStore } from "./revertStore";
+import {
+  hasCredentialBearingContent,
+  isCredentialBearingPath,
+  redactCredentialText,
+  RevertStore,
+} from "./revertStore";
 
 function fixture(): { root: string; history: string; store: RevertStore; cleanup(): void } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qb-studio-revert-workspace-"));
@@ -25,6 +30,36 @@ function replace(target: string, content: string): void {
   const before = readTextFileSnapshot(target);
   writeTextFile(target, content, before.revision);
 }
+
+test("credential safety recognizes sensitive paths/content and redacts hosted-agent text", () => {
+  assert.equal(isCredentialBearingPath("resource/.env.production"), true);
+  assert.equal(isCredentialBearingPath("resource/secrets.cfg"), true);
+  assert.equal(isCredentialBearingPath("resource/id_ed25519"), true);
+  assert.equal(isCredentialBearingPath("resource/secrets/service.json"), true);
+  assert.equal(isCredentialBearingPath("resource/.token"), true);
+  assert.equal(isCredentialBearingPath("resource/discord-token.txt"), true);
+  assert.equal(isCredentialBearingPath("resource/private-key.txt"), true);
+  assert.equal(isCredentialBearingPath("resource/client.lua"), false);
+  assert.equal(hasCredentialBearingContent('set sv_licenseKey "license-secret-value"'), true);
+  assert.equal(hasCredentialBearingContent('set discord_token "discord-secret-value"'), true);
+  assert.equal(hasCredentialBearingContent('"api_key": "sk-test-secret-value"'), true);
+  assert.equal(hasCredentialBearingContent("local password = request.password"), false);
+
+  const redacted = redactCredentialText([
+    'set rcon_password "local-rcon-secret"',
+    'Authorization: Bearer sk-test-secret-value',
+    'secret: "generic-secret-value"',
+    '[script:example] set discord_token "timestamp-prefixed-secret"',
+    "https://developer:database-secret@example.test/db",
+    "-----BEGIN PRIVATE KEY-----",
+    "private-key-material",
+    "-----END PRIVATE KEY-----",
+  ].join("\n"));
+  for (const secret of ["local-rcon-secret", "sk-test-secret-value", "generic-secret-value", "timestamp-prefixed-secret", "database-secret", "private-key-material"]) {
+    assert.doesNotMatch(redacted, new RegExp(secret));
+  }
+  assert.match(redacted, /<redacted/);
+});
 
 test("a multi-file programmatic batch reverts as one revision-checked action", () => {
   const { root, history, store, cleanup } = fixture();

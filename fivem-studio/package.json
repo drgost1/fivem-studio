@@ -19,7 +19,8 @@
     "prebuild": "npm run build:runtime",
     "build": "npm run build:vite && npm run build:electron",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run build:electron && node --test dist-electron/pathSafety.test.js dist-electron/resourceContext.test.js dist-electron/revertStore.test.js dist-electron/workspaceSearch.test.js dist-electron/manifestModel.test.js dist-electron/dependencyGraph.test.js dist-electron/resourceCompare.test.js dist-electron/resourceDuplicate.test.js dist-electron/resourceImport.test.js dist-electron/portPreflight.test.js dist-electron/bookmarkStore.test.js dist-electron/crashTriage.test.js dist-electron/windowState.test.js dist-electron/recentWorkspaces.test.js dist-electron/whatsNew.test.js dist-electron/clientInstallDiscovery.test.js dist-electron/consoleViewModel.test.js dist-electron/discordPresence.test.js dist-electron/themePacks.test.js dist-electron/localUrl.test.js dist-electron/appUpdate.test.js dist-electron/toolApproval.test.js dist-electron/projectTools.test.js dist-electron/fsTree.test.js dist-electron/githubClient.test.js dist-electron/managedRuntime.test.js dist-electron/operationLock.test.js dist-electron/workspaceCreator.test.js dist-electron/windowEmbedValidation.test.js dist-electron/serverArtifacts.test.js dist-electron/configStore.test.js dist-electron/luaLanguageServer.test.js",
+    "pretest": "npm run build:electron && node -e \"require('electron')\"",
+    "test": "node --test \"dist-electron/**/*.test.js\"",
     "start": "electron .",
     "predist": "npm run prepare:luals && npm run build",
     "dist": "electron-builder --win nsis --x64 --publish never"
@@ -27,7 +28,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "koffi": "^3.1.6",
+    "koffi": "3.1.6",
     "openai": "^7.8.0",
     "yauzl": "^3.4.0"
   },
@@ -52,7 +53,7 @@
     "yazl": "^3.3.1"
   },
   "engines": {
-    "node": ">=24.11.0"
+    "node": "24.20.0"
   },
   "build": {
     "appId": "org.qbcore.qbstudio",
@@ -66,7 +67,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "!dist-electron/**/*.test.js",
-      "!dist-electron/**/*.test.js.map",
+      "!dist-electron/**/*.map",
       "package.json"
     ],
     "asarUnpack": [

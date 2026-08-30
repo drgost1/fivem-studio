@@ -19,7 +19,7 @@ screenshots.
 - Bounded Auto detection for all three client launchers and server artifacts, with Browse for custom locations
 - Recommended/Latest server-artifact updates with staging and rollback backup
 - Read-only console with foreground-only configurable auto-refresh, synchronized non-destructive Clear view, and approved resource refresh controls for coding loops
-- Default-enabled, privacy-safe Discord Rich Presence that can be disabled in Settings
+- Opt-in, privacy-limited Discord Rich Presence that can be enabled in Settings
 - Built-in themes plus validated user JSON theme packs with instant Settings preview
 - GitHub repository and organization search with resource imports
 - AI assistant scoped to project files and coding-oriented runtime tools
@@ -161,7 +161,7 @@ intelligence mode are configurable in Settings.
 
 ## Discord presence
 
-Discord Rich Presence is enabled by default and uses Discord's local desktop RPC
+Discord Rich Presence is off by default. When enabled, it uses Discord's local desktop RPC
 connection—there is no bot, OAuth login, token, or Discord credential in QB
 Studio. The activity shows the current app area (for example, browsing resources,
 monitoring the console, reviewing changes, or working with the assistant) and
@@ -246,8 +246,10 @@ page and verify the GitHub build attestation:
 gh attestation verify <installer> -R qbcore-framework/qb-studio --signer-workflow qbcore-framework/qb-studio/.github/workflows/release.yml
 ```
 
-The release workflow also records a CycloneDX SBOM attestation without adding
-another user-facing download to the release.
+After publication, a separate least-privilege workflow job records build and
+CycloneDX SBOM attestations without adding another user-facing download to the
+release. Treat a release as attested only after that job succeeds; see the
+[build guide](BUILDING.md) for the residual non-atomic publication window.
 
 ## Code signing policy
 
@@ -262,14 +264,25 @@ for the controlled build and approval process, and review the
 [privacy policy](PRIVACY.md) for local storage and optional third-party network
 features.
 
+Potential vulnerabilities should be reported privately according to the
+[security policy](SECURITY.md), never through a public issue containing secrets
+or exploit details.
+
 ## Build from source
 
-Requires Node.js 24 LTS and Windows:
+The reproducible toolchain is Node.js `24.20.0` with npm `11.19.0` on Windows
+x64. From the repository root:
 
 ```powershell
 npm ci
+npm audit signatures
+npm run check:static
+npm run audit:dependencies
+npm run prepare:luals
+npm run typecheck
 npm test
 npm run dist
+npm run verify:package
 ```
 
 For development without installing the app, run:
@@ -277,6 +290,9 @@ For development without installing the app, run:
 ```powershell
 npm run dev -w qb-studio
 ```
+
+See [BUILDING.md](BUILDING.md) for output locations, the complete package
+checks, SBOM scope, and release recovery guidance.
 
 Stable builds check the official GitHub latest-release endpoint once at startup
 and show a dismissible link when an update is available. QB Studio never

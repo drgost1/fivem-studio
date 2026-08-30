@@ -17,6 +17,10 @@ function requiredNumber(name: string, fallback: number): number {
   return n;
 }
 
+function enabled(name: string): boolean {
+  return optional(name) === "1";
+}
+
 export const config = {
   // The coding workspace and its server.cfg are distinct from txAdmin's own
   // data/control profile, which is used only for console-log discovery.
@@ -42,9 +46,10 @@ export const config = {
     transport: (optional("MCP_TRANSPORT", "http") as "http" | "stdio"),
     host: optional("MCP_HOST", "127.0.0.1"),
     port: requiredNumber("MCP_PORT", 3414),
-    // Optional — if set, HTTP requests must send `Authorization: Bearer <token>`.
-    // Unset by default so "connect to port XXXX" just works with no extra setup.
+    // HTTP is authenticated by default. The unsafe switch exists only for
+    // deliberate, loopback-only standalone development.
     token: optional("MCP_TOKEN"),
+    unsafeAllowNoToken: enabled("MCP_UNSAFE_ALLOW_NO_TOKEN"),
   },
 };
 
@@ -54,6 +59,19 @@ if (config.mcp.transport !== "http" && config.mcp.transport !== "stdio") {
 
 if (config.mcp.transport === "http") {
   assertSafeMcpExposure(config.mcp.host);
+}
+
+export function assertHttpAuthentication(): void {
+  if (config.mcp.transport !== "http") return;
+  // Re-check at listener creation as well as module initialization. Tests and
+  // embedding callers can intentionally update the exported runtime config;
+  // unsafe no-token mode must never turn that into a non-loopback listener.
+  assertSafeMcpExposure(config.mcp.host);
+  if (!config.mcp.token && !config.mcp.unsafeAllowNoToken) {
+    throw new Error(
+      "HTTP MCP requires MCP_TOKEN. For deliberate loopback-only development without authentication, set MCP_UNSAFE_ALLOW_NO_TOKEN=1.",
+    );
+  }
 }
 
 assertLoopbackHost(config.rcon.host, "RCON_HOST");

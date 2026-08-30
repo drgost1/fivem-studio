@@ -26,8 +26,8 @@ Release signing is limited to artifacts that:
 - correspond to a commit on the protected `main` branch;
 - are produced by the repository's checked-in GitHub Actions release workflow
   on a GitHub-hosted Windows runner;
-- pass the repository's tests, type checks, production dependency audit, and
-  packaged-runtime verification; and
+- pass the repository's tests, type checks, complete moderate-threshold
+  dependency audit, and packaged-runtime verification; and
 - are submitted through the SignPath integration with verified source and build
   origin.
 

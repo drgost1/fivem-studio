@@ -9,7 +9,7 @@
   --border-strong: #333c46;
   --text-0: #e4e9ee;
   --text-1: #a3aeb9;
-  --text-2: #6f7b87;
+  --text-2: #778592;
   --accent: #4c9ee8;
   --accent-hover: #6bb0ee;
   --accent-wash: #16293a;
@@ -49,7 +49,7 @@
   --border-strong: #c9c5bc;
   --text-0: #1e2227;
   --text-1: #565e67;
-  --text-2: #868e97;
+  --text-2: #68717b;
   --accent: #1f6fb8;
   --accent-hover: #175a99;
   --accent-wash: #e3eef8;
@@ -256,6 +256,41 @@ textarea:focus {
   width: 180px;
   padding: 4px 26px 4px 7px;
   font-size: 11px;
+}
+.topbar-compact {
+  display: none;
+}
+@media (max-width: 1250px) {
+  .topbar .runtime-status {
+    display: none;
+  }
+}
+@media (max-width: 1050px) {
+  .topbar .server-status {
+    display: none;
+  }
+  .topbar-workspaces {
+    width: 150px;
+  }
+}
+@media (max-width: 850px) {
+  .topbar {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+  .topbar-label {
+    display: none;
+  }
+  .topbar-compact {
+    display: inline;
+  }
+  .topbar-action {
+    min-width: 34px;
+    padding-inline: 8px;
+  }
+  .topbar-workspaces {
+    width: 128px;
+  }
 }
 .status-dot {
   width: 8px;
@@ -536,6 +571,10 @@ button.tree-node {
 }
 .tree-node:hover {
   background: var(--bg-2);
+}
+.tree-node:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 .tree-node.selected {
   background: var(--accent-dim);
@@ -1962,6 +2001,23 @@ button.tree-node {
   gap: 8px;
   margin-top: 8px;
 }
+.settings-modal .modal-actions {
+  position: sticky;
+  bottom: -16px;
+  margin: 16px -16px -16px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.settings-save-error {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 10px;
+  border: 1px solid var(--error-border);
+  border-radius: 5px;
+  background: var(--bg-1);
+}
 .whats-new-backdrop {
   z-index: 1100;
 }
@@ -2519,4 +2575,42 @@ button.tree-node {
 .usage-muted {
   opacity: 0.75;
   font-family: var(--sans);
+}
+
+.renderer-error {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--bg-0);
+  color: var(--text-0);
+}
+
+.renderer-error-card {
+  width: min(620px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-1);
+  box-shadow: var(--shadow-menu);
+}
+
+.renderer-error-card h1 {
+  margin: 6px 0 10px;
+  font-size: 24px;
+}
+
+.renderer-error-card p {
+  line-height: 1.5;
+}
+
+.renderer-error-card pre {
+  margin: 18px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-0);
+  color: var(--text-1);
+  white-space: pre-wrap;
 }

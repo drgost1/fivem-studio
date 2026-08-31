@@ -41,6 +41,17 @@ export interface RemoteHostSettings {
   runtimePath: string;
 }
 
+export interface RemoteDirectoryEntry {
+  name: string;
+  /** Directory already holds a server.cfg, so it is a candidate workspace. */
+  hasServerConfig: boolean;
+}
+
+export interface RemoteDirectoryListing {
+  path: string;
+  entries: RemoteDirectoryEntry[];
+}
+
 export type ConsoleOutputSource = "server" | "client";
 
 export interface ClientConsoleSnapshot {
@@ -658,6 +669,13 @@ declare global {
         delete(targetPath: string): Promise<void>;
         watchRoot(dirPath: string | null): Promise<void>;
         onChanged(callback: () => void): () => void;
+      };
+      remote: {
+        defaultSshConfigPath(): Promise<string>;
+        /** Opens a folder picker and returns <chosen>/config, or null if cancelled. */
+        pickSshConfigDirectory(): Promise<string | null>;
+        listSshHosts(configPath: string | null): Promise<{ configPath: string; hosts: string[] }>;
+        listDirectory(sshTarget: string, directory: string | null): Promise<RemoteDirectoryListing>;
       };
       txdata: {
         listProfiles(txDataPath: string): Promise<ProfileInfo[]>;

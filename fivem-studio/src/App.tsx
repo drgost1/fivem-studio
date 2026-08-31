@@ -337,7 +337,7 @@ export default function App() {
         setConfigLoaded(true);
         void window.api.recents.list().then(setRecentWorkspaces).catch(() => setRecentWorkspaces([]));
         void window.api.artifacts.recoveryNotice().then((notice) => notice && setArtifactNotice(notice));
-        if (saved.txDataPath && saved.selectedProfile) {
+        if (saved.remote || (saved.txDataPath && saved.selectedProfile)) {
           void connect();
         } else {
           setSettingsOpen(true);
@@ -568,7 +568,9 @@ export default function App() {
   // The server is often started after Studio, so a failed connect can't be
   // terminal — keep retrying quietly in the background until it comes up.
   useEffect(() => {
-    if (!configLoaded || connected || !config.txDataPath || !config.selectedProfile) return;
+    if (!configLoaded || connected) return;
+    // A remote host supplies its own workspace, so the local pair is not required.
+    if (!config.remote && (!config.txDataPath || !config.selectedProfile)) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const retry = async () => {
@@ -581,7 +583,7 @@ export default function App() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [configLoaded, config.txDataPath, config.selectedProfile, connected, connect]);
+  }, [configLoaded, config.txDataPath, config.selectedProfile, config.remote, connected, connect]);
 
   // If the transport drops (server stopped), flip back to disconnected — which
   // re-arms the retry loop above.
@@ -1410,7 +1412,7 @@ export default function App() {
     tone: "error",
     content: `Bundled runtime is read-only: ${workspaceMatch.reason} Resource refresh actions are blocked until the workspace identity matches.`,
   });
-  if (configLoaded && (!config.txDataPath || !config.selectedProfile)) statusItems.push({
+  if (configLoaded && !config.remote && (!config.txDataPath || !config.selectedProfile)) statusItems.push({
     id: "setup",
     tone: "warning",
     content: "Choose a local txData root and server-data workspace before coding.",

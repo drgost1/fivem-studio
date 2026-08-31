@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   AppUpdateState,
   AgentCredentialUpdate,
@@ -10,6 +10,8 @@ import type {
   DetectedExecutableInstalls,
   DevelopmentRconPreview,
   ProfileInfo,
+  RemoteDirectoryEntry,
+  RemoteDirectoryListing,
   SetupDiagnostics,
   StudioConfig,
   ThemePack,
@@ -502,6 +504,45 @@ export default function SettingsModal({
       ? t("appUpdate.restartBlockedSettings")
       : null;
   const [section, setSection] = useState<SettingsSectionId>(initialSection === "agent" ? "agent" : "setup");
+  // Remote host discovery. View state rather than config: where a user keeps
+  // their SSH config is a machine detail, not a project setting.
+  const [sshConfigPath, setSshConfigPath] = useState<string>("");
+  const [sshHosts, setSshHosts] = useState<string[]>([]);
+  const [sshHostsBusy, setSshHostsBusy] = useState(false);
+  const [manualHost, setManualHost] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseListing, setBrowseListing] = useState<RemoteDirectoryListing | null>(null);
+  const [browseBusy, setBrowseBusy] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
+
+  const loadSshHosts = useCallback(async (configPath: string | null) => {
+    setSshHostsBusy(true);
+    try {
+      const result = await window.api.remote.listSshHosts(configPath);
+      setSshConfigPath(result.configPath);
+      setSshHosts(result.hosts);
+    } catch {
+      setSshHosts([]);
+    } finally {
+      setSshHostsBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (section === "remote" && !sshConfigPath) void loadSshHosts(null);
+  }, [section, sshConfigPath, loadSshHosts]);
+
+  const browseRemote = useCallback(async (target: string, directory: string | null) => {
+    setBrowseBusy(true);
+    setBrowseError(null);
+    try {
+      setBrowseListing(await window.api.remote.listDirectory(target, directory));
+    } catch (error) {
+      setBrowseError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBrowseBusy(false);
+    }
+  }, []);
   const dialogRef = useDialogFocus<HTMLDivElement>(onClose, !operationBusy);
 
   useEffect(() => {
@@ -657,18 +698,64 @@ export default function SettingsModal({
         {draft.remote ? (
           <>
             <label className="field-label">
-              SSH host
-              <input
-                type="text"
-                value={draft.remote.sshTarget}
-                placeholder="my-server or user@host"
-                onChange={(event) => setDraft((current) => (current.remote ? {
-                  ...current,
-                  remote: { ...current.remote, sshTarget: event.target.value.trim() },
-                } : current))}
-              />
+              SSH configuration
+              <input type="text" value={sshConfigPath} readOnly placeholder="~/.ssh/config" />
             </label>
-            <div className="field-hint">A host your SSH client already resolves — an alias from ~/.ssh/config, or user@host.</div>
+            <div className="field-row" style={{ marginBottom: 6 }}>
+              <button
+                className="btn"
+                type="button"
+                disabled={sshHostsBusy}
+                onClick={() => void (async () => {
+                  const picked = await window.api.remote.pickSshConfigDirectory();
+                  if (picked) await loadSshHosts(picked);
+                })()}
+              >
+                Browse&hellip;
+              </button>
+              <button className="btn" type="button" disabled={sshHostsBusy} onClick={() => void loadSshHosts(sshConfigPath || null)}>
+                {sshHostsBusy ? "Reading\u2026" : "Reload hosts"}
+              </button>
+            </div>
+            <div className="field-hint">
+              Pick the folder holding your SSH config (usually <code>.ssh</code>). Only host names are read \u2014 never keys.
+              {sshHosts.length > 0
+                ? " Found " + sshHosts.length + (sshHosts.length === 1 ? " host." : " hosts.")
+                : " No hosts found yet."}
+            </div>
+
+            <label className="field-label">
+              SSH host
+              {manualHost || sshHosts.length === 0 ? (
+                <input
+                  type="text"
+                  value={draft.remote.sshTarget}
+                  placeholder="my-server or user@host"
+                  onChange={(event) => setDraft((current) => (current.remote ? {
+                    ...current,
+                    remote: { ...current.remote, sshTarget: event.target.value.trim() },
+                  } : current))}
+                />
+              ) : (
+                <select
+                  value={draft.remote.sshTarget}
+                  onChange={(event) => {
+                    const sshTarget = event.target.value;
+                    setBrowseListing(null);
+                    setDraft((current) => (current.remote ? { ...current, remote: { ...current.remote, sshTarget } } : current));
+                  }}
+                >
+                  <option value="">&mdash; choose a host &mdash;</option>
+                  {sshHosts.map((host) => <option key={host} value={host}>{host}</option>)}
+                </select>
+              )}
+            </label>
+            <div className="field-row" style={{ marginBottom: 6 }}>
+              <button className="btn" type="button" onClick={() => setManualHost((value) => !value)}>
+                {manualHost ? "Choose from list" : "Type manually"}
+              </button>
+            </div>
+
             <label className="field-label">
               Server-data workspace on the host
               <input
@@ -682,11 +769,86 @@ export default function SettingsModal({
                     ...current,
                     // server.cfg must sit directly inside the workspace, so it is
                     // derived rather than asked for twice.
-                    remote: { ...current.remote, workspacePath, serverConfigPath: workspacePath ? `${workspacePath}/server.cfg` : "" },
+                    remote: { ...current.remote, workspacePath, serverConfigPath: workspacePath ? workspacePath + "/server.cfg" : "" },
                   };
                 })}
               />
             </label>
+            <div className="field-row" style={{ marginBottom: 6 }}>
+              <button
+                className="btn"
+                type="button"
+                disabled={!draft.remote.sshTarget || browseBusy}
+                onClick={() => {
+                  const opening = !browseOpen;
+                  setBrowseOpen(opening);
+                  if (opening && draft.remote) {
+                    void browseRemote(draft.remote.sshTarget, draft.remote.workspacePath || null);
+                  }
+                }}
+              >
+                {browseOpen ? "Close browser" : "Browse\u2026"}
+              </button>
+            </div>
+            {browseOpen && draft.remote.sshTarget ? (
+              <div className="remote-browser">
+                <div className="remote-browser-path">{browseBusy ? "Loading\u2026" : (browseListing ? browseListing.path : "")}</div>
+                {browseError ? <div className="error-text">{browseError}</div> : null}
+                <ul className="remote-browser-list">
+                  {browseListing && browseListing.path !== "/" ? (
+                    <li>
+                      <button
+                        type="button"
+                        className="remote-browser-item"
+                        onClick={() => {
+                          const parent = browseListing.path.replace(/\/[^/]+$/, "") || "/";
+                          if (draft.remote) void browseRemote(draft.remote.sshTarget, parent);
+                        }}
+                      >
+                        ../
+                      </button>
+                    </li>
+                  ) : null}
+                  {(browseListing?.entries ?? []).map((entry: RemoteDirectoryEntry) => (
+                    <li key={entry.name}>
+                      <button
+                        type="button"
+                        className="remote-browser-item"
+                        onClick={() => {
+                          if (!browseListing || !draft.remote) return;
+                          const base = browseListing.path === "/" ? "" : browseListing.path;
+                          void browseRemote(draft.remote.sshTarget, base + "/" + entry.name);
+                        }}
+                      >
+                        <span>{entry.name}/</span>
+                        {entry.hasServerConfig ? <span className="remote-browser-flag">server.cfg</span> : null}
+                      </button>
+                    </li>
+                  ))}
+                  {browseListing && browseListing.entries.length === 0 && !browseBusy ? (
+                    <li className="field-hint">No sub-folders here.</li>
+                  ) : null}
+                </ul>
+                <div className="field-row">
+                  <button
+                    className="btn primary"
+                    type="button"
+                    disabled={!browseListing}
+                    onClick={() => {
+                      if (!browseListing) return;
+                      const chosen = browseListing.path;
+                      setDraft((current) => (current.remote ? {
+                        ...current,
+                        remote: { ...current.remote, workspacePath: chosen, serverConfigPath: chosen + "/server.cfg" },
+                      } : current));
+                      setBrowseOpen(false);
+                    }}
+                  >
+                    Use this folder
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="field-hint">Absolute path on the host. server.cfg is expected directly inside it.</div>
             <label className="field-label">
               RCON port

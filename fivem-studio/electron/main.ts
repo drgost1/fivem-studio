@@ -95,6 +95,8 @@ import { createResourceDirectory, createResourceFile, createStarterResource } fr
 import { requireStarterResourceTemplate } from "./resourceTemplates";
 import { prepareConsoleAgentFix } from "./consoleAgentFix";
 import { ClientConsoleReader } from "./clientConsole";
+import { listRemoteDirectory } from "./remoteRuntime";
+import { defaultSshConfigPath, listSshHosts } from "./sshConfig";
 
 let mainWindow: BrowserWindow | null = null;
 let consoleWindow: BrowserWindow | null = null;
@@ -1079,6 +1081,33 @@ function registerIpcHandlers() {
   });
 
   // --- txData / server profile discovery ---
+  // --- remote host discovery -------------------------------------------
+  // Read-only. Host aliases come from the user's own SSH config, and folder
+  // listings run as the SSH user; nothing here resolves keys or secrets.
+  ipcMain.handle("remote:defaultSshConfigPath", () => defaultSshConfigPath());
+  ipcMain.handle("remote:pickSshConfigDirectory", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "Select your SSH folder",
+      defaultPath: path.dirname(defaultSshConfigPath()),
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return path.join(result.filePaths[0], "config");
+  });
+  ipcMain.handle("remote:listSshHosts", (_e, configPath: unknown) => {
+    const resolved = typeof configPath === "string" && configPath.trim().length > 0
+      ? configPath
+      : defaultSshConfigPath();
+    return { configPath: resolved, hosts: listSshHosts(resolved) };
+  });
+  ipcMain.handle("remote:listDirectory", (_e, sshTarget: unknown, directory: unknown) => {
+    if (typeof sshTarget !== "string" || !/^[A-Za-z0-9._@-]{1,255}$/.test(sshTarget)) {
+      throw new Error("Choose an SSH host first.");
+    }
+    const requested = typeof directory === "string" && directory.startsWith("/") ? directory : null;
+    return listRemoteDirectory(sshTarget, requested);
+  });
+
   ipcMain.handle("txdata:listProfiles", (_e, txDataPath: unknown) => listProfiles(scopedTxDataPath(txDataPath)));
   ipcMain.handle("txdata:resolveProfile", (_e, txDataPath: unknown, profile: unknown) =>
     resolveProfile(scopedTxDataPath(txDataPath), assertSafeBasename(requireString(profile, "Profile", 255))),

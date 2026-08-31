@@ -103,6 +103,13 @@ const api = {
       return () => ipcRenderer.removeListener("fs:changed", listener);
     },
   },
+  remote: {
+    defaultSshConfigPath: () => ipcRenderer.invoke("remote:defaultSshConfigPath"),
+    pickSshConfigDirectory: () => ipcRenderer.invoke("remote:pickSshConfigDirectory"),
+    listSshHosts: (configPath: string | null) => ipcRenderer.invoke("remote:listSshHosts", configPath),
+    listDirectory: (sshTarget: string, directory: string | null) =>
+      ipcRenderer.invoke("remote:listDirectory", sshTarget, directory),
+  },
   txdata: {
     listProfiles: (txDataPath: string) => ipcRenderer.invoke("txdata:listProfiles", txDataPath),
     resolveProfile: (txDataPath: string, profile: string) => ipcRenderer.invoke("txdata:resolveProfile", txDataPath, profile),

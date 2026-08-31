@@ -98,9 +98,9 @@ export function buildLaunchScript(settings: RemoteHostSettings, token: string): 
   ].join("\n");
 }
 
-function runSsh(settings: RemoteHostSettings, remoteCommand: string[], input?: string | Buffer): Promise<{ code: number; stdout: string; stderr: string }> {
+function runSsh(sshTarget: string, remoteCommand: string[], input?: string | Buffer): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn("ssh", [...SSH_BASE_OPTIONS, settings.sshTarget, ...remoteCommand], {
+    const child = spawn("ssh", [...SSH_BASE_OPTIONS, sshTarget, ...remoteCommand], {
       windowsHide: true,
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
@@ -128,14 +128,14 @@ async function ensureRuntimeDeployed(settings: RemoteHostSettings, localRuntimeP
   const payload = fs.readFileSync(localRuntimePath);
   const localDigest = createHash("sha256").update(payload).digest("hex");
 
-  const probe = await runSsh(settings, ["sh", "-s"], `sha256sum ${shellQuote(settings.runtimePath)} 2>/dev/null | cut -d' ' -f1`);
+  const probe = await runSsh(settings.sshTarget, ["sh", "-s"], `sha256sum ${shellQuote(settings.runtimePath)} 2>/dev/null | cut -d' ' -f1`);
   if (probe.code === 0 && probe.stdout.trim() === localDigest) return;
 
   // The script must arrive as argv, not stdin: `cat` consumes all of stdin, so
   // a script piped ahead of the payload would swallow its own remaining lines.
   const target = shellQuote(settings.runtimePath);
   const upload = await runSsh(
-    settings,
+    settings.sshTarget,
     ["sh", "-c", `umask 077; cat > ${target}.part && mv ${target}.part ${target}`],
     payload,
   );
@@ -302,4 +302,80 @@ export function stopRemoteRuntime(): void {
   activeKey = null;
   if (stoppingForward && !stoppingForward.killed) stoppingForward.kill();
   if (stoppingRuntime && !stoppingRuntime.killed) stoppingRuntime.kill();
+}
+
+export interface RemoteDirectoryEntry {
+  name: string;
+  /** Directory already holds a server.cfg, so it is a candidate workspace. */
+  hasServerConfig: boolean;
+}
+
+export interface RemoteDirectoryListing {
+  /** Absolute path the host resolved, so the caller never guesses at ~ or symlinks. */
+  path: string;
+  entries: RemoteDirectoryEntry[];
+}
+
+const MAX_REMOTE_ENTRIES = 500;
+
+/**
+ * Lists sub-directories of a path on the host so a workspace can be picked
+ * rather than typed. Only directories are returned — the caller is choosing a
+ * folder — and each is flagged when it already contains a server.cfg.
+ *
+ * With no path, listing starts at the login user's home directory.
+ */
+export async function listRemoteDirectory(
+  sshTarget: string,
+  requestedPath: string | null,
+): Promise<RemoteDirectoryListing> {
+  // `set -e` is deliberately absent: the entry loop uses tests whose failure is
+  // normal control flow, and a shell that exits on the first false test would
+  // truncate the listing.
+  const enter = requestedPath
+    ? `cd -- ${shellQuote(requestedPath)} 2>/dev/null || { echo __QB_DENIED__ >&2; exit 66; }`
+    : 'cd "$HOME" || exit 66';
+
+  const script = [
+    enter,
+    "pwd",
+    "count=0",
+    "for entry in * .*; do",
+    '  if [ "$entry" = "." ] || [ "$entry" = ".." ]; then continue; fi',
+    '  if [ ! -d "$entry" ]; then continue; fi',
+    `  count=$((count + 1))`,
+    `  if [ "$count" -gt ${MAX_REMOTE_ENTRIES} ]; then break; fi`,
+    '  if [ -f "$entry/server.cfg" ]; then',
+    '    printf "D\t%s\n" "$entry"',
+    "  else",
+    '    printf "d\t%s\n" "$entry"',
+    "  fi",
+    "done",
+    "exit 0",
+  ].join("\n");
+
+  const result = await runSsh(sshTarget, ["sh", "-s"], script);
+  if (result.code !== 0) {
+    throw new Error(
+      result.stderr.includes("__QB_DENIED__")
+        ? "That folder does not exist on the host, or the SSH user cannot read it."
+        : `Could not list folders on ${sshTarget}: ${result.stderr.trim() || `ssh exited ${result.code}`}`,
+    );
+  }
+
+  const lines = result.stdout.split("\n").filter((line) => line.length > 0);
+  const path = (lines.shift() ?? "").trim();
+  if (!path.startsWith("/")) {
+    throw new Error(`Unexpected reply while listing folders on ${sshTarget}.`);
+  }
+
+  const entries: RemoteDirectoryEntry[] = [];
+  for (const line of lines) {
+    const separator = line.indexOf("\t");
+    if (separator < 0) continue;
+    const name = line.slice(separator + 1).trim();
+    if (name) entries.push({ name, hasServerConfig: line.startsWith("D") });
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return { path, entries };
 }

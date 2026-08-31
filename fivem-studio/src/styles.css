@@ -2906,15 +2906,18 @@ button.tree-node {
    this strip carries the navigation. */
 .settings-nav {
   position: sticky;
-  top: 0;
-  z-index: 2;
+  /* The modal pads 16px, so the strip is pulled over that padding and bled to
+     both edges — otherwise rows scroll visibly through the gap beside and above
+     it. Mirrors what .settings-modal .modal-actions already does at the bottom. */
+  top: -16px;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
-  margin: 0 0 4px;
-  padding-bottom: 8px;
+  margin: 0 -16px 6px;
+  padding: 22px 16px 8px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel, inherit);
+  background: var(--bg-1);
 }
 .settings-nav-item {
   appearance: none;
@@ -2980,6 +2983,60 @@ button.tree-node {
   font-family: var(--mono);
   color: var(--text);
 }
+
+/* Remote workspace browser: pick a folder on the host instead of typing an
+   absolute path from memory. */
+.remote-browser {
+  margin: 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.remote-browser-path {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-wash);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.remote-browser-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.remote-browser-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.remote-browser-item:hover { background: var(--accent-wash); }
+.remote-browser-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.remote-browser-flag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-dim);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.remote-browser .field-row { padding: 6px; border-top: 1px solid var(--border); }
 
 .settings-divider {
   margin: 16px 0 10px;

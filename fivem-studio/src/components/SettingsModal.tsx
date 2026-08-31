@@ -44,6 +44,18 @@ interface SettingsModalProps {
 
 type SettingsDraft = StudioConfig & { agent: AgentSettings };
 
+type SettingsSectionId = "setup" | "remote" | "editor" | "agent" | "general";
+
+/* Setup leads because it is the only section a first run has to finish; the
+   readiness checklist used to sit below Discord Rich Presence. */
+const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string }[] = [
+  { id: "setup", label: "Setup" },
+  { id: "remote", label: "Remote host" },
+  { id: "editor", label: "Editor" },
+  { id: "agent", label: "Agent" },
+  { id: "general", label: "General" },
+];
+
 const CFX_TARGETS: readonly CfxTarget[] = ["legacy", "enhanced", "redm"];
 
 function cfxTargetLabel(target: CfxTarget): string {
@@ -489,6 +501,7 @@ export default function SettingsModal({
       || rconPreview !== null
       ? t("appUpdate.restartBlockedSettings")
       : null;
+  const [section, setSection] = useState<SettingsSectionId>(initialSection === "agent" ? "agent" : "setup");
   const dialogRef = useDialogFocus<HTMLDivElement>(onClose, !operationBusy);
 
   useEffect(() => {
@@ -500,8 +513,24 @@ export default function SettingsModal({
       <div ref={dialogRef} className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <h3 id="settings-title" data-dialog-initial-focus={initialSection === "top" ? true : undefined} tabIndex={-1}>Settings</h3>
 
+        <div className="settings-nav" role="tablist" aria-label="Settings sections">
+          {SETTINGS_SECTIONS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={section === entry.id}
+              className={section === entry.id ? "settings-nav-item is-active" : "settings-nav-item"}
+              onClick={() => setSection(entry.id)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+
         {saveError && <div id="settings-save-error" className="error-text settings-save-error" role="alert" tabIndex={-1}>{saveError}</div>}
 
+        {section === "general" && (<>
         <div className="settings-divider">{t("appUpdate.section")}</div>
         <AppUpdateControl
           state={appUpdateState}
@@ -577,28 +606,23 @@ export default function SettingsModal({
         </label>
         <div className="field-hint">{t("console.notifyExitHelp")}</div>
 
-        <div className="settings-divider">Lua intelligence</div>
+        <div className="settings-divider">Discord</div>
         <label className="field-label">
-          Framework definitions
+          Rich Presence
           <select
-            value={draft.luaFrameworkPack}
-            onChange={(event) => setDraft((current) => ({
-              ...current,
-              luaFrameworkPack: event.target.value as typeof current.luaFrameworkPack,
-            }))}
+            value={draft.discordPresenceEnabled ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({ ...current, discordPresenceEnabled: event.target.value === "on" }))}
           >
-            <option value="qbcore">QBCore</option>
-            <option value="qbox">Qbox (qbx_core)</option>
-            <option value="esx">ESX Legacy</option>
-            <option value="none">Platform only</option>
+            <option value="on">{t("common.on")} — recommended</option>
+            <option value="off">{t("common.off")}</option>
           </select>
         </label>
         <div className="field-hint">
-          Loaded alongside the FiveM platform pack. Pick the framework this server actually runs — declarations
-          for a framework you do not run produce confidently wrong completions. &quot;Platform only&quot; skips
-          framework declarations entirely.
+          Off by default. When enabled, Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
         </div>
 
+        </>)}
+        {section === "remote" && (<>
         <div className="settings-divider">Remote host (SSH)</div>
         <label className="field-label">
           Run the coding runtime on a remote host
@@ -708,21 +732,8 @@ export default function SettingsModal({
           </>
         ) : null}
 
-        <div className="settings-divider">Discord</div>
-        <label className="field-label">
-          Rich Presence
-          <select
-            value={draft.discordPresenceEnabled ? "on" : "off"}
-            onChange={(event) => setDraft((current) => ({ ...current, discordPresenceEnabled: event.target.value === "on" }))}
-          >
-            <option value="on">{t("common.on")} — recommended</option>
-            <option value="off">{t("common.off")}</option>
-          </select>
-        </label>
-        <div className="field-hint">
-          Off by default. When enabled, Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
-        </div>
-
+        </>)}
+        {section === "setup" && (<>
         <SetupChecklist
           diagnostics={setupDiagnostics}
           targetLabel={cfxTargetLabel(activeTarget)}
@@ -1047,6 +1058,30 @@ export default function SettingsModal({
           separate signature/checksum for these Windows artifacts. txData is never inside the update target.
         </div>
 
+        </>)}
+        {section === "editor" && (<>
+        <div className="settings-divider">Lua intelligence</div>
+        <label className="field-label">
+          Framework definitions
+          <select
+            value={draft.luaFrameworkPack}
+            onChange={(event) => setDraft((current) => ({
+              ...current,
+              luaFrameworkPack: event.target.value as typeof current.luaFrameworkPack,
+            }))}
+          >
+            <option value="qbcore">QBCore</option>
+            <option value="qbox">Qbox (qbx_core)</option>
+            <option value="esx">ESX Legacy</option>
+            <option value="none">Platform only</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Loaded alongside the FiveM platform pack. Pick the framework this server actually runs — declarations
+          for a framework you do not run produce confidently wrong completions. &quot;Platform only&quot; skips
+          framework declarations entirely.
+        </div>
+
         <div className="settings-divider">Code editor</div>
 
         <label className="field-label">Lua intelligence</label>
@@ -1137,6 +1172,8 @@ export default function SettingsModal({
         </div>
         <div className="field-hint">{t("editor.restartAfterSaveHelp")}</div>
 
+        </>)}
+        {section === "agent" && (<>
         <div
           id="settings-agent-chat-section"
           className="settings-divider"
@@ -1165,6 +1202,26 @@ export default function SettingsModal({
         <div className="field-hint">
           Hosted providers receive your messages, selected code, and tool results. Choose Ollama or LM Studio if model traffic must stay on this PC.
         </div>
+        <div className="settings-mcp-note">
+          <div className="settings-mcp-title">How the agent reaches your server (MCP)</div>
+          <p>
+            Agent Chat does not touch your server directly. It talks to the bundled coding runtime, which is a
+            Model Context Protocol server on an authenticated loopback port — a fresh token and a new ephemeral
+            port every launch, or your SSH tunnel when a remote host is configured.
+          </p>
+          <p>That runtime exposes exactly six tools, and this is the entire surface the agent has:</p>
+          <ul className="settings-mcp-tools">
+            <li><code>list_resources</code> — resources in the workspace and which ones the server reports as started</li>
+            <li><code>start_resource</code> / <code>stop_resource</code> / <code>restart_resource</code> — lifecycle for one named resource</li>
+            <li><code>get_console_output</code> — read the server console</li>
+            <li><code>get_runtime_identity</code> — which workspace and server the runtime is attached to</li>
+          </ul>
+          <p>
+            There is no arbitrary command execution, no file writing, no raw RCON, and no player, entity or
+            world control. A model that cannot call tools will connect and chat, but will never reach the server.
+          </p>
+        </div>
+
         <AgentConnectionsEditor
           value={draft.agent}
           savedValue={savedAgentSettings}
@@ -1174,6 +1231,7 @@ export default function SettingsModal({
           onKeyStagesChange={setConnectionKeyStages}
           onBusyChange={setAgentModelsBusy}
         />
+        </>)}
 
         <div className="modal-actions">
           <button className="btn" onClick={onClose} disabled={operationBusy}>

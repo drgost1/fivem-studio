@@ -23,7 +23,7 @@ export default class RendererErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("QB Studio renderer failed", error, info.componentStack);
+    console.error("FiveM Studio renderer failed", error, info.componentStack);
   }
 
   render() {
@@ -32,7 +32,7 @@ export default class RendererErrorBoundary extends Component<
     return (
       <main className="renderer-error" role="alert" aria-live="assertive">
         <section className="renderer-error-card">
-          <p className="eyebrow">QB Studio could not start</p>
+          <p className="eyebrow">FiveM Studio could not start</p>
           <h1>The interface hit an unexpected error.</h1>
           <p>
             Reload the window to try again. If the problem continues, include the
@@ -40,7 +40,7 @@ export default class RendererErrorBoundary extends Component<
           </p>
           <pre>{this.state.error.message || "Unknown renderer error"}</pre>
           <button type="button" className="btn primary" onClick={() => window.location.reload()}>
-            Reload QB Studio
+            Reload FiveM Studio
           </button>
         </section>
       </main>

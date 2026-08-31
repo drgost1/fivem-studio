@@ -41,7 +41,7 @@ export function resolveLuaDefinitionPackRoots(
   });
   if (missing.length > 0) {
     const names = missing.map((packRoot) => path.basename(packRoot)).join(", ");
-    throw new Error(`The bundled Lua definition pack${missing.length === 1 ? "" : "s"} (${names}) is missing. Reinstall QB Studio.`);
+    throw new Error(`The bundled Lua definition pack${missing.length === 1 ? "" : "s"} (${names}) is missing. Reinstall FiveM Studio.`);
   }
   return packRoots;
 }

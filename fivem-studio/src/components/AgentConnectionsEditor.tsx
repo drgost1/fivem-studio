@@ -658,7 +658,7 @@ export default function AgentConnectionsEditor({
             </>
           ) : (
             <div className="field-hint agent-keyless-notice" role="status">
-              This connection is keyless. QB Studio never stores or sends an API key for it.
+              This connection is keyless. FiveM Studio never stores or sends an API key for it.
             </div>
           )}
 

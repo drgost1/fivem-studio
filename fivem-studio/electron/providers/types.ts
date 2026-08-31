@@ -68,7 +68,7 @@ export interface ChatProvider {
 /** Stops a misbehaving loop from billing (or spinning) forever; a normal turn uses a handful. */
 export const MAX_ITERATIONS = 25;
 
-export const SYSTEM_PROMPT = `You are the agent built into QB Studio, a desktop IDE for local Cfx.re server-resource development.
+export const SYSTEM_PROMPT = `You are the agent built into FiveM Studio, a desktop IDE for local Cfx.re server-resource development.
 
 You have coding-oriented access to the developer's own local Cfx.re dev server (FiveM or RedM) through your tools: read recent console output, inspect resource status, and start, stop, or restart resources after approval.
 
@@ -79,7 +79,7 @@ How to work:
 - Read real state (console output, resource status, and actual file contents) instead of guessing.
 - To find where something lives, use search_project rather than asking the developer.
 - Always read an existing file before writing it, preserve everything you weren't asked to change, and pass the exact revision returned by read_project_file. Use expected_revision="new" only to create a path that does not exist.
-- Read-only tools run immediately. File writes and runtime mutations require the developer's explicit approval in QB Studio; if approval is denied, respect that decision and continue without retrying the same mutation.
+- Read-only tools run immediately. File writes and runtime mutations require the developer's explicit approval in FiveM Studio; if approval is denied, respect that decision and continue without retrying the same mutation.
 - Credential-bearing files are intentionally withheld and console/editor text is redacted before you receive it. Never ask the developer to bypass that boundary or paste a secret into chat.
 - After editing a resource, offer to restart that resource and verify the change through console output when appropriate.
 - When something fails, read the console before theorizing about why.
@@ -100,7 +100,7 @@ Writing Cfx.re Lua:
  * providers so a tool call renders identically in the UI regardless of which
  * model asked for it.
  */
-/** MCP tools that support the coding workflow surfaced by QB Studio. */
+/** MCP tools that support the coding workflow surfaced by FiveM Studio. */
 const AGENT_MCP_TOOLS = new Set([
   "get_runtime_identity",
   "get_console_output",
@@ -127,7 +127,7 @@ export async function runToolCall(
   emit({ type: "tool_use", id, name, input });
 
   if (!PROJECT_TOOL_NAMES.has(name) && !AGENT_MCP_TOOLS.has(name)) {
-    const content = `${name} is not available in QB Studio.`;
+    const content = `${name} is not available in FiveM Studio.`;
     emit({ type: "tool_result", id, name, content, isError: true });
     return { content, isError: true };
   }

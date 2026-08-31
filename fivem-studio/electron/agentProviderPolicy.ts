@@ -1,5 +1,5 @@
 /**
- * Shared, dependency-free policy for endpoints built into QB Studio. This file
+ * Shared, dependency-free policy for endpoints built into FiveM Studio. This file
  * is imported by both the main process and the renderer, so recognizing a
  * preset can never hide a credential-policy mismatch that main would accept.
  */

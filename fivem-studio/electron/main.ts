@@ -155,7 +155,7 @@ function requireFiniteNumber(value: unknown, label: string): number {
 
 function requireMainWindowSender(event: IpcMainInvokeEvent): void {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
-    throw new Error("This action is available only from the main QB Studio window.");
+    throw new Error("This action is available only from the main FiveM Studio window.");
   }
 }
 
@@ -163,7 +163,7 @@ function requireStudioWindowSender(event: IpcMainInvokeEvent): void {
   const allowed = [mainWindow, consoleWindow].some((window) =>
     window && !window.isDestroyed() && event.sender === window.webContents,
   );
-  if (!allowed) throw new Error("Console actions are available only from a QB Studio window.");
+  if (!allowed) throw new Error("Console actions are available only from a FiveM Studio window.");
 }
 
 function clearConsoleViews(): number {
@@ -468,7 +468,7 @@ function createWindow() {
     height: storedState.height,
     minWidth: 1024,
     minHeight: 640,
-    title: "QB Studio",
+    title: "FiveM Studio",
     backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -560,7 +560,7 @@ function createWindow() {
       cancelId: 1,
       title: "Unsaved changes",
       message: `${dirtyFileCount} ${plural} unsaved changes.`,
-      detail: "Closing QB Studio now will discard them.",
+      detail: "Closing FiveM Studio now will discard them.",
     });
     if (choice === 0) {
       allowCloseWithUnsavedChanges = true;
@@ -598,7 +598,7 @@ function openConsoleWindow(source: ConsoleOutputSource): void {
     height: 620,
     minWidth: 640,
     minHeight: 360,
-    title: "QB Studio Console",
+    title: "FiveM Studio Console",
     backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
     show: false,
     webPreferences: {
@@ -611,7 +611,7 @@ function openConsoleWindow(source: ConsoleOutputSource): void {
   consoleWindow.webContents.setZoomFactor(startupConfig.uiScale);
   consoleWindow.on("page-title-updated", (event) => {
     event.preventDefault();
-    consoleWindow?.setTitle("QB Studio Console");
+    consoleWindow?.setTitle("FiveM Studio Console");
   });
   const devUrl = process.env.ELECTRON_START_URL;
   if (devUrl) {
@@ -672,7 +672,7 @@ app.whenReady().then(() => {
     recoverConfigTransaction();
   } catch (error) {
     dialog.showErrorBox(
-      "QB Studio could not recover settings",
+      "FiveM Studio could not recover settings",
       `An interrupted settings save could not be recovered safely. No configuration was loaded. ${error instanceof Error ? error.message : String(error)}`,
     );
     app.quit();
@@ -773,7 +773,7 @@ function registerIpcHandlers() {
     if (path.relative(activeProfileRoot(), profileRoot) !== "") {
       throw new Error("The selected workspace changed while resolving that console source.");
     }
-    if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The main QB Studio window is unavailable.");
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The main FiveM Studio window is unavailable.");
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
@@ -794,7 +794,7 @@ function registerIpcHandlers() {
         agentRuntimeSignature(currentConfig) !== promptAgentScope) {
       throw new Error("The selected workspace or agent changed while preparing that console diagnostic.");
     }
-    if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The main QB Studio window is unavailable.");
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The main FiveM Studio window is unavailable.");
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
@@ -904,7 +904,7 @@ function registerIpcHandlers() {
   ipcMain.handle("theme:importPack", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
-      filters: [{ name: "QB Studio theme pack", extensions: ["json"] }],
+      filters: [{ name: "FiveM Studio theme pack", extensions: ["json"] }],
     });
     if (result.canceled) return null;
     return requireThemePackStore().import(result.filePaths[0]);
@@ -1252,7 +1252,7 @@ function registerIpcHandlers() {
   ipcMain.handle("mcp:callTool", (_e, name: unknown, args: unknown) => {
     if (typeof args !== "object" || args === null || Array.isArray(args)) throw new Error("Tool arguments must be an object.");
     const toolName = requireString(name, "Tool name", 256);
-    if (!RENDERER_MCP_TOOLS.has(toolName)) throw new Error(`The QB Studio UI is not allowed to invoke ${toolName}.`);
+    if (!RENDERER_MCP_TOOLS.has(toolName)) throw new Error(`The FiveM Studio UI is not allowed to invoke ${toolName}.`);
     return mcpCallTool(toolName, args as Record<string, unknown>);
   });
   ipcMain.handle("resources:listStatuses", () => mcpListResourceStatuses());
@@ -1363,7 +1363,7 @@ function registerIpcHandlers() {
       return { shown: false };
     }
     new Notification({
-      title: "QB Studio",
+      title: "FiveM Studio",
       body: `${cfxTargetLabel(target)} FXServer stopped unexpectedly. Crash context is ready in the Console tab.`,
       silent: false,
     }).show();
@@ -1430,7 +1430,7 @@ function registerIpcHandlers() {
             try { await stopLocalServer(executable, config.txDataPath); } catch { /* the path mismatch remains the primary failure */ }
           }
           throw new Error(
-            `txAdmin's dataPath changed during FiveM Enhanced startup, so QB Studio stopped the server. ${(error as Error).message}`,
+            `txAdmin's dataPath changed during FiveM Enhanced startup, so FiveM Studio stopped the server. ${(error as Error).message}`,
           );
         }
       }
@@ -1558,7 +1558,7 @@ function registerIpcHandlers() {
       : path.join(app.getAppPath(), "resources", "lua-library");
     const executable = path.join(runtimeRoot, "bin", "lua-language-server.exe");
     if (!fs.existsSync(executable)) {
-      return { ok: false as const, mode, error: "The bundled Lua language server is missing. Reinstall QB Studio." };
+      return { ok: false as const, mode, error: "The bundled Lua language server is missing. Reinstall FiveM Studio." };
     }
     let libraryRoots: string[];
     try {
@@ -1574,7 +1574,7 @@ function registerIpcHandlers() {
       pluginReady = false;
     }
     if (!pluginReady) {
-      return { ok: false as const, mode, error: "The bundled Lua runtime plugin is missing. Reinstall QB Studio." };
+      return { ok: false as const, mode, error: "The bundled Lua runtime plugin is missing. Reinstall FiveM Studio." };
     }
     const logPath = path.join(app.getPath("logs"), "lua-language-server");
     fs.mkdirSync(logPath, { recursive: true });

@@ -118,7 +118,7 @@ function safeRoot(value: string | null | undefined): string | null {
   }
 }
 
-/** Probe a fixed, small list of conventional folders plus QB Studio's own
+/** Probe a fixed, small list of conventional folders plus FiveM Studio's own
  * artifact records. It intentionally never enumerates a drive or recursively
  * searches user-controlled roots. */
 export function detectConventionalExecutables(roots: ExecutableDiscoveryRoots): DetectedExecutableInstalls {

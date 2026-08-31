@@ -163,7 +163,7 @@ class LuaLanguageClient {
   private active = false;
   private ready = false;
   private workspaceUri = "";
-  private workspaceName = "QB Studio";
+  private workspaceName = "FiveM Studio";
   private settings: JsonObject = {};
   private capabilities: JsonObject = {};
   private openedUris = new Set<string>();
@@ -216,11 +216,11 @@ class LuaLanguageClient {
         throw new Error(`Lua definition target changed while starting (${expectedTarget} to ${session.target}).`);
       }
       this.workspaceUri = monaco.Uri.file(session.workspaceRoot).toString(true);
-      this.workspaceName = session.workspaceRoot.split(/[/\\]/).pop() || "QB Studio";
+      this.workspaceName = session.workspaceRoot.split(/[/\\]/).pop() || "FiveM Studio";
       this.settings = luaSettings(session.mode, session.libraryRoots, session.pluginPath, session.target);
       const initialized = await this.request("initialize", {
         processId: null,
-        clientInfo: { name: "QB Studio", version: "1" },
+        clientInfo: { name: "FiveM Studio", version: "1" },
         rootUri: this.workspaceUri,
         workspaceFolders: [{ uri: this.workspaceUri, name: this.workspaceName }],
         initializationOptions: { changeConfiguration: true },
@@ -389,7 +389,7 @@ class LuaLanguageClient {
     ) {
       this.respond(value.id, null);
     } else {
-      this.respond(value.id, null, { code: -32601, message: `QB Studio does not implement ${value.method}.` });
+      this.respond(value.id, null, { code: -32601, message: `FiveM Studio does not implement ${value.method}.` });
     }
   }
 

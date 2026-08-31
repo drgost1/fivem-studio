@@ -1,7 +1,7 @@
 {
   "name": "qb-studio",
   "version": "0.0.0-development",
-  "description": "A localhost-only Windows workbench for Cfx.re server-resource coding.",
+  "description": "FiveM Studio by Tufan Studio - a Windows workbench for Cfx.re server-resource coding, local or over SSH.",
   "author": "QBCore Framework",
   "license": "MIT",
   "repository": "https://github.com/qbcore-framework/qb-studio",
@@ -60,12 +60,12 @@
     "node": "24.20.0"
   },
   "build": {
-    "appId": "org.qbcore.qbstudio",
-    "productName": "QB Studio",
+    "appId": "net.tufanstudio.fivemstudio",
+    "productName": "FiveM Studio",
     "publish": [
       {
         "provider": "github",
-        "owner": "qbcore-framework",
+        "owner": "drgost1",
         "repo": "qb-studio"
       }
     ],

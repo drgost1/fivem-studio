@@ -74,7 +74,7 @@ export default function TopBar({
         return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
       })();
   const statusTitle = !connected
-    ? "QB Studio could not reach its bundled coding runtime."
+    ? "FiveM Studio could not reach its bundled coding runtime."
     : `${workspaceMatch?.reason ?? (runtimeIdentity ? `${runtimeIdentity.mcp.name} ${runtimeIdentity.mcp.version}` : "Bundled coding runtime")}. ${availabilityNote}`;
   const serverButtonLabel = serverAction === "starting"
     ? "Starting server"
@@ -86,8 +86,9 @@ export default function TopBar({
   return (
     <div className="topbar">
       <span className="brand">
-        <span>QB Studio</span>
-        <span className="brand-version" title={`QB Studio version ${appVersion}`}>v{appVersion}</span>
+        <span>FiveM Studio</span>
+        <span className="brand-byline">by Tufan Studio</span>
+        <span className="brand-version" title={`FiveM Studio version ${appVersion}`}>v{appVersion}</span>
       </span>
       <div className="spacer" />
       <div className="status-pill runtime-status" title={statusTitle}>

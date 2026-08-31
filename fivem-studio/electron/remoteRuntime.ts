@@ -152,7 +152,7 @@ export function runSsh(
 /** Uploads the bundled runtime when the host copy is absent or differs. */
 async function ensureRuntimeDeployed(settings: RemoteHostSettings, localRuntimePath: string): Promise<void> {
   if (!fs.existsSync(localRuntimePath)) {
-    throw new Error("The bundled coding runtime is missing. Reinstall QB Studio or run the runtime bundle build.");
+    throw new Error("The bundled coding runtime is missing. Reinstall FiveM Studio or run the runtime bundle build.");
   }
   const payload = fs.readFileSync(localRuntimePath);
   const localDigest = createHash("sha256").update(payload).digest("hex");

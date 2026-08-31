@@ -56,7 +56,7 @@ const SERVER_CFG_DOCS: Record<string, { detail: string; insertText: string }> = 
   },
   sv_hostname: {
     detail: "Human-readable server name shown by Cfx.re clients.",
-    insertText: "sv_hostname \"${1:QB Studio Development}\"",
+    insertText: "sv_hostname \"${1:FiveM Studio Development}\"",
   },
   ensure: {
     detail: "Starts a resource if stopped, or restarts it if already running.",

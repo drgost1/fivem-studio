@@ -36,10 +36,10 @@ test("Discord activity shows a basename, language, target, version, and fixed ac
     details: "Editing client.lua",
     state: "FiveM Enhanced · Lua",
     timestamps: { start: 1234 },
-    assets: { large_image: DISCORD_LARGE_IMAGE_KEY, large_text: "QB Studio v1.4.0" },
+    assets: { large_image: DISCORD_LARGE_IMAGE_KEY, large_text: "FiveM Studio v1.4.0" },
     buttons: [
       { label: "Visit QBCore", url: "https://qbcore.org" },
-      { label: "Download QB Studio", url: "https://github.com/qbcore-framework/qb-studio/releases/latest" },
+      { label: "Download FiveM Studio", url: "https://github.com/qbcore-framework/qb-studio/releases/latest" },
     ],
   });
   assert.equal(activity.buttons.length, 2);
@@ -52,13 +52,13 @@ test("Discord activity shows a basename, language, target, version, and fixed ac
 
 test("Discord contexts produce concise activity labels without stale filenames", () => {
   const cases = [
-    ["startup", "Developing with QB Studio"],
+    ["startup", "Developing with FiveM Studio"],
     ["viewport", "Testing in the viewport"],
     ["console", "Monitoring the console"],
     ["resources", "Browsing resources"],
     ["assistant", "Working with the assistant"],
-    ["setup", "Setting up QB Studio"],
-    ["settings", "Customizing QB Studio"],
+    ["setup", "Setting up FiveM Studio"],
+    ["settings", "Customizing FiveM Studio"],
   ] as const;
   for (const [view, details] of cases) {
     const context = normalizeDiscordActivityContext({ view, filePath: "C:\\should-not-leak\\server.cfg" });
@@ -91,6 +91,6 @@ test("Discord language and version labels use a fixed safe vocabulary", () => {
   assert.equal(discordLanguageLabel("main.tsx"), "TypeScript");
   assert.equal(discordLanguageLabel("notes.unknown"), "Plain text");
   assert.equal(discordLanguageLabel(null), null);
-  assert.equal(discordVersionTooltip("0.0.0-development"), "QB Studio development build");
-  assert.equal(discordVersionTooltip("v1.4.0"), "QB Studio v1.4.0");
+  assert.equal(discordVersionTooltip("0.0.0-development"), "FiveM Studio development build");
+  assert.equal(discordVersionTooltip("v1.4.0"), "FiveM Studio v1.4.0");
 });

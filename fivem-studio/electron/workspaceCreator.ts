@@ -64,19 +64,19 @@ export function starterServerCfg(port: number, workspaceName: string, target: Cf
   const gameSelection = target === "redm"
     ? "# RedM requires the RDR3 game runtime.\nset gamename rdr3\n\n"
     : "";
-  return `# QB Studio local server-data workspace: ${workspaceName}\n` +
+  return `# FiveM Studio local server-data workspace: ${workspaceName}\n` +
     "# txAdmin owns its control profile/config.json. Attach this folder through txAdmin's normal deployment flow.\n" +
     "# This template deliberately contains no license key, RCON password, or other secrets.\n\n" +
     gameSelection +
     `endpoint_add_tcp "127.0.0.1:${port}"\n` +
     `endpoint_add_udp "127.0.0.1:${port}"\n` +
     "sv_master1 \"\"\n\n" +
-    `sv_hostname "QB Studio Local - ${workspaceName}"\n` +
+    `sv_hostname "FiveM Studio Local - ${workspaceName}"\n` +
     "sv_maxclients 8\n" +
     `sets sv_projectName "${workspaceName}"\n\n` +
     "# Copy secrets.cfg.example to secrets.cfg, add your own values, then uncomment this line.\n" +
     "# exec secrets.cfg\n\n" +
-    "# Your QB Studio resources belong in resources/[local]/.\n" +
+    "# Your FiveM Studio resources belong in resources/[local]/.\n" +
     "ensure [local]\n";
 }
 
@@ -215,7 +215,7 @@ export function applyDevelopmentRcon(
   for (const line of files.server.content.split(/\r?\n/)) {
     if (ACTIVE_SECRETS_EXEC.test(line) || COMMENTED_SECRETS_EXEC.test(line)) continue;
     if (ACTIVE_RCON.test(line)) {
-      if (!removedDirectRcon) serverLines.push("# RCON credential is stored in secrets.cfg by QB Studio.");
+      if (!removedDirectRcon) serverLines.push("# RCON credential is stored in secrets.cfg by FiveM Studio.");
       removedDirectRcon = true;
       continue;
     }

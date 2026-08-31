@@ -119,7 +119,7 @@ export default function AppUpdateControl({
     >
       <div className="app-update-summary">
         <div>
-          <h4 id="app-update-title">QB Studio</h4>
+          <h4 id="app-update-title">FiveM Studio</h4>
           <div className="app-update-version">{t("appUpdate.version", { version: state.currentVersion })}</div>
         </div>
         {action && (

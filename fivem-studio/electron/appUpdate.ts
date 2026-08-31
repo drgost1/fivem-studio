@@ -68,7 +68,7 @@ function readableUpdaterError(error: unknown): string {
   const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown update error.";
   const normalized = detail.replace(/\\[rn]/g, " ").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
   if (/latest\.yml|channel file|404.*release artifacts/i.test(normalized)) {
-    return "The latest QB Studio release is missing update metadata. Please try again later.";
+    return "The latest FiveM Studio release is missing update metadata. Please try again later.";
   }
   if (/sha-?512|checksum|integrity|digest/i.test(normalized)) {
     return "The downloaded update did not pass its integrity check and was not installed.";
@@ -81,9 +81,9 @@ function readableUpdaterError(error: unknown): string {
     return "The update service returned invalid release metadata. No update was downloaded.";
   }
   if (/ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|network|offline|internet/i.test(normalized)) {
-    return "QB Studio couldn't reach GitHub. Check your connection and try again.";
+    return "FiveM Studio couldn't reach GitHub. Check your connection and try again.";
   }
-  return "QB Studio couldn't complete the update. Try again or view the release on GitHub.";
+  return "FiveM Studio couldn't complete the update. Try again or view the release on GitHub.";
 }
 
 /**

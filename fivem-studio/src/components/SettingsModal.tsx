@@ -315,7 +315,7 @@ export default function SettingsModal({
     if (
       !confirm(
         `Install Cfx.re build ${artifactStatus.build} into ${target}?\n\n` +
-          "The local server must be stopped. QB Studio will replace only the artifact folder, keep the previous folder as a backup, and never modify txData.",
+          "The local server must be stopped. FiveM Studio will replace only the artifact folder, keep the previous folder as a backup, and never modify txData.",
       )
     ) {
       return;
@@ -662,7 +662,7 @@ export default function SettingsModal({
           </select>
         </label>
         <div className="field-hint">
-          Off by default. When enabled, Discord sees the current QB Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
+          Off by default. When enabled, Discord sees the current FiveM Studio area, broad target, and—while editing or reviewing—the active file's basename and language. Full paths, workspace, profile, server, resource, code, console, and chat contents are never included. No Discord token is used.
         </div>
 
         </>)}
@@ -920,7 +920,7 @@ export default function SettingsModal({
               />
             </label>
             <div className="field-hint">
-              Where the bundled runtime is deployed. QB Studio uploads it here on connect when it is missing or
+              Where the bundled runtime is deployed. FiveM Studio uploads it here on connect when it is missing or
               differs from the bundled copy.
             </div>
           </>
@@ -1081,7 +1081,7 @@ export default function SettingsModal({
           </button>
         </div>
         <div className="field-hint">
-          Checks only conventional install folders and QB Studio artifact records. Custom locations always remain available through Browse; entire drives are never scanned.
+          Checks only conventional install folders and FiveM Studio artifact records. Custom locations always remain available through Browse; entire drives are never scanned.
         </div>
 
         <label className="field-label">Active Cfx.re target</label>
@@ -1152,7 +1152,7 @@ export default function SettingsModal({
           })}
         </div>
         <div className="field-hint">
-          Server paths enable <strong>Start server</strong>; client paths enable <strong>Launch client</strong>. QB Studio uses the selected
+          Server paths enable <strong>Start server</strong>; client paths enable <strong>Launch client</strong>. FiveM Studio uses the selected
           txData workspace for the active target and prevents different configured server artifacts from being started together.
         </div>
         {activeTarget === "redm" && (
@@ -1231,10 +1231,10 @@ export default function SettingsModal({
             <strong>Cfx.re {artifactStatus.track} build {artifactStatus.build}</strong>
             <span>
               {artifactStatus.installedBuild === null
-                ? "Installed build unknown (this installation has not yet been updated by QB Studio)."
+                ? "Installed build unknown (this installation has not yet been updated by FiveM Studio)."
                 : artifactStatus.installedBuild === artifactStatus.build
                   ? "This managed build is installed."
-                  : `QB Studio last installed build ${artifactStatus.installedBuild}.`}
+                  : `FiveM Studio last installed build ${artifactStatus.installedBuild}.`}
             </span>
             <span>
               {artifactStatus.archiveSize ? `${(artifactStatus.archiveSize / 1024 / 1024).toFixed(1)} MB` : "Size unavailable"}

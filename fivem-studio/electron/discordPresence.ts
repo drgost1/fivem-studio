@@ -7,8 +7,8 @@ import type { CfxTarget } from "./configStore";
 export const DISCORD_APPLICATION_ID = "1543453950919839754";
 export const DISCORD_LARGE_IMAGE_KEY = "qb-studio";
 export const DISCORD_ACTIVITY_BUTTONS = [
-  { label: "Visit QBCore", url: "https://qbcore.org" },
-  { label: "Download QB Studio", url: "https://github.com/qbcore-framework/qb-studio/releases/latest" },
+  { label: "Visit Tufan Studio", url: "https://www.tufanstudio.net" },
+  { label: "Download FiveM Studio", url: "https://github.com/drgost1/qb-studio/releases/latest" },
 ] as const;
 
 const HANDSHAKE = 0;
@@ -143,8 +143,8 @@ export function normalizeDiscordActivityContext(value: unknown): DiscordActivity
 
 export function discordVersionTooltip(version: string): string {
   const clean = version.trim().replace(/^v/i, "");
-  if (!clean || clean === "0.0.0-development") return "QB Studio development build";
-  return `QB Studio v${clean}`;
+  if (!clean || clean === "0.0.0-development") return "FiveM Studio development build";
+  return `FiveM Studio v${clean}`;
 }
 
 function discordActivityDetails(context: DiscordActivityContext): string {
@@ -155,9 +155,9 @@ function discordActivityDetails(context: DiscordActivityContext): string {
     case "editor": return context.filename ? `Editing ${context.filename}` : "Editing code";
     case "review": return context.filename ? `Reviewing ${context.filename}` : "Reviewing changes";
     case "assistant": return "Working with the assistant";
-    case "setup": return "Setting up QB Studio";
-    case "settings": return "Customizing QB Studio";
-    default: return "Developing with QB Studio";
+    case "setup": return "Setting up FiveM Studio";
+    case "settings": return "Customizing FiveM Studio";
+    default: return "Developing with FiveM Studio";
   }
 }
 

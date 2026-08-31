@@ -450,7 +450,7 @@ export default function App() {
       const state = await action();
       setAppUpdateState(state);
     } catch (error) {
-      const message = (error as Error).message || "QB Studio couldn't complete the update.";
+      const message = (error as Error).message || "FiveM Studio couldn't complete the update.";
       setAppUpdateState((current) => current ? { ...current, phase: "error", error: message } : current);
       throw error;
     } finally {

@@ -1,4 +1,4 @@
-// Tiny JSON config store — where QB Studio remembers the user's local
+// Tiny JSON config store — where FiveM Studio remembers the user's local
 // workspace and client path between launches.
 // Deliberately not using a dependency for this; it's ~20 lines of fs code.
 
@@ -583,7 +583,7 @@ export function legacyCredentialStoragePaths(
   if (connection.provider === "anthropic") {
     // Anthropic's former filename is provider-specific rather than derived
     // from a user-controlled endpoint, so it cannot suffer the truncated-slug
-    // collision below. Keep searching QB Studio's explicitly known former
+    // collision below. Keep searching FiveM Studio's explicitly known former
     // product directories so upgrades from the flat settings schema do not
     // strand an otherwise valid saved key.
     return [...new Set([
@@ -742,7 +742,7 @@ function removeCredentialPaths(paths: string[]): void {
     try { fs.rmSync(candidate, { force: true }); } catch (error) { failures.push(error); }
   }
   if (failures.length > 0) {
-    throw new Error("The encrypted credential could not be removed from disk. Close other QB Studio instances and try again.");
+    throw new Error("The encrypted credential could not be removed from disk. Close other FiveM Studio instances and try again.");
   }
 }
 

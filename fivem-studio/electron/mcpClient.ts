@@ -1,4 +1,4 @@
-// QB Studio's dashboard and coding agent share the same narrow loopback
+// FiveM Studio's dashboard and coding agent share the same narrow loopback
 // runtime protocol, so console and resource lifecycle state stay in sync.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -220,7 +220,7 @@ export async function mcpCallTool(name: string, args: Record<string, unknown>): 
     if (!match.ok) {
       throw new Error(
         `${match.reason ?? "The active workspace does not match the connected Cfx.re runtime."} ` +
-          "Runtime mutations are blocked until Settings points QB Studio at the same server-data workspace and local RCON endpoint.",
+          "Runtime mutations are blocked until Settings points FiveM Studio at the same server-data workspace and local RCON endpoint.",
       );
     }
   }
@@ -330,7 +330,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
       return {
         ok: false,
         reason:
-          `QB Studio is configured for ${config.remote.workspacePath}, but the runtime controls ` +
+          `FiveM Studio is configured for ${config.remote.workspacePath}, but the runtime controls ` +
           `${identity.runtime.serverData.workspacePath}.`,
       };
     }
@@ -338,7 +338,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
       return {
         ok: false,
         reason:
-          `QB Studio expects ${config.remote.serverConfigPath}, but the runtime identifies ` +
+          `FiveM Studio expects ${config.remote.serverConfigPath}, but the runtime identifies ` +
           `${identity.runtime.serverData.configPath} as its server.cfg.`,
       };
     }
@@ -355,7 +355,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
   }
 
   if (!config.txDataPath || !config.selectedProfile) {
-    return { ok: false, reason: "No local server-data workspace is selected in QB Studio." };
+    return { ok: false, reason: "No local server-data workspace is selected in FiveM Studio." };
   }
 
   const normalize = (value: string) => {
@@ -368,7 +368,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
     return {
       ok: false,
       reason:
-        `QB Studio is editing ${selectedWorkspace}, but the runtime controls ` +
+        `FiveM Studio is editing ${selectedWorkspace}, but the runtime controls ` +
         `${identity.runtime.serverData.workspacePath}.`,
     };
   }
@@ -377,7 +377,7 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
     return {
       ok: false,
       reason:
-        `QB Studio expects ${selectedConfigPath}, but the runtime identifies ` +
+        `FiveM Studio expects ${selectedConfigPath}, but the runtime identifies ` +
         `${identity.runtime.serverData.configPath} as its server.cfg.`,
     };
   }

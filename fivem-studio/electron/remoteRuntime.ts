@@ -173,6 +173,46 @@ async function ensureRuntimeDeployed(settings: RemoteHostSettings, localRuntimeP
   }
 }
 
+/**
+ * Confirms server.cfg sits directly inside the chosen workspace before the
+ * runtime is launched.
+ *
+ * Getting this wrong is the easy mistake: txAdmin's data root holds the
+ * server-data folder rather than server.cfg itself, so pointing at the root
+ * fails. Rather than report only that the file is unreadable, this looks one
+ * level down and names the folder that should have been chosen.
+ */
+async function assertWorkspaceHasServerConfig(settings: RemoteHostSettings): Promise<void> {
+  const workspace = shellQuote(settings.workspacePath);
+  const script = [
+    `if [ -r ${workspace}/server.cfg ]; then echo __QB_OK__; exit 0; fi`,
+    `if [ ! -d ${workspace} ]; then echo __QB_NO_DIR__; exit 0; fi`,
+    `find ${workspace} -maxdepth 2 -name server.cfg 2>/dev/null | head -n 5`,
+    "exit 0",
+  ].join("\n");
+
+  const result = await runSsh(settings.sshTarget, ["sh", "-s"], script);
+  const output = result.stdout.trim();
+  if (output === "__QB_OK__") return;
+
+  if (output === "__QB_NO_DIR__") {
+    throw new Error(`${settings.workspacePath} does not exist on ${settings.sshTarget}.`);
+  }
+
+  const folders = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("/") && line.endsWith("/server.cfg"))
+    .map((line) => line.slice(0, -"/server.cfg".length));
+
+  if (folders.length > 0) {
+    throw new Error(
+      `No server.cfg directly inside ${settings.workspacePath}. It is in ${folders.join(" and ")} — set the workspace to that folder instead.`,
+    );
+  }
+  throw new Error(`No server.cfg found in or below ${settings.workspacePath} on ${settings.sshTarget}.`);
+}
+
 async function pickFreeLocalPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -295,6 +335,9 @@ export async function ensureRemoteRuntime(
 
   const token = randomBytes(32).toString("base64url");
   const startup = (async () => {
+    // Cheapest check first: a wrong workspace is the common misconfiguration,
+    // and there is no reason to upload 1.4MB before discovering it.
+    await assertWorkspaceHasServerConfig(settings);
     await ensureRuntimeDeployed(settings, localRuntimePath);
     const remotePort = await startRemoteRuntimeProcess(settings, token);
     const localPort = await pickFreeLocalPort();

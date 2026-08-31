@@ -51,6 +51,8 @@ const SetForegroundWindow = user32.func("bool __stdcall SetForegroundWindow(HWND
 const SetFocus = user32.func("HWND __stdcall SetFocus(HWND hWnd)");
 const AttachThreadInput = user32.func("bool __stdcall AttachThreadInput(uint32_t idAttach, uint32_t idAttachTo, bool fAttach)");
 const GetCurrentThreadId = kernel32.func("uint32_t __stdcall GetCurrentThreadId()");
+const GetLastError = kernel32.func("uint32_t __stdcall GetLastError()");
+const GetParent = user32.func("HWND __stdcall GetParent(HWND hWnd)");
 
 // DPI-awareness-context APIs (Windows 10 1607+) — guarded because older Windows lacks them.
 let GetWindowDpiAwarenessContext: ((hwnd: bigint) => bigint) | null = null;
@@ -274,7 +276,34 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
     SetWindowLongPtr(hwnd, GWL_STYLE, newStyle);
 
     const parentHandle = win.getNativeWindowHandle().readBigUInt64LE(0);
-    SetParent(hwnd, parentHandle);
+    const previousParent = SetParent(hwnd, parentHandle);
+    const setParentError = GetLastError() as number;
+
+    // SetParent is not guaranteed to hold. A game that owns its own window can
+    // re-assert its style and parent within a frame, and the call can also fail
+    // outright across processes — in both cases the app would otherwise report a
+    // successful attach and render an empty frame, which is indistinguishable
+    // from a rendering bug and sends people hunting the wrong problem.
+    const observedParent = GetParent(hwnd) as bigint | number | null;
+    const observedValue = typeof observedParent === "bigint" ? observedParent : BigInt(observedParent ?? 0);
+    if (observedValue !== parentHandle) {
+      SetWindowLongPtr(hwnd, GWL_STYLE, originalStyle);
+      withTargetDpiAwareness(hwnd, () =>
+        SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE),
+      );
+      attached = null;
+      const detail = observedValue === 0n
+        ? "the window is still top-level"
+        : `it reports a different parent (0x${observedValue.toString(16)})`;
+      return {
+        ok: false,
+        error:
+          `Could not embed that window: after reparenting, ${detail}` +
+          (setParentError ? ` (SetParent reported Windows error ${setParentError})` : "") +
+          ". Some games re-assert ownership of their own window and cannot be embedded.",
+      };
+    }
+    void previousParent;
     // Apply the style change WITHOUT moving or sizing. The previous form passed
     // 0,0,0,0 with neither SWP_NOMOVE nor SWP_NOSIZE, which resized the game to
     // 0x0 during the reparent: a D3D11 client handling that WM_SIZE resizes its

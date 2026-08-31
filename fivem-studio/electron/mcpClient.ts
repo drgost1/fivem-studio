@@ -317,6 +317,43 @@ function runtimeWorkspaceMatch(identity: RuntimeIdentity | null): RuntimeWorkspa
   }
 
   const config = loadConfig();
+
+  // A remote host has no local txData pair to compare against. Its workspace is
+  // the configured remote one, and the paths are POSIX: path.resolve() would
+  // rewrite /home/... into a drive-qualified Windows path and never match.
+  if (config.remote) {
+    const normalizePosix = (value: string) => value.replace(/\/+$/, "");
+    const remoteWorkspace = normalizePosix(config.remote.workspacePath);
+    const remoteConfigPath = normalizePosix(config.remote.serverConfigPath);
+
+    if (remoteWorkspace !== normalizePosix(identity.runtime.serverData.workspacePath)) {
+      return {
+        ok: false,
+        reason:
+          `QB Studio is configured for ${config.remote.workspacePath}, but the runtime controls ` +
+          `${identity.runtime.serverData.workspacePath}.`,
+      };
+    }
+    if (remoteConfigPath !== normalizePosix(identity.runtime.serverData.configPath)) {
+      return {
+        ok: false,
+        reason:
+          `QB Studio expects ${config.remote.serverConfigPath}, but the runtime identifies ` +
+          `${identity.runtime.serverData.configPath} as its server.cfg.`,
+      };
+    }
+    // RCON is loopback on the host by construction; only the port can drift.
+    if (identity.runtime.rcon.port !== config.remote.rconPort) {
+      return {
+        ok: false,
+        reason:
+          `The runtime RCON port ${identity.runtime.rcon.port} does not match the configured ` +
+          `${config.remote.rconPort}.`,
+      };
+    }
+    return { ok: true };
+  }
+
   if (!config.txDataPath || !config.selectedProfile) {
     return { ok: false, reason: "No local server-data workspace is selected in QB Studio." };
   }

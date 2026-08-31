@@ -1412,6 +1412,24 @@ function EmbedSurface({ active }: { active: boolean }) {
     }
   });
   const [ratioFit, setRatioFit] = useState<{ w: number; h: number } | null>(null);
+  // "native" keeps the game at its own in-game resolution, centered and
+  // clipped on the stage; "stretch" resizes the game window to the stage.
+  const [fitMode, setFitMode] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem("qbStudio.viewportFit") ?? "native";
+    } catch {
+      return "native";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("qbStudio.viewportFit", fitMode);
+    } catch {
+      // per-user nicety only
+    }
+    void window.api.windowEmbed.setFit(fitMode === "stretch" ? "stretch" : "native");
+  }, [fitMode]);
 
   useEffect(() => {
     try {
@@ -1511,6 +1529,13 @@ function EmbedSurface({ active }: { active: boolean }) {
   return (
     <>
       <div className="viewport-ratio-row">
+        <label>
+          Fit
+          <select value={fitMode} onChange={(event) => setFitMode(event.target.value)}>
+            <option value="native">Native — game keeps its resolution</option>
+            <option value="stretch">Stretch — fill the stage</option>
+          </select>
+        </label>
         <label>
           Aspect
           <select value={ratioId} onChange={(event) => setRatioId(event.target.value)}>

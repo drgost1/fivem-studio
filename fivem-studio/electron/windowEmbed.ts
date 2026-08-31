@@ -60,6 +60,7 @@ const GetWindowText = user32.func("int __stdcall GetWindowTextA(HWND hWnd, _Out_
 const GetWindowLongPtr = user32.func("int64_t __stdcall GetWindowLongPtrA(HWND hWnd, int nIndex)");
 const ClientToScreen = user32.func("bool __stdcall ClientToScreen(HWND hWnd, _Inout_ POINT *lpPoint)");
 const GetClientRect = user32.func("bool __stdcall GetClientRect(HWND hWnd, _Out_ RECT *lpRect)");
+const GetWindowRect = user32.func("bool __stdcall GetWindowRect(HWND hWnd, _Out_ RECT *lpRect)");
 const SetWindowRgn = user32.func("int __stdcall SetWindowRgn(HWND hWnd, void *hRgn, bool bRedraw)");
 const CreateRectRgn = gdi32.func("void * __stdcall CreateRectRgn(int x1, int y1, int x2, int y2)");
 const SetWindowLongPtr = user32.func("int64_t __stdcall SetWindowLongPtrA(HWND hWnd, int nIndex, int64_t dwNewLong)");
@@ -252,6 +253,28 @@ interface AttachedWindow {
   lastClip: string | null;
 }
 
+export type OverlayFitMode = "native" | "stretch";
+
+/** How the docked window fills the viewport stage.
+ *  - "native": the game window is never resized. It keeps whatever resolution
+ *    its own settings chose, is centered on the stage, and anything past the
+ *    stage is clipped. The viewport owns its shape; the game owns its
+ *    resolution — resizing the game on every layout change caused constant
+ *    swap-chain re-initialisation and in-game resolution churn.
+ *  - "stretch": the window is resized to the stage, so the game adopts the
+ *    stage as its render resolution. */
+let fitMode: OverlayFitMode = "native";
+
+export function setFitMode(mode: OverlayFitMode): void {
+  if (mode !== "native" && mode !== "stretch") return;
+  if (fitMode === mode) return;
+  fitMode = mode;
+  if (attached && attached.wasVisible && attached.lastRect) {
+    attached.lastClip = null;
+    applyOverlayRect(attached, attached.lastRect, false);
+  }
+}
+
 let attached: AttachedWindow | null = null;
 let anchorTimer: NodeJS.Timeout | null = null;
 
@@ -397,49 +420,80 @@ function reacquireWindow(pid: number): bigint | null {
   return null;
 }
 
-/** Positions the overlay over the given host-client rect. Screen position is
- * recomputed from the host window every time, so a moved host stays covered. */
+/** The overlay window's current outer size (physical pixels). */
+function overlayWindowSize(hwnd: bigint): { width: number; height: number } | null {
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  try {
+    if (!GetWindowRect(hwnd, rect)) return null;
+  } catch {
+    return null;
+  }
+  return { width: rect.right - rect.left, height: rect.bottom - rect.top };
+}
+
+/** Positions the overlay over the given stage rect (host-client coordinates).
+ * Screen position is recomputed from the host window every time, so a moved
+ * host stays covered. In "native" fit the window is positioned but NEVER
+ * resized; in "stretch" fit it is sized to the stage. */
 function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; width: number; height: number }, raise: boolean): void {
   const origin = hostClientOrigin(target.hostHwnd);
   if (!origin) return;
   // Passing null as insertAfter without SWP_NOZORDER means HWND_TOP; an owned
   // window already rides above its owner, so steady-state keeps NOZORDER and
   // only the rising edge raises explicitly.
-  SetWindowPos(
-    target.hwnd,
-    null,
-    origin.x + rect.x,
-    origin.y + rect.y,
-    rect.width,
-    rect.height,
-    raise ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOZORDER | SWP_NOACTIVATE,
-  );
-  clipOverlayToHost(target, rect);
+  const baseFlags = raise ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOZORDER | SWP_NOACTIVATE;
+
+  let windowClient: { x: number; y: number; width: number; height: number };
+  if (fitMode === "native") {
+    const size = overlayWindowSize(target.hwnd);
+    if (!size || size.width <= 0 || size.height <= 0) return;
+    windowClient = {
+      x: rect.x + Math.round((rect.width - size.width) / 2),
+      y: rect.y + Math.round((rect.height - size.height) / 2),
+      width: size.width,
+      height: size.height,
+    };
+    SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
+  } else {
+    windowClient = rect;
+    SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, rect.width, rect.height, baseFlags);
+  }
+  clipOverlay(target, windowClient, rect);
 }
 
-/** A top-level overlay obeys no parent bounds, so when Studio is smaller than
- * the measured viewport rect the game would spill past Studio's edges onto
- * the desktop. Clipping the window's region to the part that lies inside the
- * host's client area keeps the render resolution intact and simply does not
- * draw the rest. The system owns a region once set, so nothing is freed here. */
-function clipOverlayToHost(target: AttachedWindow, rect: { x: number; y: number; width: number; height: number }): void {
+/** A top-level overlay obeys no parent bounds, so it must be clipped to the
+ * part of it that lies inside BOTH the stage rect and the host's client area
+ * — otherwise it spills past Studio's edges onto the desktop, and in native
+ * fit a game larger than the stage would cover Studio's own UI. Clipping the
+ * region keeps render resolution intact and simply does not draw the rest.
+ * The system owns a region once set, so nothing is freed here. */
+function clipOverlay(
+  target: AttachedWindow,
+  windowClient: { x: number; y: number; width: number; height: number },
+  stage: { x: number; y: number; width: number; height: number },
+): void {
   const client = hostClientSize(target.hostHwnd);
   if (!client) return;
-  // Host client area expressed in overlay-local coordinates.
-  const left = Math.max(0, -rect.x);
-  const top = Math.max(0, -rect.y);
-  const right = Math.min(rect.width, client.width - rect.x);
-  const bottom = Math.min(rect.height, client.height - rect.y);
+  // Visible bounds in host-client coordinates: stage ∩ host client area.
+  const boundLeft = Math.max(stage.x, 0);
+  const boundTop = Math.max(stage.y, 0);
+  const boundRight = Math.min(stage.x + stage.width, client.width);
+  const boundBottom = Math.min(stage.y + stage.height, client.height);
+  // Translated into overlay-local coordinates and intersected with the window.
+  const left = Math.max(0, boundLeft - windowClient.x);
+  const top = Math.max(0, boundTop - windowClient.y);
+  const right = Math.min(windowClient.width, boundRight - windowClient.x);
+  const bottom = Math.min(windowClient.height, boundBottom - windowClient.y);
 
-  const fullyVisible = left === 0 && top === 0 && right === rect.width && bottom === rect.height;
+  const fullyVisible = left === 0 && top === 0 && right === windowClient.width && bottom === windowClient.height;
   const clipKey = fullyVisible ? "" : `${left},${top},${Math.max(left, right)},${Math.max(top, bottom)}`;
   if (target.lastClip === clipKey) return;
   try {
     if (fullyVisible) {
       SetWindowRgn(target.hwnd, null, true);
     } else if (right <= left || bottom <= top) {
-      // Entirely outside the host — an empty region hides it without touching
-      // visibility state the show/hide logic owns.
+      // Entirely outside the visible bounds — an empty region hides it without
+      // touching visibility state the show/hide logic owns.
       SetWindowRgn(target.hwnd, CreateRectRgn(0, 0, 0, 0), true);
     } else {
       SetWindowRgn(target.hwnd, CreateRectRgn(left, top, right, bottom), true);

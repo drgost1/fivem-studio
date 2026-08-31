@@ -1677,6 +1677,9 @@ function registerIpcHandlers() {
     mainWindow ? windowEmbed.attach(requireString(candidateId, "Window candidate id", 128), mainWindow) : { ok: false, error: "No main window" },
   );
   ipcMain.handle("windowEmbed:detach", () => windowEmbed.detach());
+  ipcMain.handle("windowEmbed:setFit", (_e, mode: unknown) =>
+    windowEmbed.setFitMode(mode === "stretch" ? "stretch" : "native"),
+  );
   ipcMain.handle("windowEmbed:setRect", (_e, x: unknown, y: unknown, width: unknown, height: unknown, visible: unknown) =>
     windowEmbed.setRect(
       requireFiniteNumber(x, "x"),

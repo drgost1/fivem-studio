@@ -3057,6 +3057,7 @@ button.tree-node {
 .viewport-ratio-row {
   display: flex;
   justify-content: flex-end;
+  gap: 14px;
   margin: 0 0 4px;
 }
 .viewport-ratio-row label {

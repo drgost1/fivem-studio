@@ -689,6 +689,7 @@ declare global {
         listCandidates(): Promise<WindowCandidate[]>;
         attach(candidateId: string): Promise<AttachResult>;
         detach(): Promise<void>;
+        setFit(mode: "native" | "stretch"): Promise<void>;
         setRect(x: number, y: number, width: number, height: number, visible: boolean): Promise<void>;
       };
       dialog: {

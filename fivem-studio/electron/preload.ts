@@ -125,6 +125,7 @@ const api = {
     listCandidates: () => ipcRenderer.invoke("windowEmbed:listCandidates"),
     attach: (candidateId: string) => ipcRenderer.invoke("windowEmbed:attach", candidateId),
     detach: () => ipcRenderer.invoke("windowEmbed:detach"),
+    setFit: (mode: string) => ipcRenderer.invoke("windowEmbed:setFit", mode),
     setRect: (x: number, y: number, width: number, height: number, visible: boolean) =>
       ipcRenderer.invoke("windowEmbed:setRect", x, y, width, height, visible),
   },

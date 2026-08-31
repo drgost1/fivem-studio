@@ -1474,7 +1474,7 @@ function registerIpcHandlers() {
     }
     let libraryRoots: string[];
     try {
-      libraryRoots = resolveLuaDefinitionPackRoots(libraryRoot, config.activeCfxTarget);
+      libraryRoots = resolveLuaDefinitionPackRoots(libraryRoot, config.activeCfxTarget, config.luaFrameworkPack);
     } catch (error) {
       return { ok: false as const, mode, error: (error as Error).message };
     }

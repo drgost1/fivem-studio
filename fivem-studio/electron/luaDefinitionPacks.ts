@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { CfxTarget } from "./configStore";
+import type { CfxTarget, LuaFrameworkPack } from "./configStore";
 
 /**
  * User-facing definition products. Runtime declarations needed by a game are
@@ -10,8 +10,14 @@ import type { CfxTarget } from "./configStore";
  */
 export type LuaDefinitionPackName = "fivem" | "redm" | "qbcore";
 
-export function definitionPackNamesFor(target: CfxTarget): readonly LuaDefinitionPackName[] {
-  return target === "redm" ? ["redm"] : ["fivem", "qbcore"];
+export function definitionPackNamesFor(
+  target: CfxTarget,
+  framework: LuaFrameworkPack = "qbcore",
+): readonly LuaDefinitionPackName[] {
+  if (target === "redm") return ["redm"];
+  // Servers on another framework are better served by the platform pack alone
+  // than by declarations for an API they do not run.
+  return framework === "none" ? ["fivem"] : ["fivem", framework];
 }
 
 /**
@@ -19,9 +25,13 @@ export function definitionPackNamesFor(target: CfxTarget): readonly LuaDefinitio
  * receive concrete paths rather than pack names, so the renderer cannot use
  * IPC to select arbitrary LuaLS library directories.
  */
-export function resolveLuaDefinitionPackRoots(libraryRoot: string, target: CfxTarget): string[] {
+export function resolveLuaDefinitionPackRoots(
+  libraryRoot: string,
+  target: CfxTarget,
+  framework: LuaFrameworkPack = "qbcore",
+): string[] {
   const root = path.resolve(libraryRoot);
-  const packRoots = definitionPackNamesFor(target).map((pack) => path.join(root, pack));
+  const packRoots = definitionPackNamesFor(target, framework).map((pack) => path.join(root, pack));
   const missing = packRoots.filter((packRoot) => {
     try {
       return !fs.statSync(packRoot).isDirectory();

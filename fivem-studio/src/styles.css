@@ -3052,6 +3052,30 @@ button.tree-node {
 }
 .settings-mode-note em { color: var(--text); font-style: normal; font-weight: 600; }
 
+/* Viewport aspect-ratio picker. The surface letterboxes to the chosen ratio
+   and the docked game window follows the measured container. */
+.viewport-ratio-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 4px;
+}
+.viewport-ratio-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.viewport-ratio-row select {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
 .settings-divider {
   margin: 16px 0 10px;
   padding-top: 12px;

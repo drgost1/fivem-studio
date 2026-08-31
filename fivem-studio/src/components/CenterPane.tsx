@@ -1383,9 +1383,65 @@ function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
 
 /** Just the measured placeholder for the currently-attached native window — no text, no buttons,
  * nothing that a slightly-imprecise embed rect could end up covering. */
+/** Pending deferred detach. Module-level on purpose: a remount must be able
+ * to cancel a teardown scheduled by the PREVIOUS component instance — React
+ * StrictMode and react-refresh both replace the instance, so an instance ref
+ * cannot span the gap, and the stale timeout was dismantling a live embed. */
+let pendingEmbedDetach: ReturnType<typeof setTimeout> | null = null;
+
+const VIEWPORT_RATIOS: readonly { id: string; label: string; value: number | null }[] = [
+  { id: "free", label: "Free", value: null },
+  { id: "16-9", label: "16:9", value: 16 / 9 },
+  { id: "16-10", label: "16:10", value: 16 / 10 },
+  { id: "4-3", label: "4:3", value: 4 / 3 },
+  { id: "21-9", label: "21:9", value: 21 / 9 },
+];
+
 function EmbedSurface({ active }: { active: boolean }) {
-  const pendingDetachRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  // Selected viewport aspect ratio. "free" fills the panel; a fixed ratio
+  // letterboxes the surface inside it, and the game adopts the surface size
+  // as its render resolution. A per-user convenience, so it lives in
+  // localStorage rather than StudioConfig.
+  const [ratioId, setRatioId] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem("qbStudio.viewportRatio") ?? "free";
+    } catch {
+      return "free";
+    }
+  });
+  const [ratioFit, setRatioFit] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("qbStudio.viewportRatio", ratioId);
+    } catch {
+      // per-user nicety only
+    }
+    const ratio = VIEWPORT_RATIOS.find((entry) => entry.id === ratioId)?.value ?? null;
+    const outer = outerRef.current;
+    if (!ratio || !outer) {
+      setRatioFit(null);
+      return;
+    }
+    const compute = () => {
+      const rect = outer.getBoundingClientRect();
+      if (rect.width <= 2 || rect.height <= 2) return;
+      // -2 accounts for the outer's 1px padding ring on each side.
+      let width = rect.width - 2;
+      let height = width / ratio;
+      if (height > rect.height - 2) {
+        height = rect.height - 2;
+        width = height * ratio;
+      }
+      setRatioFit({ w: Math.floor(width), h: Math.floor(height) });
+    };
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(outer);
+    return () => observer.disconnect();
+  }, [ratioId]);
 
   // Measure only when layout can actually change. The old perpetual rAF loop sent 60 IPC calls
   // and repeated SetWindowPos/ShowWindow every second even for a completely static viewport.
@@ -1437,28 +1493,44 @@ function EmbedSurface({ active }: { active: boolean }) {
   // viewport stayed empty while the UI still reported "Attached". A real
   // unmount has nothing to cancel it, so the safety net still works.
   useEffect(() => {
-    if (pendingDetachRef.current !== null) {
-      clearTimeout(pendingDetachRef.current);
-      pendingDetachRef.current = null;
+    if (pendingEmbedDetach !== null) {
+      clearTimeout(pendingEmbedDetach);
+      pendingEmbedDetach = null;
     }
     return () => {
-      pendingDetachRef.current = setTimeout(() => {
-        pendingDetachRef.current = null;
+      pendingEmbedDetach = setTimeout(() => {
+        pendingEmbedDetach = null;
         void window.api.windowEmbed.detach().catch(() => {
           // Component teardown has no remaining UI to recover; main-process
           // window cleanup remains the authoritative safety net.
         });
-      }, 0);
+      }, 250);
     };
   }, []);
 
   return (
-    // alignSelf/width here override .viewport-frame's `align-items: center` — without them this
-    // flex item has no explicit cross-axis size and shrink-wraps to ~0 width while `flex: 1` still
-    // lets it grow tall, which is exactly the "long, very very skinny" box that showed up.
-    <div style={{ flex: 1, alignSelf: "stretch", width: "100%", minHeight: 0, border: "1px solid var(--border)", borderRadius: 4, padding: 1 }}>
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-    </div>
+    <>
+      <div className="viewport-ratio-row">
+        <label>
+          Aspect
+          <select value={ratioId} onChange={(event) => setRatioId(event.target.value)}>
+            {VIEWPORT_RATIOS.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {/* alignSelf/width here override .viewport-frame's `align-items: center` — without them this
+          flex item has no explicit cross-axis size and shrink-wraps to ~0 width while `flex: 1` still
+          lets it grow tall, which is exactly the "long, very very skinny" box that showed up.
+          Centering letterboxes the surface when a fixed aspect ratio is selected. */}
+      <div
+        ref={outerRef}
+        style={{ flex: 1, alignSelf: "stretch", width: "100%", minHeight: 0, border: "1px solid var(--border)", borderRadius: 4, padding: 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <div ref={containerRef} style={ratioFit ? { width: ratioFit.w, height: ratioFit.h } : { width: "100%", height: "100%" }} />
+      </div>
+    </>
   );
 }
 

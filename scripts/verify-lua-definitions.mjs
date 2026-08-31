@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+/** Framework packs shipped as hand-curated LuaCATS definitions. */
+export const CURATED_PACKS = ["qbcore", "qbox", "esx"];
+
 function readJson(filePath, label) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -69,9 +72,9 @@ export function verifyLuaDefinitions(definitionRoot, options = {}) {
   if (
     manifest.schemaVersion !== 1 ||
     manifest.reviewedAt !== release.reviewedAt ||
-    !sameArray(manifest.productPacks ?? [], ["fivem", "redm", "qbcore"])
+    !sameArray(manifest.productPacks ?? [], ["fivem", "redm", ...CURATED_PACKS])
   ) {
-    throw new Error("The Lua definition bundle must declare exactly the FiveM, RedM, and QBCore product packs.");
+    throw new Error(`The Lua definition bundle must declare exactly the FiveM, RedM, and ${CURATED_PACKS.map((pack) => pack.toUpperCase()).join(", ")} product packs.`);
   }
   if (
     manifest.sources?.addon?.repository !== release.addon?.repository ||
@@ -93,16 +96,18 @@ export function verifyLuaDefinitions(definitionRoot, options = {}) {
   ) {
     throw new Error("The bundled platform definitions do not match their reviewed source and RedM allowlist pins.");
   }
-  if (
-    manifest.sources?.qbcore?.maintenance !== "curated" ||
-    manifest.sources?.qbcore?.path !== "qbcore/qbcore.lua"
-  ) {
-    throw new Error("The QBCore definition pack must remain explicitly curated.");
+  const uncurated = CURATED_PACKS.find(
+    (pack) =>
+      manifest.sources?.[pack]?.maintenance !== "curated" ||
+      manifest.sources?.[pack]?.path !== `${pack}/${pack}.lua`,
+  );
+  if (uncurated) {
+    throw new Error(`The ${uncurated.toUpperCase()} definition pack must remain explicitly curated.`);
   }
 
   const topLevel = fs.readdirSync(resolvedRoot, { withFileTypes: true });
   const topNames = topLevel.map((entry) => entry.name).sort((a, b) => a.localeCompare(b));
-  const expectedTopNames = ["fivem", "manifest.json", "plugin.lua", "qbcore", "redm", "THIRD_PARTY_LICENSES"]
+  const expectedTopNames = ["fivem", "manifest.json", "plugin.lua", ...CURATED_PACKS, "redm", "THIRD_PARTY_LICENSES"]
     .sort((a, b) => a.localeCompare(b));
   if (!sameArray(topNames, expectedTopNames)) {
     throw new Error(`Unexpected top-level Lua definition content: ${topNames.join(", ")}.`);
@@ -133,13 +138,13 @@ export function verifyLuaDefinitions(definitionRoot, options = {}) {
     throw new Error(`Lua definition files do not match the manifest. Missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}.`);
   }
 
-  const counts = { fivem: 0, redm: 0, qbcore: 0 };
+  const counts = { fivem: 0, redm: 0, ...Object.fromEntries(CURATED_PACKS.map((pack) => [pack, 0])) };
   for (const record of manifest.files) {
     if (!record || !Number.isSafeInteger(record.bytes) || record.bytes <= 0 || record.bytes > 500 * 1024) {
       throw new Error(`Definition file has an unsafe or invalid size: ${record?.path ?? "unknown"}.`);
     }
     if (!/^[a-f0-9]{64}$/.test(record.sha256 ?? "")) throw new Error(`Definition file has an invalid checksum: ${record.path}.`);
-    if (!["overextended-addon", "official-platform-json", "qbcore-curated"].includes(record.source)) {
+    if (!["overextended-addon", "official-platform-json", ...CURATED_PACKS.map((pack) => `${pack}-curated`)].includes(record.source)) {
       throw new Error(`Definition file has an unknown source classification: ${record.path}.`);
     }
     const absolute = path.resolve(resolvedRoot, ...record.path.split("/"));
@@ -153,7 +158,7 @@ export function verifyLuaDefinitions(definitionRoot, options = {}) {
     if (Object.hasOwn(counts, product)) counts[product] += 1;
   }
 
-  if (counts.fivem !== 52 || counts.redm !== 94 || counts.qbcore < 1) {
+  if (counts.fivem !== 52 || counts.redm !== 94 || CURATED_PACKS.some((pack) => counts[pack] < 1)) {
     throw new Error(`Unexpected definition pack sizes: ${JSON.stringify(counts)}.`);
   }
   if (

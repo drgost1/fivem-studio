@@ -8,7 +8,7 @@ import type { CfxTarget, LuaFrameworkPack } from "./configStore";
  * kept inside that game's pack so the language service never has a fourth,
  * ambiguous platform-only library to load.
  */
-export type LuaDefinitionPackName = "fivem" | "redm" | "qbcore";
+export type LuaDefinitionPackName = "fivem" | "redm" | "qbcore" | "qbox" | "esx";
 
 export function definitionPackNamesFor(
   target: CfxTarget,

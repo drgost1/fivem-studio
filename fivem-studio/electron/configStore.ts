@@ -86,8 +86,8 @@ export interface EditorPreferences {
 export type CfxTarget = "legacy" | "enhanced" | "redm";
 /** Framework declarations loaded alongside the platform pack. "none" suits
  * servers running a framework this build ships no curated pack for. */
-export type LuaFrameworkPack = "qbcore" | "none";
-export const LUA_FRAMEWORK_PACKS: readonly LuaFrameworkPack[] = ["qbcore", "none"];
+export type LuaFrameworkPack = "qbcore" | "qbox" | "esx" | "none";
+export const LUA_FRAMEWORK_PACKS: readonly LuaFrameworkPack[] = ["qbcore", "qbox", "esx", "none"];
 export type BuiltInThemePreference = "system" | "dark" | "light" | "high-contrast";
 export type ThemePreference = BuiltInThemePreference | `custom:${string}`;
 
@@ -463,7 +463,9 @@ export function normalizeConfig(value: unknown): StudioConfig {
     theme: themePreferenceOrDefault(raw.theme),
     uiScale: uiScaleOrDefault(raw.uiScale),
     activeCfxTarget,
-    luaFrameworkPack: raw.luaFrameworkPack === "none" ? "none" : DEFAULTS.luaFrameworkPack,
+    luaFrameworkPack: LUA_FRAMEWORK_PACKS.includes(raw.luaFrameworkPack as LuaFrameworkPack)
+      ? (raw.luaFrameworkPack as LuaFrameworkPack)
+      : DEFAULTS.luaFrameworkPack,
     legacyFivemExePath:
       nullablePath(raw.legacyFivemExePath) ?? (inferredTarget === "legacy" ? oldClientPath : null),
     enhancedFivemExePath:

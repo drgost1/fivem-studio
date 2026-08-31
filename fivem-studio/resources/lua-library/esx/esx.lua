@@ -1,0 +1,133 @@
+---@meta
+
+-- QB Studio's curated ESX Legacy (es_extended) LuaCATS definitions. This pack
+-- is maintained separately from the generated FiveM and RedM engine
+-- definitions and targets ESX Legacy, not the abandoned 1.1/1.2 forks.
+--
+-- The ESX global comes from `shared_script '@es_extended/imports.lua'`. On
+-- older servers without imports: ESX = exports['es_extended']:getSharedObject()
+--
+-- ESX is money-account oriented: use getAccount/addAccountMoney rather than the
+-- deprecated getMoney/addMoney helpers.
+
+---@alias EsxPlayerId integer
+---@alias EsxAccountName 'money'|'bank'|'black_money'
+
+---@class EsxAccount
+---@field name EsxAccountName|string
+---@field money number
+---@field label string
+---@field round? integer
+
+---@class EsxJob
+---@field id integer
+---@field name string
+---@field label string
+---@field grade integer
+---@field grade_name string
+---@field grade_label string
+---@field grade_salary number
+---@field skin_male table
+---@field skin_female table
+
+---@class EsxInventoryItem
+---@field name string
+---@field count integer
+---@field label string
+---@field weight number
+---@field usable boolean
+---@field rare boolean
+---@field canRemove boolean
+
+---@class EsxPlayer
+---@field source EsxPlayerId
+---@field identifier string
+---@field group string
+---@field job EsxJob
+---@field accounts EsxAccount[]
+---@field inventory EsxInventoryItem[]
+---@field variables table
+--- Identity.
+---@field getIdentifier fun(self: EsxPlayer): string
+---@field getName fun(self: EsxPlayer): string
+---@field setName fun(self: EsxPlayer, name: string)
+---@field getGroup fun(self: EsxPlayer): string
+---@field setGroup fun(self: EsxPlayer, group: string)
+--- Job.
+---@field getJob fun(self: EsxPlayer): EsxJob
+---@field setJob fun(self: EsxPlayer, job: string, grade: integer)
+---@field toggleDuty fun(self: EsxPlayer, duty?: boolean)
+--- Money. Prefer accounts; the bare money helpers are deprecated compatibility.
+---@field getAccount fun(self: EsxPlayer, account: EsxAccountName|string): EsxAccount
+---@field getAccounts fun(self: EsxPlayer, minimal?: boolean): EsxAccount[]
+---@field addAccountMoney fun(self: EsxPlayer, account: EsxAccountName|string, amount: number, reason?: string)
+---@field removeAccountMoney fun(self: EsxPlayer, account: EsxAccountName|string, amount: number, reason?: string)
+---@field setAccountMoney fun(self: EsxPlayer, account: EsxAccountName|string, amount: number, reason?: string)
+--- Inventory. Skip when ox_inventory is installed.
+---@field addInventoryItem fun(self: EsxPlayer, item: string, count: integer)
+---@field removeInventoryItem fun(self: EsxPlayer, item: string, count: integer)
+---@field getInventoryItem fun(self: EsxPlayer, item: string): EsxInventoryItem?
+---@field setInventoryItem fun(self: EsxPlayer, item: string, count: integer)
+---@field canCarryItem fun(self: EsxPlayer, item: string, count: integer): boolean
+---@field hasItem fun(self: EsxPlayer, item: string): EsxInventoryItem?
+--- Weapons. ox_inventory treats weapons as items instead.
+---@field addWeapon fun(self: EsxPlayer, weapon: string, ammo: integer)
+---@field removeWeapon fun(self: EsxPlayer, weapon: string)
+---@field hasWeapon fun(self: EsxPlayer, weapon: string): boolean
+---@field addWeaponAmmo fun(self: EsxPlayer, weapon: string, ammo: integer)
+---@field addWeaponComponent fun(self: EsxPlayer, weapon: string, component: string)
+--- Metadata and position.
+---@field getMeta fun(self: EsxPlayer, key?: string, subKey?: string|table): any
+---@field setMeta fun(self: EsxPlayer, key: string, value: any, subValue?: any)
+---@field clearMeta fun(self: EsxPlayer, key: string, subKeys?: string|table)
+---@field getCoords fun(self: EsxPlayer, vector?: boolean, rotation?: boolean): vector3|table
+---@field setCoords fun(self: EsxPlayer, coords: vector3|vector4|table)
+--- Session and messaging.
+---@field triggerEvent fun(self: EsxPlayer, eventName: string, ...: any)
+---@field showNotification fun(self: EsxPlayer, message: string, notifyType?: string, duration?: integer)
+---@field showHelpNotification fun(self: EsxPlayer, message: string, thisFrame?: boolean, beep?: boolean, duration?: integer)
+---@field kick fun(self: EsxPlayer, reason: string)
+
+---@class EsxCommandArgument
+---@field name string
+---@field help? string
+---@field type? string
+---@field validate? boolean
+
+---@class EsxSharedObject
+--- Server player lookups. Always nil-check the result.
+---@field GetPlayerFromId fun(source: EsxPlayerId): EsxPlayer?
+---@field GetPlayerFromIdentifier fun(identifier: string): EsxPlayer?
+---@field GetExtendedPlayers fun(key?: string, value?: any): EsxPlayer[]
+---@field GetPlayers fun(): EsxPlayerId[]
+---@field Player fun(source: EsxPlayerId): EsxPlayer?
+--- Server registration helpers.
+---@field RegisterServerCallback fun(name: string, handler: fun(source: EsxPlayerId, cb: fun(...), ...: any))
+---@field RegisterUsableItem fun(item: string, handler: fun(source: EsxPlayerId))
+---@field RegisterCommand fun(name: string|string[], group: string|string[], handler: fun(xPlayer: EsxPlayer, args: table, showError: fun(message: string)), allowConsole?: boolean, suggestion?: table)
+--- Client helpers.
+---@field GetPlayerData fun(): table
+---@field SetPlayerData fun(key: string, value: any)
+---@field TriggerServerCallback fun(name: string, cb: fun(...), ...: any)
+---@field ShowNotification fun(message: string, notifyType?: string, duration?: integer)
+---@field ShowHelpNotification fun(message: string, thisFrame?: boolean, beep?: boolean, duration?: integer)
+---@field ShowAdvancedNotification fun(sender: string, subject: string, message: string, textureDict: string, iconType: integer, flash?: boolean, saveToBrief?: boolean, hudColorIndex?: integer)
+---@field TextUI fun(message: string, notifyType?: string)
+---@field HideUI fun()
+---@field Progressbar fun(message: string, duration: integer, options?: table)
+---@field Game table
+---@field Scaleform table
+---@field Streaming table
+--- Shared utilities.
+---@field Math table
+---@field Table table
+---@field GetConfig fun(): table
+---@field GetWeapon fun(weaponName: string): integer, table
+---@field GetWeaponList fun(): table[]
+---@field GetItemLabel fun(item: string): string?
+---@field Round fun(value: number, decimalPlaces?: integer): number
+---@field DumpTable fun(value: table): string
+
+--- Provided by `shared_script '@es_extended/imports.lua'` on both sides.
+---@type EsxSharedObject
+ESX = {}

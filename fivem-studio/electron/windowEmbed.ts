@@ -39,11 +39,14 @@ const koffi = require("koffi") as typeof import("koffi", { with: { "resolution-m
 
 const user32 = koffi.load("user32.dll");
 const kernel32 = koffi.load("kernel32.dll");
+const gdi32 = koffi.load("gdi32.dll");
 
 const HANDLE = koffi.pointer("HANDLE", koffi.opaque());
 const HWND = koffi.alias("HWND", HANDLE);
 const POINT = koffi.struct("POINT", { x: "long", y: "long" });
+const RECT = koffi.struct("RECT", { left: "long", top: "long", right: "long", bottom: "long" });
 void POINT;
+void RECT;
 
 const GetTopWindow = user32.func("HWND __stdcall GetTopWindow(HWND hWnd)");
 const GetWindow = user32.func("HWND __stdcall GetWindow(HWND hWnd, uint32_t uCmd)");
@@ -56,6 +59,9 @@ const GetWindowTextLength = user32.func("int __stdcall GetWindowTextLengthA(HWND
 const GetWindowText = user32.func("int __stdcall GetWindowTextA(HWND hWnd, _Out_ uint8_t *lpString, int nMaxCount)");
 const GetWindowLongPtr = user32.func("int64_t __stdcall GetWindowLongPtrA(HWND hWnd, int nIndex)");
 const ClientToScreen = user32.func("bool __stdcall ClientToScreen(HWND hWnd, _Inout_ POINT *lpPoint)");
+const GetClientRect = user32.func("bool __stdcall GetClientRect(HWND hWnd, _Out_ RECT *lpRect)");
+const SetWindowRgn = user32.func("int __stdcall SetWindowRgn(HWND hWnd, void *hRgn, bool bRedraw)");
+const CreateRectRgn = gdi32.func("void * __stdcall CreateRectRgn(int x1, int y1, int x2, int y2)");
 const SetWindowLongPtr = user32.func("int64_t __stdcall SetWindowLongPtrA(HWND hWnd, int nIndex, int64_t dwNewLong)");
 const SetWindowPos = user32.func(
   "bool __stdcall SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, uint32_t uFlags)",
@@ -242,6 +248,8 @@ interface AttachedWindow {
   lastRect: { x: number; y: number; width: number; height: number } | null;
   /** When the client destroyed its window and no replacement has appeared yet. */
   missingSince: number | null;
+  /** Last applied clip region, as "l,t,r,b" or "" for unclipped. */
+  lastClip: string | null;
 }
 
 let attached: AttachedWindow | null = null;
@@ -332,6 +340,7 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
       wasVisible: false,
       lastRect: null,
       missingSince: null,
+      lastClip: null,
     };
     startAnchorTimer();
     return { ok: true };
@@ -351,6 +360,17 @@ function applyOverlay(hwnd: bigint, hostHwnd: bigint): { originalStyle: number; 
   SetWindowLongPtr(hwnd, GWL_HWNDPARENT, hostHwnd);
   SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
   return { originalStyle, originalOwner };
+}
+
+/** The host's client-area size (physical pixels). */
+function hostClientSize(hostHwnd: bigint): { width: number; height: number } | null {
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  try {
+    if (!GetClientRect(hostHwnd, rect)) return null;
+  } catch {
+    return null;
+  }
+  return { width: rect.right - rect.left, height: rect.bottom - rect.top };
 }
 
 /** The host's client origin in screen coordinates (physical pixels). */
@@ -394,6 +414,40 @@ function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; 
     rect.height,
     raise ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOZORDER | SWP_NOACTIVATE,
   );
+  clipOverlayToHost(target, rect);
+}
+
+/** A top-level overlay obeys no parent bounds, so when Studio is smaller than
+ * the measured viewport rect the game would spill past Studio's edges onto
+ * the desktop. Clipping the window's region to the part that lies inside the
+ * host's client area keeps the render resolution intact and simply does not
+ * draw the rest. The system owns a region once set, so nothing is freed here. */
+function clipOverlayToHost(target: AttachedWindow, rect: { x: number; y: number; width: number; height: number }): void {
+  const client = hostClientSize(target.hostHwnd);
+  if (!client) return;
+  // Host client area expressed in overlay-local coordinates.
+  const left = Math.max(0, -rect.x);
+  const top = Math.max(0, -rect.y);
+  const right = Math.min(rect.width, client.width - rect.x);
+  const bottom = Math.min(rect.height, client.height - rect.y);
+
+  const fullyVisible = left === 0 && top === 0 && right === rect.width && bottom === rect.height;
+  const clipKey = fullyVisible ? "" : `${left},${top},${Math.max(left, right)},${Math.max(top, bottom)}`;
+  if (target.lastClip === clipKey) return;
+  try {
+    if (fullyVisible) {
+      SetWindowRgn(target.hwnd, null, true);
+    } else if (right <= left || bottom <= top) {
+      // Entirely outside the host — an empty region hides it without touching
+      // visibility state the show/hide logic owns.
+      SetWindowRgn(target.hwnd, CreateRectRgn(0, 0, 0, 0), true);
+    } else {
+      SetWindowRgn(target.hwnd, CreateRectRgn(left, top, right, bottom), true);
+    }
+    target.lastClip = clipKey;
+  } catch {
+    // best-effort — an unclipped overlay is the pre-existing behaviour
+  }
 }
 
 /** Keeps `attached` pointing at a live window, re-acquiring a recreated one.
@@ -473,6 +527,7 @@ export function detach(): void {
   if (!attachedWindowStillOwned(previous)) return;
   const hwnd = previous.hwnd;
   try {
+    SetWindowRgn(hwnd, null, true);
     SetWindowLongPtr(hwnd, GWL_STYLE, previous.originalStyle);
     SetWindowLongPtr(hwnd, GWL_HWNDPARENT, previous.originalOwner);
     SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);

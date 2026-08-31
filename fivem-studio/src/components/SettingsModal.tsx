@@ -577,6 +577,137 @@ export default function SettingsModal({
         </label>
         <div className="field-hint">{t("console.notifyExitHelp")}</div>
 
+        <div className="settings-divider">Lua intelligence</div>
+        <label className="field-label">
+          Framework definitions
+          <select
+            value={draft.luaFrameworkPack}
+            onChange={(event) => setDraft((current) => ({
+              ...current,
+              luaFrameworkPack: event.target.value as typeof current.luaFrameworkPack,
+            }))}
+          >
+            <option value="qbcore">QBCore</option>
+            <option value="qbox">Qbox (qbx_core)</option>
+            <option value="esx">ESX Legacy</option>
+            <option value="none">Platform only</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Loaded alongside the FiveM platform pack. Pick the framework this server actually runs — declarations
+          for a framework you do not run produce confidently wrong completions. &quot;Platform only&quot; skips
+          framework declarations entirely.
+        </div>
+
+        <div className="settings-divider">Remote host (SSH)</div>
+        <label className="field-label">
+          Run the coding runtime on a remote host
+          <select
+            value={draft.remote ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({
+              ...current,
+              remote: event.target.value === "on"
+                ? (current.remote ?? {
+                    sshTarget: "",
+                    workspacePath: "",
+                    serverConfigPath: "",
+                    txAdminDataDir: null,
+                    txAdminControlProfile: null,
+                    rconPort: 30120,
+                    nodePath: "/usr/bin/node",
+                    runtimePath: "/opt/qb-studio/runtime.cjs",
+                  })
+                : null,
+            }))}
+          >
+            <option value="off">{t("common.off")}</option>
+            <option value="on">{t("common.on")}</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Off by default, and unrelated to editing: this only moves the console and resource-lifecycle runtime.
+          The runtime binds loopback on the host and reaches RCON at 127.0.0.1 there, so the RCON password never
+          crosses the network; SSH carries an authenticated tunnel to a loopback port here. Requires key-based
+          SSH (no password prompt) and Node 24 on the host.
+        </div>
+        {draft.remote ? (
+          <>
+            <label className="field-label">
+              SSH host
+              <input
+                type="text"
+                value={draft.remote.sshTarget}
+                placeholder="my-server or user@host"
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, sshTarget: event.target.value.trim() },
+                } : current))}
+              />
+            </label>
+            <div className="field-hint">A host your SSH client already resolves — an alias from ~/.ssh/config, or user@host.</div>
+            <label className="field-label">
+              Server-data workspace on the host
+              <input
+                type="text"
+                value={draft.remote.workspacePath}
+                placeholder="/home/fivem/txData1/server-data"
+                onChange={(event) => setDraft((current) => {
+                  if (!current.remote) return current;
+                  const workspacePath = event.target.value.trim().replace(/\/+$/, "");
+                  return {
+                    ...current,
+                    // server.cfg must sit directly inside the workspace, so it is
+                    // derived rather than asked for twice.
+                    remote: { ...current.remote, workspacePath, serverConfigPath: workspacePath ? `${workspacePath}/server.cfg` : "" },
+                  };
+                })}
+              />
+            </label>
+            <div className="field-hint">Absolute path on the host. server.cfg is expected directly inside it.</div>
+            <label className="field-label">
+              RCON port
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={draft.remote.rconPort}
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, rconPort: Number(event.target.value) },
+                } : current))}
+              />
+            </label>
+            <label className="field-label">
+              Node on the host
+              <input
+                type="text"
+                value={draft.remote.nodePath}
+                placeholder="/usr/bin/node"
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, nodePath: event.target.value.trim() },
+                } : current))}
+              />
+            </label>
+            <label className="field-label">
+              Runtime path on the host
+              <input
+                type="text"
+                value={draft.remote.runtimePath}
+                placeholder="/opt/qb-studio/runtime.cjs"
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, runtimePath: event.target.value.trim() },
+                } : current))}
+              />
+            </label>
+            <div className="field-hint">
+              Where the bundled runtime is deployed. QB Studio uploads it here on connect when it is missing or
+              differs from the bundled copy.
+            </div>
+          </>
+        ) : null}
+
         <div className="settings-divider">Discord</div>
         <label className="field-label">
           Rich Presence

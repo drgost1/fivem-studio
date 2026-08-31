@@ -6,6 +6,9 @@ export interface StudioConfig {
   theme: ThemePreference;
   uiScale: number;
   activeCfxTarget: CfxTarget;
+  luaFrameworkPack: LuaFrameworkPack;
+  /** Optional remote host. Null (the default) keeps every local path unchanged. */
+  remote: RemoteHostSettings | null;
   legacyFivemExePath: string | null;
   enhancedFivemExePath: string | null;
   redmClientExePath: string | null;
@@ -20,6 +23,22 @@ export interface StudioConfig {
   agentSpendWarningUsd: number;
   editor: EditorPreferences;
   agent: AgentSettings;
+}
+
+/** Framework declarations loaded alongside the platform pack. */
+export type LuaFrameworkPack = "qbcore" | "qbox" | "esx" | "none";
+
+/** Remote host coordinates. Holds no secrets: SSH owns authentication via the
+ * user's own client configuration, and this object reaches the renderer. */
+export interface RemoteHostSettings {
+  sshTarget: string;
+  workspacePath: string;
+  serverConfigPath: string;
+  txAdminDataDir: string | null;
+  txAdminControlProfile: string | null;
+  rconPort: number;
+  nodePath: string;
+  runtimePath: string;
 }
 
 export type ConsoleOutputSource = "server" | "client";

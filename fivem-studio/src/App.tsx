@@ -72,6 +72,8 @@ const DEFAULT_CONFIG: StudioConfig = {
   theme: "system",
   uiScale: 1,
   activeCfxTarget: "legacy",
+  luaFrameworkPack: "qbcore",
+  remote: null,
   legacyFivemExePath: null,
   enhancedFivemExePath: null,
   redmClientExePath: null,

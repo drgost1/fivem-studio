@@ -1384,6 +1384,7 @@ function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
 /** Just the measured placeholder for the currently-attached native window — no text, no buttons,
  * nothing that a slightly-imprecise embed rect could end up covering. */
 function EmbedSurface({ active }: { active: boolean }) {
+  const pendingDetachRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Measure only when layout can actually change. The old perpetual rAF loop sent 60 IPC calls
@@ -1425,14 +1426,29 @@ function EmbedSurface({ active }: { active: boolean }) {
     };
   }, [active]);
 
-  // Safety net — the authoritative cleanup is main.ts's window-all-closed handler,
-  // this just covers the component unmounting while the app stays alive.
+  // Safety net for the component unmounting while the app stays alive; the
+  // authoritative cleanup is main.ts's window-all-closed handler.
+  //
+  // The detach is deferred by a tick and cancelled if this effect runs again,
+  // because React StrictMode mounts, tears down and remounts every effect in
+  // development. Detaching synchronously there destroyed a perfectly good
+  // attach the moment it was made: the native side reparented correctly, then
+  // this cleanup restored the original style and unparented the window, so the
+  // viewport stayed empty while the UI still reported "Attached". A real
+  // unmount has nothing to cancel it, so the safety net still works.
   useEffect(() => {
+    if (pendingDetachRef.current !== null) {
+      clearTimeout(pendingDetachRef.current);
+      pendingDetachRef.current = null;
+    }
     return () => {
-      void window.api.windowEmbed.detach().catch(() => {
-        // Component teardown has no remaining UI to recover; main-process
-        // window cleanup remains the authoritative safety net.
-      });
+      pendingDetachRef.current = setTimeout(() => {
+        pendingDetachRef.current = null;
+        void window.api.windowEmbed.detach().catch(() => {
+          // Component teardown has no remaining UI to recover; main-process
+          // window cleanup remains the authoritative safety net.
+        });
+      }, 0);
     };
   }, []);
 

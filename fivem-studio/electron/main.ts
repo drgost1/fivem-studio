@@ -95,7 +95,7 @@ import { createResourceDirectory, createResourceFile, createStarterResource } fr
 import { requireStarterResourceTemplate } from "./resourceTemplates";
 import { prepareConsoleAgentFix } from "./consoleAgentFix";
 import { ClientConsoleReader } from "./clientConsole";
-import { listRemoteDirectory } from "./remoteRuntime";
+import { detectRemoteNode, listRemoteDirectory } from "./remoteRuntime";
 import { defaultSshConfigPath, listSshHosts } from "./sshConfig";
 
 let mainWindow: BrowserWindow | null = null;
@@ -1099,6 +1099,12 @@ function registerIpcHandlers() {
       ? configPath
       : defaultSshConfigPath();
     return { configPath: resolved, hosts: listSshHosts(resolved) };
+  });
+  ipcMain.handle("remote:detectNode", (_e, sshTarget: unknown) => {
+    if (typeof sshTarget !== "string" || !/^[A-Za-z0-9._@-]{1,255}$/.test(sshTarget)) {
+      throw new Error("Choose an SSH host first.");
+    }
+    return detectRemoteNode(sshTarget);
   });
   ipcMain.handle("remote:listDirectory", (_e, sshTarget: unknown, directory: unknown) => {
     if (typeof sshTarget !== "string" || !/^[A-Za-z0-9._@-]{1,255}$/.test(sshTarget)) {

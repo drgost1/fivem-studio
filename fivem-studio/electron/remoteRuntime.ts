@@ -35,6 +35,8 @@ const READY_PATTERN = /listening on http:\/\/(?:127\.0\.0\.1|\[::1\]):(\d{1,5})\
 const READY_TIMEOUT_MS = 20_000;
 const FORWARD_TIMEOUT_MS = 15_000;
 const MAX_STDERR_BYTES = 8192;
+const SSH_COMMAND_TIMEOUT_MS = 30_000;
+const SSH_UPLOAD_TIMEOUT_MS = 120_000;
 
 const SSH_BASE_OPTIONS = [
   // Never block the UI on an interactive password or host-key prompt.
@@ -98,7 +100,12 @@ export function buildLaunchScript(settings: RemoteHostSettings, token: string): 
   ].join("\n");
 }
 
-function runSsh(sshTarget: string, remoteCommand: string[], input?: string | Buffer): Promise<{ code: number; stdout: string; stderr: string }> {
+function runSsh(
+  sshTarget: string,
+  remoteCommand: string[],
+  input?: string | Buffer,
+  timeoutMs = SSH_COMMAND_TIMEOUT_MS,
+): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn("ssh", [...SSH_BASE_OPTIONS, sshTarget, ...remoteCommand], {
       windowsHide: true,
@@ -113,8 +120,27 @@ function runSsh(sshTarget: string, remoteCommand: string[], input?: string | Buf
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString("utf8")}`.slice(-MAX_STDERR_BYTES);
     });
-    child.on("error", (error) => resolve({ code: -1, stdout, stderr: `${stderr}${error.message}` }));
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    let settled = false;
+    const finish = (value: { code: number; stdout: string; stderr: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    // Without this a stalled ssh — an unreachable host, or a redirection that
+    // died while a large payload was still being written — never settles, and
+    // the caller waits forever with nothing to report.
+    const timer = setTimeout(() => {
+      if (!child.killed) child.kill();
+      finish({ code: -1, stdout, stderr: `${stderr}\nTimed out after ${Math.round(timeoutMs / 1000)}s.` });
+    }, timeoutMs);
+    timer.unref();
+
+    child.on("error", (error) => finish({ code: -1, stdout, stderr: `${stderr}${error.message}` }));
+    child.on("close", (code) => finish({ code: code ?? -1, stdout, stderr }));
+    // The remote side can close stdin early (a failed redirection); that surfaces
+    // as EPIPE here and must not become an unhandled error event.
+    child.stdin?.on("error", () => undefined);
     if (input !== undefined) child.stdin?.end(input);
     else child.stdin?.end();
   });
@@ -136,8 +162,11 @@ async function ensureRuntimeDeployed(settings: RemoteHostSettings, localRuntimeP
   const target = shellQuote(settings.runtimePath);
   const upload = await runSsh(
     settings.sshTarget,
-    ["sh", "-c", `umask 077; cat > ${target}.part && mv ${target}.part ${target}`],
+    // mkdir -p first: the destination folder is user-supplied and may not exist
+    // yet, and cat would otherwise fail with a bare redirection error.
+    ["sh", "-c", `umask 077; mkdir -p "$(dirname ${target})" && cat > ${target}.part && mv ${target}.part ${target}`],
     payload,
+    SSH_UPLOAD_TIMEOUT_MS,
   );
   if (upload.code !== 0) {
     throw new Error(`Could not deploy the coding runtime to ${settings.sshTarget}: ${upload.stderr.trim() || `ssh exited ${upload.code}`}`);
@@ -378,4 +407,34 @@ export async function listRemoteDirectory(
   }
   entries.sort((a, b) => a.name.localeCompare(b.name));
   return { path, entries };
+}
+
+/**
+ * Finds a usable Node on the host so the path does not have to be guessed.
+ * Checks PATH first, then the conventional install locations, and returns the
+ * first candidate that actually runs.
+ */
+export async function detectRemoteNode(sshTarget: string): Promise<{ path: string; version: string } | null> {
+  // One candidate per loop iteration; no shell line-continuations, which do not
+  // survive being embedded in a TypeScript string array.
+  const script = [
+    'found=$(command -v node 2>/dev/null)',
+    'if [ -n "$found" ] && [ -x "$found" ]; then',
+    '  version=$("$found" --version 2>/dev/null)',
+    '  if [ -n "$version" ]; then printf "%s\t%s\n" "$found" "$version"; exit 0; fi',
+    "fi",
+    'for candidate in "$HOME/.qb-studio/node/bin/node" /usr/local/bin/node /usr/bin/node /opt/node/bin/node "$HOME/.nvm/versions/node"/*/bin/node; do',
+    '  [ -x "$candidate" ] || continue',
+    '  version=$("$candidate" --version 2>/dev/null) || continue',
+    '  [ -n "$version" ] || continue',
+    '  printf "%s\t%s\n" "$candidate" "$version"',
+    "  exit 0",
+    "done",
+    "exit 1",
+  ].join("\n");
+
+  const result = await runSsh(sshTarget, ["sh", "-s"], script);
+  if (result.code !== 0) return null;
+  const [nodePath, version] = result.stdout.trim().split("\t");
+  return nodePath && version ? { path: nodePath, version } : null;
 }

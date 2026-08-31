@@ -107,6 +107,7 @@ const api = {
     defaultSshConfigPath: () => ipcRenderer.invoke("remote:defaultSshConfigPath"),
     pickSshConfigDirectory: () => ipcRenderer.invoke("remote:pickSshConfigDirectory"),
     listSshHosts: (configPath: string | null) => ipcRenderer.invoke("remote:listSshHosts", configPath),
+    detectNode: (sshTarget: string) => ipcRenderer.invoke("remote:detectNode", sshTarget),
     listDirectory: (sshTarget: string, directory: string | null) =>
       ipcRenderer.invoke("remote:listDirectory", sshTarget, directory),
   },

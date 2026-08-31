@@ -675,6 +675,7 @@ declare global {
         /** Opens a folder picker and returns <chosen>/config, or null if cancelled. */
         pickSshConfigDirectory(): Promise<string | null>;
         listSshHosts(configPath: string | null): Promise<{ configPath: string; hosts: string[] }>;
+        detectNode(sshTarget: string): Promise<{ path: string; version: string } | null>;
         listDirectory(sshTarget: string, directory: string | null): Promise<RemoteDirectoryListing>;
       };
       txdata: {

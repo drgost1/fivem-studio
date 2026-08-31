@@ -514,6 +514,7 @@ export default function SettingsModal({
   const [browseListing, setBrowseListing] = useState<RemoteDirectoryListing | null>(null);
   const [browseBusy, setBrowseBusy] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
+  const [nodeProbe, setNodeProbe] = useState<string | null>(null);
 
   const loadSshHosts = useCallback(async (configPath: string | null) => {
     setSshHostsBusy(true);
@@ -875,6 +876,35 @@ export default function SettingsModal({
                 } : current))}
               />
             </label>
+            <div className="field-row" style={{ marginBottom: 6 }}>
+              <button
+                className="btn"
+                type="button"
+                disabled={!draft.remote.sshTarget}
+                onClick={() => void (async () => {
+                  if (!draft.remote) return;
+                  setNodeProbe("Looking…");
+                  try {
+                    const found = await window.api.remote.detectNode(draft.remote.sshTarget);
+                    if (!found) {
+                      setNodeProbe("No Node found on the host. Install Node 24 there first.");
+                      return;
+                    }
+                    setNodeProbe("Found Node " + found.version + " at " + found.path);
+                    setDraft((current) => (current.remote ? {
+                      ...current,
+                      remote: { ...current.remote, nodePath: found.path },
+                    } : current));
+                  } catch (error) {
+                    setNodeProbe(error instanceof Error ? error.message : String(error));
+                  }
+                })()}
+              >
+                Detect Node
+              </button>
+            </div>
+            {nodeProbe ? <div className="field-hint">{nodeProbe}</div> : null}
+
             <label className="field-label">
               Runtime path on the host
               <input

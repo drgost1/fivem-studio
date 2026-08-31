@@ -245,6 +245,13 @@ function requireJsonRpcMessage(value: unknown): JsonRpcMessage {
 
 function activeProfileRoot(): string {
   const config = loadConfig();
+  // Remote hosts have file browsing and editing, which route around this helper
+  // entirely. Everything else still reaches for a local profile root, so say so
+  // plainly here rather than letting each caller fail as if nothing were
+  // configured at all.
+  if (config.remote) {
+    throw new Error("That action is not available for a remote host yet. Browsing, editing and resource actions are.");
+  }
   if (!config.txDataPath || !config.selectedProfile) throw new Error("Choose a txData folder and server profile first.");
   const profile = assertSafeBasename(config.selectedProfile);
   const root = resolveInsideRoot(config.txDataPath, profile);

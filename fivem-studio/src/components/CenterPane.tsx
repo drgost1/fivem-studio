@@ -1331,6 +1331,20 @@ interface ViewportSectionProps {
 
 function ViewportSection({ active, clientLabel }: ViewportSectionProps) {
   const [attachedTitle, setAttachedTitle] = useState<string | null>(null);
+
+  // The UI can outlive the main process's attachment — after a crash or forced
+  // restart the header still said "Attached" while the main process held
+  // nothing, so every fit/aspect change shouted into a void. Reconcile on
+  // mount: the main process is the authority.
+  useEffect(() => {
+    let cancelled = false;
+    void window.api.windowEmbed.isAttached().then((really) => {
+      if (!cancelled && !really) setAttachedTitle(null);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [detachPending, setDetachPending] = useState(false);
   const [embedError, setEmbedError] = useState<string | null>(null);
 

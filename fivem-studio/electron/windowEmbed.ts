@@ -287,6 +287,16 @@ function startAnchorTimer(): void {
   anchorTimer = setInterval(() => {
     if (!attached) return;
     if (!ensureLiveWindow() || !attached) return;
+    // An in-game video-mode change re-applies the client's own window
+    // configuration on the SAME hwnd — measured: owner and region were wiped
+    // while the handle survived. Position alone kept ticking, which left the
+    // window unclipped and unowned. Verify ownership and re-assert the whole
+    // overlay when the client has reset it.
+    const ownerNow = BigInt(GetWindowLongPtr(attached.hwnd, GWL_HWNDPARENT) as number | bigint as never);
+    if (ownerNow !== attached.hostHwnd) {
+      applyOverlay(attached.hwnd, attached.hostHwnd);
+      attached.lastClip = null;
+    }
     if (attached.wasVisible && attached.lastRect) applyOverlayRect(attached, attached.lastRect, false);
   }, 500);
   anchorTimer.unref?.();
@@ -600,6 +610,11 @@ export function detach(): void {
 /** Re-focus the currently-embedded window when Studio itself regains OS focus (e.g. alt-tabbing
  * back from another app) — the internal tab-switch rising-edge in setRect() doesn't cover this,
  * since Studio's own window can regain focus without any of our tabs changing. */
+/** Whether a window is currently docked, for renderer state reconciliation. */
+export function isAttached(): boolean {
+  return attached !== null;
+}
+
 export function onHostFocusGained(): void {
   // Deliberately nothing. In overlay mode the game takes focus when clicked,
   // and handing focus to it whenever Studio regains focus made Studio's own

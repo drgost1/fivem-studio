@@ -3038,6 +3038,20 @@ button.tree-node {
 }
 .remote-browser .field-row { padding: 6px; border-top: 1px solid var(--border); }
 
+/* Shown at the top of the local-host panel when a remote host is configured,
+   so its unfinished readiness checks do not read as the app being broken. */
+.settings-mode-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  background: var(--accent-wash);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.settings-mode-note em { color: var(--text); font-style: normal; font-weight: 600; }
+
 .settings-divider {
   margin: 16px 0 10px;
   padding-top: 12px;

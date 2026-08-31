@@ -51,7 +51,7 @@ type SettingsSectionId = "setup" | "remote" | "editor" | "agent" | "general";
 /* Setup leads because it is the only section a first run has to finish; the
    readiness checklist used to sit below Discord Rich Presence. */
 const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string }[] = [
-  { id: "setup", label: "Setup" },
+  { id: "setup", label: "Local host" },
   { id: "remote", label: "Remote host" },
   { id: "editor", label: "Editor" },
   { id: "agent", label: "Agent" },
@@ -503,7 +503,9 @@ export default function SettingsModal({
       || rconPreview !== null
       ? t("appUpdate.restartBlockedSettings")
       : null;
-  const [section, setSection] = useState<SettingsSectionId>(initialSection === "agent" ? "agent" : "setup");
+  const [section, setSection] = useState<SettingsSectionId>(
+    initialSection === "agent" ? "agent" : config.remote ? "remote" : "setup",
+  );
   // Remote host discovery. View state rather than config: where a user keeps
   // their SSH config is a machine detail, not a project setting.
   const [sshConfigPath, setSshConfigPath] = useState<string>("");
@@ -926,6 +928,13 @@ export default function SettingsModal({
 
         </>)}
         {section === "setup" && (<>
+        {draft.remote ? (
+          <div className="settings-mode-note">
+            A remote host is configured, so everything below is inactive. These settings set up an FXServer on
+            <em> this PC</em>; the readiness checks report on that local server, not on your remote one. Nothing here
+            needs to be completed while the remote host is in use.
+          </div>
+        ) : null}
         <SetupChecklist
           diagnostics={setupDiagnostics}
           targetLabel={cfxTargetLabel(activeTarget)}

@@ -275,7 +275,15 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
 
     const parentHandle = win.getNativeWindowHandle().readBigUInt64LE(0);
     SetParent(hwnd, parentHandle);
-    withTargetDpiAwareness(hwnd, () => SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE));
+    // Apply the style change WITHOUT moving or sizing. The previous form passed
+    // 0,0,0,0 with neither SWP_NOMOVE nor SWP_NOSIZE, which resized the game to
+    // 0x0 during the reparent: a D3D11 client handling that WM_SIZE resizes its
+    // swap chain to a degenerate extent, and commonly never recovers when sized
+    // back — which presents as a correctly positioned but permanently black
+    // frame. setRect() supplies the real bounds a moment later.
+    withTargetDpiAwareness(hwnd, () =>
+      SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE),
+    );
 
     attached = { hwnd, pid: current.candidate.pid, originalStyle, wasVisible: false, lastRect: null };
     return { ok: true };

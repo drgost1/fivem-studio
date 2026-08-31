@@ -15,6 +15,8 @@ interface TopBarProps {
   serverTarget: CfxTarget;
   activeServerPath: string | null;
   serverConfigured: boolean;
+  /** A remote host owns the server, so local server controls do not apply. */
+  remoteActive: boolean;
   serverAction: "starting" | "stopping" | null;
   serverRunning: boolean;
   serverPids: number[];
@@ -40,6 +42,7 @@ export default function TopBar({
   serverTarget,
   activeServerPath,
   serverConfigured,
+  remoteActive,
   serverAction,
   serverRunning,
   serverPids,
@@ -91,6 +94,12 @@ export default function TopBar({
         <span className={`status-dot ${runtimeReady ? "connected" : connected ? "limited" : "disconnected"}`} />
         {statusLabel}
       </div>
+      {/* A remote host runs its own server under txAdmin or systemd. Showing
+          a local "stopped" pill and a Start button there reads as though the
+          real server were down, which it is not. Launching the game client
+          below still applies — that always happens on this PC. */}
+      {remoteActive ? null : (
+        <>
       <div
         className={`status-pill server-status ${serverStatusError ? "error" : serverRunning ? "running" : "stopped"}`}
         title={serverStatusError ?? (serverPids.length ? `Local process ${serverPids.join(", ")}` : undefined)}
@@ -126,6 +135,8 @@ export default function TopBar({
           {serverAction ? "…" : serverRunning ? "■" : "▶"}
         </span>
       </button>
+        </>
+      )}
       <button className="btn topbar-action" aria-label={`Launch ${activeLabel}`} onClick={onLaunchClient} disabled={!activeClientPath} title={activeClientPath ?? `Set the ${activeLabel} ${clientExecutable} path in Settings`}>
         <span className="topbar-label">▶ Launch {activeLabel}</span>
         <span className="topbar-compact" aria-hidden="true">▶ C</span>

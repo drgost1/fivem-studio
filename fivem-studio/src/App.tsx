@@ -1485,6 +1485,7 @@ export default function App() {
         serverTarget={serverTarget}
         activeServerPath={activeServerPath}
         serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
+        remoteActive={Boolean(config.remote)}
         serverAction={serverAction}
         serverRunning={serverRunning}
         serverPids={serverPids}

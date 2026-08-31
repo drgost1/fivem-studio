@@ -96,6 +96,7 @@ import { requireStarterResourceTemplate } from "./resourceTemplates";
 import { prepareConsoleAgentFix } from "./consoleAgentFix";
 import { ClientConsoleReader } from "./clientConsole";
 import { detectRemoteNode, listRemoteDirectory } from "./remoteRuntime";
+import { remoteListDir, remoteReadFileSnapshot, remoteWriteFile } from "./remoteFs";
 import { defaultSshConfigPath, listSshHosts } from "./sshConfig";
 
 let mainWindow: BrowserWindow | null = null;
@@ -285,6 +286,36 @@ function listProfileDirectory(value: unknown) {
     const context = resourceAtDirectory(resourcesRoot, entry.path);
     return context ? { ...entry, resourceName: context.name } : entry;
   });
+}
+
+/** Resources root on the configured host. Mirrors activeResourcesRoot(). */
+function remoteResourcesRoot(remote: { workspacePath: string }): string {
+  return `${remote.workspacePath.replace(/\/+$/, "")}/resources`;
+}
+
+/**
+ * Remote counterpart of listProfileDirectory.
+ *
+ * Resource naming uses the folder structure rather than probing every entry for
+ * an fxmanifest: one SSH round trip per child would make expanding a tree
+ * unusable, and FiveM already defines a resource structurally as a non-[bracket]
+ * directory beneath resources/.
+ */
+async function remoteListProfileDirectory(
+  remote: { sshTarget: string; workspacePath: string },
+  value: unknown,
+) {
+  const target = requireString(value, "Directory path", 4096);
+  const entries = await remoteListDir(remote.sshTarget, target);
+  const resourcesRoot = remoteResourcesRoot(remote);
+  const parent = target.replace(/\/+$/, "");
+  const insideResources = parent === resourcesRoot || parent.startsWith(`${resourcesRoot}/`);
+  if (!insideResources) return entries;
+  return entries.map((entry) =>
+    entry.isDirectory && !/^\[[^\[\]/]+\]$/.test(entry.name)
+      ? { ...entry, resourceName: entry.name }
+      : entry,
+  );
 }
 
 function activeResourceContext(value: unknown) {
@@ -1027,15 +1058,26 @@ function registerIpcHandlers() {
   });
 
   // --- filesystem / resource tree ---
-  ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => listProfileDirectory(dirPath));
-  ipcMain.handle("fs:readFile", (_e, filePath: unknown) => readTextFileSnapshot(scopedProfilePath(filePath)));
-  ipcMain.handle("fs:writeFile", (_e, filePath: unknown, content: unknown, expectedRevision: unknown) =>
-    writeTextFile(
-      scopedProfilePath(filePath),
-      requireString(content, "File content", 8 * 1024 * 1024),
-      requireString(expectedRevision, "Expected file revision", 128),
-    ),
-  );
+  // A configured remote host owns the workspace, so these route to it. The
+  // renderer is unchanged either way: same channels, same shapes.
+  ipcMain.handle("fs:listDir", (_e, dirPath: unknown) => {
+    const remote = loadConfig().remote;
+    return remote ? remoteListProfileDirectory(remote, dirPath) : listProfileDirectory(dirPath);
+  });
+  ipcMain.handle("fs:readFile", (_e, filePath: unknown) => {
+    const remote = loadConfig().remote;
+    return remote
+      ? remoteReadFileSnapshot(remote.sshTarget, requireString(filePath, "File path", 4096))
+      : readTextFileSnapshot(scopedProfilePath(filePath));
+  });
+  ipcMain.handle("fs:writeFile", (_e, filePath: unknown, content: unknown, expectedRevision: unknown) => {
+    const remote = loadConfig().remote;
+    const body = requireString(content, "File content", 8 * 1024 * 1024);
+    const revision = requireString(expectedRevision, "Expected file revision", 128);
+    return remote
+      ? remoteWriteFile(remote.sshTarget, requireString(filePath, "File path", 4096), body, revision)
+      : writeTextFile(scopedProfilePath(filePath), body, revision);
+  });
   ipcMain.handle("fs:rename", (_e, oldPath: unknown, newName: unknown) => {
     const oldTarget = scopedProfilePath(oldPath);
     const resourcesRoot = activeResourcesRoot();

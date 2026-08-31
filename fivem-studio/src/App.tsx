@@ -628,6 +628,18 @@ export default function App() {
   // renames, etc.) get picked up automatically.
   useEffect(() => {
     let cancelled = false;
+    // A remote host resolves from its own configured paths; there is no local
+    // txData pair to look up, and no local folder to watch for changes.
+    if (config.remote) {
+      const workspacePath = config.remote.workspacePath.replace(/\/+$/, "");
+      setResolved({
+        profileRoot: workspacePath,
+        resourcesPath: `${workspacePath}/resources`,
+        serverCfgPath: config.remote.serverConfigPath,
+      });
+      void window.api.fs.watchRoot(null);
+      return () => { cancelled = true; };
+    }
     if (!config.txDataPath || !config.selectedProfile) {
       setResolved(EMPTY_PROFILE);
       void window.api.fs.watchRoot(null);
@@ -646,7 +658,7 @@ export default function App() {
         setSaveError(`Could not resolve the selected workspace: ${(error as Error).message}`);
       });
     return () => { cancelled = true; };
-  }, [config.txDataPath, config.selectedProfile]);
+  }, [config.txDataPath, config.selectedProfile, config.remote]);
 
   useEffect(() => {
     const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files") === true;

@@ -100,11 +100,14 @@ export function buildLaunchScript(settings: RemoteHostSettings, token: string): 
   ].join("\n");
 }
 
-function runSsh(
+export function runSsh(
   sshTarget: string,
   remoteCommand: string[],
   input?: string | Buffer,
   timeoutMs = SSH_COMMAND_TIMEOUT_MS,
+  // Command output is capped by default so a stray `cat` cannot balloon memory.
+  // File reads raise it deliberately; truncating those would corrupt content.
+  maxStdoutBytes = MAX_STDERR_BYTES,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn("ssh", [...SSH_BASE_OPTIONS, sshTarget, ...remoteCommand], {
@@ -115,7 +118,7 @@ function runSsh(
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdout = `${stdout}${chunk.toString("utf8")}`.slice(-MAX_STDERR_BYTES);
+      stdout = `${stdout}${chunk.toString("utf8")}`.slice(-maxStdoutBytes);
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString("utf8")}`.slice(-MAX_STDERR_BYTES);
@@ -338,8 +341,17 @@ export async function ensureRemoteRuntime(
     // Cheapest check first: a wrong workspace is the common misconfiguration,
     // and there is no reason to upload 1.4MB before discovering it.
     await assertWorkspaceHasServerConfig(settings);
+
+    // Console tailing needs txAdmin's data directory and control profile. They
+    // are derivable from the workspace, so they are found rather than asked
+    // for; without them the runtime starts fine but the console stays empty.
+    let effective = settings;
+    if (!settings.txAdminDataDir || !settings.txAdminControlProfile) {
+      const detected = await detectRemoteTxAdmin(settings.sshTarget, settings.workspacePath);
+      if (detected) effective = { ...settings, ...detected };
+    }
     await ensureRuntimeDeployed(settings, localRuntimePath);
-    const remotePort = await startRemoteRuntimeProcess(settings, token);
+    const remotePort = await startRemoteRuntimeProcess(effective, token);
     const localPort = await pickFreeLocalPort();
     startForward(settings, localPort, remotePort);
     await waitForLocalPort(localPort, FORWARD_TIMEOUT_MS);
@@ -480,4 +492,39 @@ export async function detectRemoteNode(sshTarget: string): Promise<{ path: strin
   if (result.code !== 0) return null;
   const [nodePath, version] = result.stdout.trim().split("\t");
   return nodePath && version ? { path: nodePath, version } : null;
+}
+
+/**
+ * Finds the txAdmin control profile that owns a workspace.
+ *
+ * Console tailing needs both the txAdmin data directory and the exact profile
+ * folder inside it, because the runtime reads txAdmin's on-disk console log
+ * rather than attaching to a process it does not own. Asking a user for those
+ * is asking them to know txAdmin's internal layout, so they are derived: the
+ * data directory is the workspace's parent, and the profile is the sibling
+ * whose config.json actually names this workspace as its server data path.
+ */
+export async function detectRemoteTxAdmin(
+  sshTarget: string,
+  workspacePath: string,
+): Promise<{ txAdminDataDir: string; txAdminControlProfile: string } | null> {
+  const workspace = shellQuote(workspacePath.replace(/\/+$/, ""));
+  const script = [
+    `WORKSPACE=${workspace}`,
+    'DATA_DIR=$(dirname "$WORKSPACE")',
+    'for candidate in "$DATA_DIR"/*/; do',
+    '  [ -d "$candidate" ] || continue',
+    '  [ -f "$candidate/config.json" ] || continue',
+    '  [ -d "$candidate/logs" ] || continue',
+    '  grep -Fq "$WORKSPACE" "$candidate/config.json" 2>/dev/null || continue',
+    '  printf "%s\t%s\n" "$DATA_DIR" "$(basename "$candidate")"',
+    "  exit 0",
+    "done",
+    "exit 1",
+  ].join("\n");
+
+  const result = await runSsh(sshTarget, ["sh", "-s"], script);
+  if (result.code !== 0) return null;
+  const [dataDir, profile] = result.stdout.trim().split("\t");
+  return dataDir && profile ? { txAdminDataDir: dataDir, txAdminControlProfile: profile } : null;
 }

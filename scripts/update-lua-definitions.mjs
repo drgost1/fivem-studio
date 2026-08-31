@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import yauzl from "yauzl";
 
-import { verifyLuaDefinitions } from "./verify-lua-definitions.mjs";
+import { verifyLuaDefinitions, CURATED_PACKS } from "./verify-lua-definitions.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptsRoot = path.join(root, "scripts");
@@ -385,33 +385,34 @@ function generatePlatformFiles(platformBytes, destination) {
   return { sourceRecords: records.length, fivemFunctions: fivem.functionCount, redmFunctions: redm.functionCount };
 }
 
-function copyCuratedQbcore(destination) {
-  const sourceRoot = path.join(target, "qbcore");
+function copyCuratedPack(destination, pack) {
+  const label = pack.toUpperCase();
+  const sourceRoot = path.join(target, pack);
   const rootInfo = fs.lstatSync(sourceRoot);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("The curated QBCore definition pack is missing.");
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error(`The curated ${label} definition pack is missing.`);
   let files = 0;
   let bytes = 0;
   const visit = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const absolute = path.join(directory, entry.name);
       const info = fs.lstatSync(absolute);
-      if (info.isSymbolicLink()) throw new Error(`The curated QBCore pack may not contain symbolic links: ${absolute}`);
+      if (info.isSymbolicLink()) throw new Error(`The curated ${label} pack may not contain symbolic links: ${absolute}`);
       if (info.isDirectory()) {
         visit(absolute);
         continue;
       }
       if (!info.isFile() || path.extname(entry.name).toLowerCase() !== ".lua" || info.size > 500 * 1024) {
-        throw new Error(`Unsupported curated QBCore definition file: ${absolute}`);
+        throw new Error(`Unsupported curated ${label} definition file: ${absolute}`);
       }
       const relative = path.relative(sourceRoot, absolute).replaceAll("\\", "/");
-      safeWrite(destination, `qbcore/${relative}`, fs.readFileSync(absolute));
+      safeWrite(destination, `${pack}/${relative}`, fs.readFileSync(absolute));
       files += 1;
       bytes += info.size;
     }
   };
   visit(sourceRoot);
   if (files < 1 || bytes < 4_000 || bytes > 5 * 1024 * 1024) {
-    throw new Error("The curated QBCore definition pack is missing, incomplete, or unexpectedly large.");
+    throw new Error(`The curated ${label} definition pack is missing, incomplete, or unexpectedly large.`);
   }
 }
 
@@ -448,7 +449,9 @@ function listFiles(base) {
 }
 
 function sourceFor(relativePath) {
-  if (relativePath === "qbcore/qbcore.lua") return "qbcore-curated";
+  for (const pack of CURATED_PACKS) {
+    if (relativePath === `${pack}/${pack}.lua`) return `${pack}-curated`;
+  }
   if (relativePath.endsWith("/natives/platform.lua") || relativePath.endsWith("CitizenFX-platform-native-source-NOTICE.txt")) {
     return "official-platform-json";
   }
@@ -464,7 +467,7 @@ function writeBundleManifest(destination, addonCounts, platformCounts) {
   const manifest = {
     schemaVersion: 1,
     reviewedAt: release.reviewedAt,
-    productPacks: ["fivem", "redm", "qbcore"],
+    productPacks: ["fivem", "redm", ...CURATED_PACKS],
     sources: {
       addon: {
         repository: release.addon.repository,
@@ -482,12 +485,12 @@ function writeBundleManifest(destination, addonCounts, platformCounts) {
         lastModified: release.platformNatives.lastModified,
         redmCommonAllowlistSha256: sha256File(redmAllowlistPath),
       },
-      qbcore: { maintenance: "curated", path: "qbcore/qbcore.lua" },
+      ...Object.fromEntries(CURATED_PACKS.map((pack) => [pack, { maintenance: "curated", path: `${pack}/${pack}.lua` }])),
     },
     composition: {
       fivem: ["addon-runtime", "addon-gtav-natives", "filtered-platform-natives"],
       redm: ["addon-runtime", "addon-rdr3-natives", "filtered-platform-natives"],
-      qbcore: ["curated-qbcore"],
+      ...Object.fromEntries(CURATED_PACKS.map((pack) => [pack, [`curated-${pack}`]])),
     },
     counts: { addon: addonCounts, platform: platformCounts },
     files,
@@ -537,7 +540,7 @@ try {
     10 * 1024 * 1024,
   );
 
-  copyCuratedQbcore(staging);
+  for (const pack of CURATED_PACKS) copyCuratedPack(staging, pack);
   const addonCounts = await extractAddon(archivePath, staging);
   const platformCounts = generatePlatformFiles(fs.readFileSync(platformPath), staging);
   writePlatformSourceNotice(staging);
@@ -548,7 +551,7 @@ try {
   });
   installStaging();
   console.log(
-    `Prepared source-backed FiveM (${platformCounts.fivemFunctions} platform functions), RedM (${platformCounts.redmFunctions} platform functions), and curated QBCore definition packs.`,
+    `Prepared source-backed FiveM (${platformCounts.fivemFunctions} platform functions), RedM (${platformCounts.redmFunctions} platform functions), and curated ${CURATED_PACKS.map((pack) => pack.toUpperCase()).join(", ")} definition packs.`,
   );
 } finally {
   if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true });

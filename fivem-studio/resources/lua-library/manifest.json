@@ -4,7 +4,9 @@
   "productPacks": [
     "fivem",
     "redm",
-    "qbcore"
+    "qbcore",
+    "qbox",
+    "esx"
   ],
   "sources": {
     "addon": {
@@ -26,6 +28,14 @@
     "qbcore": {
       "maintenance": "curated",
       "path": "qbcore/qbcore.lua"
+    },
+    "qbox": {
+      "maintenance": "curated",
+      "path": "qbox/qbox.lua"
+    },
+    "esx": {
+      "maintenance": "curated",
+      "path": "esx/esx.lua"
     }
   },
   "composition": {
@@ -41,6 +51,12 @@
     ],
     "qbcore": [
       "curated-qbcore"
+    ],
+    "qbox": [
+      "curated-qbox"
+    ],
+    "esx": [
+      "curated-esx"
     ]
   },
   "counts": {
@@ -58,6 +74,12 @@
     }
   },
   "files": [
+    {
+      "path": "esx/esx.lua",
+      "bytes": 6403,
+      "sha256": "c95eca5734702d9a2dd3eab3551e1cf3335c451ae68949e64ee5c1cfd5ac8627",
+      "source": "esx-curated"
+    },
     {
       "path": "fivem/natives/game/APP.lua",
       "bytes": 3864,
@@ -381,6 +403,12 @@
       "bytes": 5331,
       "sha256": "1187a81aefd469c8c3323a601ddadb5ae8c0062e24ce166693aafa0bbdd212cd",
       "source": "qbcore-curated"
+    },
+    {
+      "path": "qbox/qbox.lua",
+      "bytes": 6142,
+      "sha256": "4cdb9ac021a3fcbcd821ba82ea1c25752a55a61132f40f6a14d85776e568d745",
+      "source": "qbox-curated"
     },
     {
       "path": "redm/natives/game/_NAMESPACE4.lua",

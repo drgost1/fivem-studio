@@ -507,7 +507,11 @@ export function setRect(x: number, y: number, width: number, height: number, vis
   }
   if (risingEdge) ShowWindow(attached.hwnd, SW_SHOWNOACTIVATE);
   attached.wasVisible = true;
-  if (risingEdge) focusEmbeddedWindow(attached.hwnd);
+  // No automatic focus: the overlay is an ordinary top-level window, so
+  // clicking it focuses it natively. The old child-window focus hand-off is
+  // actively harmful here — it fired on every Studio focus gain, so every
+  // click on Studio's own UI (the aspect picker, tabs, buttons) had its focus
+  // yanked straight back to the game, killing dropdowns mid-open.
 }
 
 /** The renderer only re-measures when the DOM rect changes, and moving the
@@ -543,5 +547,7 @@ export function detach(): void {
  * back from another app) — the internal tab-switch rising-edge in setRect() doesn't cover this,
  * since Studio's own window can regain focus without any of our tabs changing. */
 export function onHostFocusGained(): void {
-  if (attached && attached.wasVisible && attachedWindowStillOwned(attached)) focusEmbeddedWindow(attached.hwnd);
+  // Deliberately nothing. In overlay mode the game takes focus when clicked,
+  // and handing focus to it whenever Studio regains focus made Studio's own
+  // controls unusable while attached.
 }

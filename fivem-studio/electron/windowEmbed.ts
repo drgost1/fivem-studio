@@ -1,14 +1,26 @@
-// Embeds an external top-level window (the running FiveM or RedM game client) into
-// Studio's own window, using raw Win32 window management — SetParent,
-// SetWindowLongPtr, SetWindowPos — via koffi bindings to user32.dll. This
-// does not touch the target process's memory in any way; it's the same kind
-// of operation any window-docking/tiling utility performs.
+// Docks an external top-level window (the running FiveM or RedM game client)
+// over Studio's viewport, using raw Win32 window management — SetWindowLongPtr,
+// SetWindowPos — via koffi bindings to user32.dll. This does not touch the
+// target process's memory in any way; it's the same kind of operation any
+// window-docking/tiling utility performs.
 //
-// Windows-only. The Cfx client must be running windowed/borderless — an exclusive
-// fullscreen window generally can't be reparented as a child window.
+// Deliberately NOT SetParent/WS_CHILD embedding. That was measured against a
+// live FiveM client: the reparent itself succeeds (GetLastError 0, GetParent
+// confirms), the child receives input (clicks reach the game, which answers
+// with audio) — but its flip-model swap chain stops presenting the moment the
+// window becomes a child of another process's window, so the viewport stays
+// black. Reparenting also provokes the client into destroying and recreating
+// its render window. The same client renders perfectly as a top-level window.
 //
-// The GetWindowThreadProcessId/GetWindowText pattern below follows koffi's
-// own documented Win32 example (see node_modules/koffi/doc/output.md).
+// So the window is kept top-level (rendering keeps working), its caption and
+// frame are stripped, Studio's window is set as its OWNER (GWL_HWNDPARENT) so
+// it rides above Studio and out of alt-tab, and Studio positions it over the
+// viewport rect in screen coordinates. Because the client can still destroy
+// and recreate its window (e.g. on an in-game screen-type change), setRect
+// re-acquires a recreated window by pid and re-applies the overlay.
+//
+// Windows-only. The GetWindowThreadProcessId/GetWindowText pattern below
+// follows koffi's own documented Win32 example (see node_modules/koffi/doc/output.md).
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -30,6 +42,8 @@ const kernel32 = koffi.load("kernel32.dll");
 
 const HANDLE = koffi.pointer("HANDLE", koffi.opaque());
 const HWND = koffi.alias("HWND", HANDLE);
+const POINT = koffi.struct("POINT", { x: "long", y: "long" });
+void POINT;
 
 const GetTopWindow = user32.func("HWND __stdcall GetTopWindow(HWND hWnd)");
 const GetWindow = user32.func("HWND __stdcall GetWindow(HWND hWnd, uint32_t uCmd)");
@@ -41,8 +55,8 @@ const GetWindowThreadProcessId = user32.func(
 const GetWindowTextLength = user32.func("int __stdcall GetWindowTextLengthA(HWND hWnd)");
 const GetWindowText = user32.func("int __stdcall GetWindowTextA(HWND hWnd, _Out_ uint8_t *lpString, int nMaxCount)");
 const GetWindowLongPtr = user32.func("int64_t __stdcall GetWindowLongPtrA(HWND hWnd, int nIndex)");
+const ClientToScreen = user32.func("bool __stdcall ClientToScreen(HWND hWnd, _Inout_ POINT *lpPoint)");
 const SetWindowLongPtr = user32.func("int64_t __stdcall SetWindowLongPtrA(HWND hWnd, int nIndex, int64_t dwNewLong)");
-const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
 const SetWindowPos = user32.func(
   "bool __stdcall SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, uint32_t uFlags)",
 );
@@ -64,8 +78,8 @@ try {
 
 const GW_HWNDNEXT = 2;
 const GWL_STYLE = -16;
-const WS_CHILD = 0x40000000;
-const WS_POPUP = 0x80000000;
+/** The window's OWNER on 64-bit; this is ownership, not parenting. */
+const GWL_HWNDPARENT = -8;
 const WS_CAPTION = 0x00c00000;
 const WS_THICKFRAME = 0x00040000;
 const WS_SYSMENU = 0x00080000;
@@ -76,6 +90,7 @@ const SWP_NOMOVE = 0x0002;
 const SWP_NOZORDER = 0x0004;
 const SWP_NOACTIVATE = 0x0010;
 const SWP_FRAMECHANGED = 0x0020;
+const SWP_SHOWWINDOW = 0x0040;
 const SW_HIDE = 0;
 const SW_SHOWNOACTIVATE = 4;
 
@@ -218,11 +233,39 @@ interface AttachedWindow {
   hwnd: bigint;
   pid: number;
   originalStyle: number;
+  /** Previous owner (GWL_HWNDPARENT), restored on detach. Usually 0. */
+  originalOwner: bigint;
+  /** Studio's own top-level window; the overlay's owner and coordinate origin. */
+  hostHwnd: bigint;
   wasVisible: boolean;
+  /** Viewport rect in the HOST's client coordinates (physical pixels). */
   lastRect: { x: number; y: number; width: number; height: number } | null;
+  /** When the client destroyed its window and no replacement has appeared yet. */
+  missingSince: number | null;
 }
 
 let attached: AttachedWindow | null = null;
+let anchorTimer: NodeJS.Timeout | null = null;
+
+/** The client repositions and resizes its own window on internal events (it
+ * favours 800x600), and destroys/recreates it on others. The renderer only
+ * re-measures when Studio's DOM changes, so neither is corrected from there.
+ * This tick re-asserts the overlay rect and re-acquires recreated windows. */
+function startAnchorTimer(): void {
+  if (anchorTimer) return;
+  anchorTimer = setInterval(() => {
+    if (!attached) return;
+    if (!ensureLiveWindow() || !attached) return;
+    if (attached.wasVisible && attached.lastRect) applyOverlayRect(attached, attached.lastRect, false);
+  }, 500);
+  anchorTimer.unref?.();
+}
+
+function stopAnchorTimer(): void {
+  if (!anchorTimer) return;
+  clearInterval(anchorTimer);
+  anchorTimer = null;
+}
 
 function attachedWindowStillOwned(value: NonNullable<typeof attached>): boolean {
   if (!IsWindow(value.hwnd)) return false;
@@ -268,16 +311,29 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
     }
 
     const hwnd = current.hwnd;
-    const originalStyle = GetWindowLongPtr(hwnd, GWL_STYLE) as number;
-    const newStyle =
-      (originalStyle & ~WS_POPUP & ~WS_CAPTION & ~WS_THICKFRAME & ~WS_SYSMENU & ~WS_MINIMIZEBOX & ~WS_MAXIMIZEBOX) | WS_CHILD;
-    SetWindowLongPtr(hwnd, GWL_STYLE, newStyle);
+    const hostHwnd = win.getNativeWindowHandle().readBigUInt64LE(0);
+    const { originalStyle, originalOwner } = applyOverlay(hwnd, hostHwnd);
 
-    const parentHandle = win.getNativeWindowHandle().readBigUInt64LE(0);
-    SetParent(hwnd, parentHandle);
-    withTargetDpiAwareness(hwnd, () => SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE));
+    // Ownership is the one part that can silently not take; read it back and
+    // say so rather than reporting an attach that did not happen.
+    const ownerNow = BigInt(GetWindowLongPtr(hwnd, GWL_HWNDPARENT) as number | bigint as never);
+    if (ownerNow !== hostHwnd) {
+      SetWindowLongPtr(hwnd, GWL_STYLE, originalStyle);
+      SetWindowLongPtr(hwnd, GWL_HWNDPARENT, originalOwner);
+      return { ok: false, error: "Could not take ownership of that window. Scan again and retry." };
+    }
 
-    attached = { hwnd, pid: current.candidate.pid, originalStyle, wasVisible: false, lastRect: null };
+    attached = {
+      hwnd,
+      pid: current.candidate.pid,
+      originalStyle,
+      originalOwner,
+      hostHwnd,
+      wasVisible: false,
+      lastRect: null,
+      missingSince: null,
+    };
+    startAnchorTimer();
     return { ok: true };
   } catch (err) {
     attached = null;
@@ -285,12 +341,94 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
   }
 }
 
-export function setRect(x: number, y: number, width: number, height: number, visible: boolean): void {
-  if (!attached) return;
-  if (!attachedWindowStillOwned(attached)) {
-    attached = null;
-    return;
+/** Strips the frame and takes ownership; the window stays top-level so its
+ * swap chain keeps presenting. Returns what detach() must restore. */
+function applyOverlay(hwnd: bigint, hostHwnd: bigint): { originalStyle: number; originalOwner: bigint } {
+  const originalStyle = GetWindowLongPtr(hwnd, GWL_STYLE) as number;
+  const originalOwner = BigInt(GetWindowLongPtr(hwnd, GWL_HWNDPARENT) as number | bigint as never);
+  const newStyle = originalStyle & ~WS_CAPTION & ~WS_THICKFRAME & ~WS_SYSMENU & ~WS_MINIMIZEBOX & ~WS_MAXIMIZEBOX;
+  SetWindowLongPtr(hwnd, GWL_STYLE, newStyle);
+  SetWindowLongPtr(hwnd, GWL_HWNDPARENT, hostHwnd);
+  SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+  return { originalStyle, originalOwner };
+}
+
+/** The host's client origin in screen coordinates (physical pixels). */
+function hostClientOrigin(hostHwnd: bigint): { x: number; y: number } | null {
+  const pt = { x: 0, y: 0 };
+  try {
+    if (!ClientToScreen(hostHwnd, pt)) return null;
+  } catch {
+    return null;
   }
+  return { x: pt.x, y: pt.y };
+}
+
+/** Finds the client's recreated main window: same pid, visible, titled. The
+ * process keeps invisible helper windows (input, IME) that must not match. */
+function reacquireWindow(pid: number): bigint | null {
+  for (let hwnd: bigint | null = GetTopWindow(null); hwnd; hwnd = GetWindow(hwnd, GW_HWNDNEXT)) {
+    if (!IsWindowVisible(hwnd)) continue;
+    const info = getWindowThreadAndPid(hwnd);
+    if (info.pid !== pid) continue;
+    if (getWindowTitle(hwnd).length === 0) continue;
+    return hwnd;
+  }
+  return null;
+}
+
+/** Positions the overlay over the given host-client rect. Screen position is
+ * recomputed from the host window every time, so a moved host stays covered. */
+function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; width: number; height: number }, raise: boolean): void {
+  const origin = hostClientOrigin(target.hostHwnd);
+  if (!origin) return;
+  // Passing null as insertAfter without SWP_NOZORDER means HWND_TOP; an owned
+  // window already rides above its owner, so steady-state keeps NOZORDER and
+  // only the rising edge raises explicitly.
+  SetWindowPos(
+    target.hwnd,
+    null,
+    origin.x + rect.x,
+    origin.y + rect.y,
+    rect.width,
+    rect.height,
+    raise ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOZORDER | SWP_NOACTIVATE,
+  );
+}
+
+/** Keeps `attached` pointing at a live window, re-acquiring a recreated one.
+ * Returns false while there is nothing usable this tick. */
+function ensureLiveWindow(): boolean {
+  if (!attached) return false;
+  if (!attachedWindowStillOwned(attached)) {
+    // The client destroys and recreates its render window — measured on an
+    // in-game screen-type change and after reparent attempts. Losing the
+    // handle is therefore normal operation, not the end of the attachment:
+    // re-acquire by pid and re-apply the overlay. Give a recreation five
+    // seconds to appear before concluding the client actually exited.
+    const replacement = reacquireWindow(attached.pid);
+    if (!replacement) {
+      if (attached.missingSince === null) {
+        attached.missingSince = Date.now();
+      } else if (Date.now() - attached.missingSince > 5_000) {
+        attached = null;
+      }
+      return false;
+    }
+    const restored = applyOverlay(replacement, attached.hostHwnd);
+    attached.hwnd = replacement;
+    attached.originalStyle = restored.originalStyle;
+    attached.originalOwner = restored.originalOwner;
+    attached.missingSince = null;
+    attached.wasVisible = false;
+    attached.lastRect = null;
+  }
+  attached.missingSince = null;
+  return true;
+}
+
+export function setRect(x: number, y: number, width: number, height: number, visible: boolean): void {
+  if (!ensureLiveWindow() || !attached) return;
   if (!visible) {
     if (attached.wasVisible) ShowWindow(attached.hwnd, SW_HIDE);
     attached.wasVisible = false;
@@ -309,18 +447,8 @@ export function setRect(x: number, y: number, width: number, height: number, vis
     attached.lastRect.y !== nextRect.y ||
     attached.lastRect.width !== nextRect.width ||
     attached.lastRect.height !== nextRect.height;
-  if (rectChanged) {
-    withTargetDpiAwareness(attached.hwnd, () =>
-      SetWindowPos(
-        attached!.hwnd,
-        null,
-        nextRect.x,
-        nextRect.y,
-        nextRect.width,
-        nextRect.height,
-        SWP_NOZORDER | SWP_NOACTIVATE,
-      ),
-    );
+  if (rectChanged || risingEdge) {
+    applyOverlayRect(attached, nextRect, risingEdge);
     attached.lastRect = nextRect;
   }
   if (risingEdge) ShowWindow(attached.hwnd, SW_SHOWNOACTIVATE);
@@ -328,7 +456,17 @@ export function setRect(x: number, y: number, width: number, height: number, vis
   if (risingEdge) focusEmbeddedWindow(attached.hwnd);
 }
 
+/** The renderer only re-measures when the DOM rect changes, and moving the
+ * whole Studio window does not change it — so the main process re-anchors the
+ * overlay on host move/resize itself. */
+export function refreshOverlayPosition(): void {
+  if (!attached || !attached.wasVisible || !attached.lastRect) return;
+  if (!attachedWindowStillOwned(attached)) return;
+  applyOverlayRect(attached, attached.lastRect, false);
+}
+
 export function detach(): void {
+  stopAnchorTimer();
   if (!attached) return;
   const previous = attached;
   attached = null;
@@ -336,7 +474,7 @@ export function detach(): void {
   const hwnd = previous.hwnd;
   try {
     SetWindowLongPtr(hwnd, GWL_STYLE, previous.originalStyle);
-    SetParent(hwnd, null);
+    SetWindowLongPtr(hwnd, GWL_HWNDPARENT, previous.originalOwner);
     SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
     // Handing it back as a normal top-level window doesn't by itself give it real focus again —
     // without this it can come back stuck in the same paused/black-box state embedding leaves it in.

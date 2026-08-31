@@ -542,6 +542,10 @@ function createWindow() {
   // back from another app) — GTA5 pauses/blanks its rendering while unfocused, and a plain window
   // activation like this doesn't otherwise reach a reparented child window belonging to another process.
   mainWindow.on("focus", () => windowEmbed.onHostFocusGained());
+  // The overlay is positioned in screen coordinates; dragging or resizing
+  // Studio does not change the renderer's DOM measurements, so re-anchor here.
+  mainWindow.on("move", () => windowEmbed.refreshOverlayPosition());
+  mainWindow.on("resize", () => windowEmbed.refreshOverlayPosition());
 
   mainWindow.on("close", (event) => {
     if (windowStateTimer) clearTimeout(windowStateTimer);

@@ -68,6 +68,12 @@ const SetWindowPos = user32.func(
   "bool __stdcall SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, uint32_t uFlags)",
 );
 const ShowWindow = user32.func("bool __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
+const SendMessageTimeoutW = user32.func(
+  "int64_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32_t Msg, uint64_t wParam, int64_t lParam, uint32_t fuFlags, uint32_t uTimeout, void *lpdwResult)",
+);
+const WM_ENTERSIZEMOVE = 0x0231;
+const WM_EXITSIZEMOVE = 0x0232;
+const SMTO_ABORTIFHUNG = 0x0002;
 const SetForegroundWindow = user32.func("bool __stdcall SetForegroundWindow(HWND hWnd)");
 const SetFocus = user32.func("HWND __stdcall SetFocus(HWND hWnd)");
 const AttachThreadInput = user32.func("bool __stdcall AttachThreadInput(uint32_t idAttach, uint32_t idAttachTo, bool fAttach)");
@@ -465,25 +471,38 @@ function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; 
     };
     SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
   } else {
+    const current = overlayWindowSize(target.hwnd);
+    const sizeMatches = current !== null && current.width > 0 && current.height > 0
+      && Math.abs(current.width - rect.width) <= 2 && Math.abs(current.height - rect.height) <= 2;
     windowClient = rect;
-    SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, rect.width, rect.height, baseFlags);
-    // The client re-asserts its own configured windowed resolution and can
-    // refuse an external resize (measured: applying video settings pins it).
-    // Stretch used to leave the refused, larger window hanging off the
-    // stage's top-left corner, so everything past the stage was amputated on
-    // the right and bottom. Measure what the window actually is now; when
-    // the game kept its own size, center that real size on the stage so the
-    // clip crops evenly on all sides instead.
-    const actual = overlayWindowSize(target.hwnd);
-    if (actual && actual.width > 0 && actual.height > 0
-      && (Math.abs(actual.width - rect.width) > 4 || Math.abs(actual.height - rect.height) > 4)) {
-      windowClient = {
-        x: rect.x + Math.round((rect.width - actual.width) / 2),
-        y: rect.y + Math.round((rect.height - actual.height) / 2),
-        width: actual.width,
-        height: actual.height,
-      };
-      SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
+    if (sizeMatches) {
+      // Already the right size (the steady state, and every anchor tick):
+      // position only, and never re-send sizing-loop messages at 2Hz.
+      SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, 0, 0, baseFlags | SWP_NOSIZE);
+    } else {
+      // A bare programmatic resize is only half-adopted — measured: the
+      // window took the new size while the game kept rendering its pinned
+      // resolution cropped inside it. RAGE commits a new render resolution
+      // on the interactive sizing path, so bracket the resize in the
+      // sizing-loop messages a by-hand drag would produce. Sent, not posted
+      // (ordering against SetWindowPos matters), with a timeout so a hung
+      // client can never wedge Studio's main process.
+      SendMessageTimeoutW(target.hwnd, WM_ENTERSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
+      SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, rect.width, rect.height, baseFlags);
+      SendMessageTimeoutW(target.hwnd, WM_EXITSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
+      // When the client refuses the size outright, center what it kept so
+      // any cropping splits evenly instead of amputating right and bottom.
+      const actual = overlayWindowSize(target.hwnd);
+      if (actual && actual.width > 0 && actual.height > 0
+        && (Math.abs(actual.width - rect.width) > 4 || Math.abs(actual.height - rect.height) > 4)) {
+        windowClient = {
+          x: rect.x + Math.round((rect.width - actual.width) / 2),
+          y: rect.y + Math.round((rect.height - actual.height) / 2),
+          width: actual.width,
+          height: actual.height,
+        };
+        SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
+      }
     }
   }
   clipOverlay(target, windowClient, rect);

@@ -257,6 +257,19 @@ interface AttachedWindow {
   missingSince: number | null;
   /** Last applied clip region, as "l,t,r,b" or "" for unclipped. */
   lastClip: string | null;
+  /**
+   * The aspect ratio the client insists on, learned the only way it can be
+   * learned: by asking for a shape it does not want and measuring what it
+   * took instead. null until it refuses something.
+   *
+   * RAGE will not render an arbitrary rectangle. Hand it a box that is
+   * taller than its ratio allows for that width and it keeps the HEIGHT and
+   * derives its own WIDTH from it — so the window comes back wider than the
+   * stage and spills out of the right-hand edge, which is all the user ever
+   * sees. Once this is known, every later request is pre-fitted to it and
+   * the client has nothing left to argue with.
+   */
+  enforcedAspect: number | null;
 }
 
 export type OverlayFitMode = "native" | "stretch";
@@ -380,6 +393,7 @@ export async function attach(candidateId: string, win: BrowserWindow): Promise<{
       lastRect: null,
       missingSince: null,
       lastClip: null,
+      enforcedAspect: null,
     };
     startAnchorTimer();
     return { ok: true };
@@ -447,6 +461,40 @@ function overlayWindowSize(hwnd: bigint): { width: number; height: number } | nu
   return { width: rect.right - rect.left, height: rect.bottom - rect.top };
 }
 
+/**
+ * The largest box of `aspect` that fits inside `stage`, centred in it.
+ *
+ * Contain, never cover: the height is derived from the width first and only
+ * clamped down if it would not fit, so the result is never TALLER than the
+ * stage. Handing a fixed-ratio client a box that is too tall is what makes
+ * it widen itself past the stage's right edge — the overflow this exists to
+ * prevent.
+ *
+ * `aspect` null (nothing known yet) returns the stage untouched.
+ */
+function fitToAspect(
+  stage: { x: number; y: number; width: number; height: number },
+  aspect: number | null,
+): { x: number; y: number; width: number; height: number } {
+  if (aspect === null || !Number.isFinite(aspect) || aspect <= 0) return stage;
+  if (stage.width <= 0 || stage.height <= 0) return stage;
+
+  let width = stage.width;
+  let height = Math.round(width / aspect);
+
+  if (height > stage.height) {
+    height = stage.height;
+    width = Math.round(height * aspect);
+  }
+
+  return {
+    x: stage.x + Math.round((stage.width - width) / 2),
+    y: stage.y + Math.round((stage.height - height) / 2),
+    width,
+    height,
+  };
+}
+
 /** Positions the overlay over the given stage rect (host-client coordinates).
  * Screen position is recomputed from the host window every time, so a moved
  * host stays covered. In "native" fit the window is positioned but NEVER
@@ -471,14 +519,30 @@ function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; 
     };
     SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
   } else {
+    // Ask for the largest box of the client's OWN aspect that fits inside
+    // the stage, not for the stage itself.
+    //
+    // This is the whole fix for the game hanging out past the right-hand
+    // edge. The stage is whatever shape the panel happens to be; the client
+    // renders one shape only. Asking for a stage that is proportionally too
+    // TALL made the client keep that height and compute its own width from
+    // it — a wider window than we asked for, anchored at the stage's left
+    // edge, running off the right. The overflow looked like a width bug and
+    // was caused entirely by the height.
+    //
+    // Until the client has refused something, `enforcedAspect` is null and
+    // the request is the stage verbatim, so a client that genuinely accepts
+    // any shape still fills the panel edge to edge and "Free" means free.
+    const want = fitToAspect(rect, target.enforcedAspect);
+
     const current = overlayWindowSize(target.hwnd);
     const sizeMatches = current !== null && current.width > 0 && current.height > 0
-      && Math.abs(current.width - rect.width) <= 2 && Math.abs(current.height - rect.height) <= 2;
-    windowClient = rect;
+      && Math.abs(current.width - want.width) <= 2 && Math.abs(current.height - want.height) <= 2;
+    windowClient = want;
     if (sizeMatches) {
       // Already the right size (the steady state, and every anchor tick):
       // position only, and never re-send sizing-loop messages at 2Hz.
-      SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, 0, 0, baseFlags | SWP_NOSIZE);
+      SetWindowPos(target.hwnd, null, origin.x + want.x, origin.y + want.y, 0, 0, baseFlags | SWP_NOSIZE);
     } else {
       // A bare programmatic resize is only half-adopted — measured: the
       // window took the new size while the game kept rendering its pinned
@@ -488,18 +552,43 @@ function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; 
       // (ordering against SetWindowPos matters), with a timeout so a hung
       // client can never wedge Studio's main process.
       SendMessageTimeoutW(target.hwnd, WM_ENTERSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
-      SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, rect.width, rect.height, baseFlags);
+      SetWindowPos(target.hwnd, null, origin.x + want.x, origin.y + want.y, want.width, want.height, baseFlags);
       SendMessageTimeoutW(target.hwnd, WM_EXITSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
-      // When the client refuses the size outright, center what it kept so
-      // any cropping splits evenly instead of amputating right and bottom.
+
       const actual = overlayWindowSize(target.hwnd);
       if (actual && actual.width > 0 && actual.height > 0
-        && (Math.abs(actual.width - rect.width) > 4 || Math.abs(actual.height - rect.height) > 4)) {
+        && (Math.abs(actual.width - want.width) > 4 || Math.abs(actual.height - want.height) > 4)) {
+        // It refused. What it took instead IS its ratio — that is the only
+        // way to find out what the ratio is, since nothing exposes it — so
+        // record it and re-ask, now for a shape it has no reason to reject.
+        // One extra round trip, once, and then `sizeMatches` holds forever.
+        //
+        // Re-learned rather than learned once: the player can change the
+        // game's own resolution mid-session, and a ratio pinned at attach
+        // time would leave Studio asking for a shape the client stopped
+        // accepting, with no way back. 2% is well clear of rounding on the
+        // sizes involved and nowhere near any two real display ratios.
+        const learned = actual.width / actual.height;
+        const known = target.enforcedAspect;
+        const isNew = Number.isFinite(learned) && learned > 0
+          && (known === null || Math.abs(learned - known) / known > 0.02);
+        const refit = isNew ? fitToAspect(rect, learned) : null;
+
+        if (refit && (Math.abs(refit.width - actual.width) > 4 || Math.abs(refit.height - actual.height) > 4)) {
+          target.enforcedAspect = learned;
+          SendMessageTimeoutW(target.hwnd, WM_ENTERSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
+          SetWindowPos(target.hwnd, null, origin.x + refit.x, origin.y + refit.y, refit.width, refit.height, baseFlags);
+          SendMessageTimeoutW(target.hwnd, WM_EXITSIZEMOVE, 0, 0, SMTO_ABORTIFHUNG, 200, null);
+        }
+
+        // Centre whatever it settled on, so any residual difference splits
+        // evenly instead of amputating the right and bottom edges.
+        const settled = overlayWindowSize(target.hwnd) ?? actual;
         windowClient = {
-          x: rect.x + Math.round((rect.width - actual.width) / 2),
-          y: rect.y + Math.round((rect.height - actual.height) / 2),
-          width: actual.width,
-          height: actual.height,
+          x: rect.x + Math.round((rect.width - settled.width) / 2),
+          y: rect.y + Math.round((rect.height - settled.height) / 2),
+          width: settled.width,
+          height: settled.height,
         };
         SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
       }

@@ -1472,13 +1472,24 @@ function EmbedSurface({ active }: { active: boolean }) {
       return;
     }
     const compute = () => {
-      const rect = outer.getBoundingClientRect();
-      if (rect.width <= 2 || rect.height <= 2) return;
-      // -2 accounts for the outer's 1px padding ring on each side.
-      let width = rect.width - 2;
+      // clientWidth/Height, NOT getBoundingClientRect(). The rect is the
+      // BORDER box, and this element has a 1px border AND a 1px padding
+      // ring — so the old `rect.width - 2` only subtracted the padding and
+      // left the surface 2px wider than the space it had to sit in, which
+      // is 2px of overflow on the right before the game is even involved.
+      // clientWidth already excludes the border; -2 removes the padding.
+      const availableWidth = outer.clientWidth - 2;
+      const availableHeight = outer.clientHeight - 2;
+      if (availableWidth <= 0 || availableHeight <= 0) return;
+
+      // Contain: derive the height from the width, and only if that does
+      // not fit does the width come from the height instead. Never the
+      // other way round — a surface taller than the stage is what makes a
+      // fixed-ratio client widen itself past the right-hand edge.
+      let width = availableWidth;
       let height = width / ratio;
-      if (height > rect.height - 2) {
-        height = rect.height - 2;
+      if (height > availableHeight) {
+        height = availableHeight;
         width = height * ratio;
       }
       setRatioFit({ w: Math.floor(width), h: Math.floor(height) });

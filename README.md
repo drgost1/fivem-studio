@@ -31,7 +31,7 @@ Lua intelligence, and a working game viewport.
 - RCON is **loopback-only, always** — remote mode runs the runtime *on* the host so
   the plaintext UDP RCON never crosses a network; SSH carries an authenticated
   tunnel instead.
-- **The default MCP surface is six tools** — no file access, no arbitrary command
+- **The default MCP surface is eight tools** — no file access, no arbitrary command
   execution, no raw RCON, no player/entity control. That is what a fresh clone and
   a stock deployment expose.
 - Anything beyond those six is an **explicit operator opt-in** via an environment
@@ -88,13 +88,15 @@ window back exactly as it was.
 ## MCP: connect Claude Code (or any MCP client)
 
 The runtime (`fivem-mcp-server/`, bundled as `runtime.cjs`) speaks MCP over
-**stdio** or **streamable HTTP**. Out of the box it exposes exactly six tools:
+**stdio** or **streamable HTTP**. Out of the box it exposes eight tools:
 
 | Tool | What it does |
 |---|---|
 | `list_resources` | Workspace resources + which ones the server reports started |
 | `start_resource` / `stop_resource` / `restart_resource` | Lifecycle for one named resource via loopback RCON |
 | `get_console_output` | Recent FXServer console lines from txAdmin's log |
+| `get_errors` | Only the errors/warnings from recent console output, de-duplicated and attributed to the resource that produced them |
+| `restart_and_verify` | Restart a resource **and report whether it actually came up clean** — marks the console position, sends `ensure`, then returns only the new errors plus the resulting state |
 | `get_runtime_identity` | Which workspace/server this runtime controls (secret-free) |
 
 ### Optional capabilities (off unless you enable them)
@@ -110,7 +112,7 @@ flag is `1`:
 
 | Flag | Tools |
 |---|---|
-| `MCP_ENABLE_FILES=1` | `read_file` (returns sha256), `write_file` (atomic, optional `expected_sha256` conflict check), `edit_file` (exact-substring — no full resend), `list_dir`, `search_files`, `check_lua` (parse before you restart a resource) |
+| `MCP_ENABLE_FILES=1` | `read_file` (returns sha256), `write_file` (atomic, optional `expected_sha256` conflict check), `edit_file` (exact-substring — no full resend), `list_dir`, `search_files`, `check_lua` (parse before you restart a resource), and **`batch`** — up to 25 of those in a single call |
 | `MCP_ENABLE_GIT=1` | `git_status` (fetches first, so ahead/behind is truthful), `git_diff`, `git_log`, `git_pull`, and **`git_sync`** — add + commit + push in one call, so GitHub never drifts from the server |
 | `MCP_ENABLE_RAW_RCON=1` | `server_command` — the full FXServer console (`refresh`, `ensure`, convars) |
 | `MCP_ENABLE_SHELL=1` | `run_command` — bounded arbitrary execution (timeout + output cap + cwd inside the roots) |
@@ -157,7 +159,7 @@ Then in the folder where you run Claude Code, add `.mcp.json`:
 }
 ```
 
-Open a Claude Code session in that folder — the tools appear (the base six, plus
+Open a Claude Code session in that folder — the tools appear (the base eight, plus
 whichever optional groups that env file enables), driving your live server. One
 entry per server (different env files) scales to a whole fleet.
 

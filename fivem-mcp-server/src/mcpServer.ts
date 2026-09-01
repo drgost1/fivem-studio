@@ -6,6 +6,8 @@ import { registerConsoleTools } from "./tools/console.js";
 import { registerResourceTools } from "./tools/resources.js";
 import { registerIdentityTools } from "./tools/identity.js";
 import { registerFileTools } from "./tools/files.js";
+import { registerBatchTool } from "./tools/batch.js";
+import { registerVerifyTools } from "./tools/verify.js";
 import { registerGitTools } from "./tools/git.js";
 import { registerRawRconTool, registerShellTool } from "./tools/exec.js";
 
@@ -40,12 +42,18 @@ export function createMcpServer(): McpServer {
   // or raw administration tools.
   registerConsoleTools(server);
   registerResourceTools(server, rcon);
+  // Composed from the two above and adding no privilege of their own: they
+  // collapse the edit -> restart -> "did it break?" loop into one round trip.
+  registerVerifyTools(server, rcon);
 
   // Everything below is opt-in through the runtime env file and stays absent
   // from a stock deployment. These exist so an agent working over one MCP
   // connection can read, edit, verify and push without a shell round trip per
   // step; each is jailed to the configured workspace roots.
-  if (config.capabilities.files) registerFileTools(server);
+  if (config.capabilities.files) {
+    registerFileTools(server);
+    registerBatchTool(server);
+  }
   if (config.capabilities.git) registerGitTools(server);
   if (config.capabilities.rawRcon) registerRawRconTool(server, rcon);
   if (config.capabilities.shell) registerShellTool(server);

@@ -224,3 +224,43 @@ export function tailConsoleLog(opts: TailOptions): string {
   }
   return output;
 }
+
+/**
+ * A byte position in the current console log, used to read exactly the lines
+ * produced after a point in time. Deliberately independent of the tail cache
+ * above: restart_and_verify must not perturb, or be perturbed by, whatever
+ * get_console_output last read.
+ */
+export interface ConsoleCursor {
+  logFile: string;
+  size: number;
+}
+
+export function getConsoleCursor(dataDir: string, profile: string): ConsoleCursor {
+  const logFile = findLatestLogFile(findLogDir(dataDir, profile));
+  return { logFile, size: fs.statSync(logFile).size };
+}
+
+/**
+ * Returns the console lines written since `cursor`. If the log rotated (or was
+ * truncated) between the two calls, falls back to the tail of the current file
+ * rather than reporting nothing.
+ */
+export function readConsoleSince(
+  dataDir: string,
+  profile: string,
+  cursor: ConsoleCursor,
+  maxBytes = 1024 * 1024,
+): { lines: string[]; rotated: boolean } {
+  const logFile = findLatestLogFile(findLogDir(dataDir, profile));
+  const size = fs.statSync(logFile).size;
+  const rotated = logFile !== cursor.logFile || size < cursor.size;
+  const start = rotated ? Math.max(0, size - maxBytes) : cursor.size;
+  const length = Math.min(size - start, maxBytes);
+  if (length <= 0) return { lines: [], rotated };
+  const decoded = new StringDecoder("utf8").write(readRange(logFile, start, length));
+  const lines = decoded.split(/\r?\n/).filter((line) => line.length > 0);
+  // A rotated read starts mid-line; drop that fragment.
+  if (rotated && start > 0) lines.shift();
+  return { lines, rotated };
+}

@@ -21,7 +21,14 @@ export default function WorkspaceReposPanel({ refreshKey }: WorkspaceReposPanelP
     setLoading(true);
     setError(null);
     try {
-      setListing(await window.api.git.listWorkspaceRepos());
+      const result = await window.api.git.listWorkspaceRepos();
+      // A hot-reloaded renderer can briefly outlive an older main process in
+      // dev; a malformed shape must degrade to a panel error, never take the
+      // whole interface down.
+      if (!result || !Array.isArray(result.repos)) {
+        throw new Error("The running main process predates this panel — restart FiveM Studio to align them.");
+      }
+      setListing(result);
     } catch (loadError) {
       setListing(null);
       setError(loadError instanceof Error ? loadError.message : String(loadError));

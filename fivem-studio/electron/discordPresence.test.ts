@@ -39,7 +39,7 @@ test("Discord activity shows a basename, language, target, version, and fixed ac
     assets: { large_image: DISCORD_LARGE_IMAGE_KEY, large_text: "FiveM Studio v1.4.0" },
     buttons: [
       { label: "Visit QBCore", url: "https://qbcore.org" },
-      { label: "Download FiveM Studio", url: "https://github.com/qbcore-framework/qb-studio/releases/latest" },
+      { label: "Download FiveM Studio", url: "https://github.com/drgost1/fivem-studio/releases/latest" },
     ],
   });
   assert.equal(activity.buttons.length, 2);

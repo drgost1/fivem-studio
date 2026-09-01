@@ -99,6 +99,10 @@ import { detectRemoteNode, listRemoteDirectory } from "./remoteRuntime";
 import { remoteListDir, remoteReadFileSnapshot, remoteWriteFile } from "./remoteFs";
 import { defaultSshConfigPath, listSshHosts } from "./sshConfig";
 
+// Window icon for dev runs; packaged builds carry the icon in the executable.
+const windowIconPath = path.join(__dirname, "..", "build", "icon.png");
+const windowIcon = fs.existsSync(windowIconPath) ? windowIconPath : undefined;
+
 let mainWindow: BrowserWindow | null = null;
 let consoleWindow: BrowserWindow | null = null;
 let appUpdateController: AppUpdateController | null = null;
@@ -469,6 +473,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: "FiveM Studio",
+    icon: windowIcon,
     backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -599,6 +604,7 @@ function openConsoleWindow(source: ConsoleOutputSource): void {
     minWidth: 640,
     minHeight: 360,
     title: "FiveM Studio Console",
+    icon: windowIcon,
     backgroundColor: windowTheme === "light" ? "#F7F5F2" : "#101317",
     show: false,
     webPreferences: {

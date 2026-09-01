@@ -8,7 +8,7 @@ export const DISCORD_APPLICATION_ID = "1543453950919839754";
 export const DISCORD_LARGE_IMAGE_KEY = "qb-studio";
 export const DISCORD_ACTIVITY_BUTTONS = [
   { label: "Visit Tufan Studio", url: "https://www.tufanstudio.net" },
-  { label: "Download FiveM Studio", url: "https://github.com/drgost1/qb-studio/releases/latest" },
+  { label: "Download FiveM Studio", url: "https://github.com/drgost1/fivem-studio/releases/latest" },
 ] as const;
 
 const HANDSHAKE = 0;

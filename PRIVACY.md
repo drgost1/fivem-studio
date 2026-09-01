@@ -4,7 +4,7 @@ Last updated: August 30, 2026
 
 This policy describes the privacy behavior of the QB Studio Windows desktop
 application distributed from
-[`qbcore-framework/qb-studio`](https://github.com/qbcore-framework/qb-studio).
+[`drgost1/fivem-studio`](https://github.com/drgost1/fivem-studio).
 
 ## Summary
 
@@ -125,6 +125,6 @@ remains until the user changes or deletes it.
 
 Material changes to this policy will be committed publicly to the repository.
 Privacy questions can be submitted through the
-[QB Studio issue tracker](https://github.com/qbcore-framework/qb-studio/issues).
+[QB Studio issue tracker](https://github.com/drgost1/fivem-studio/issues).
 Do not include credentials, private source code, or exploitable security details
 in a public issue.

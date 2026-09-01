@@ -47,7 +47,7 @@ assert(desktopPackage.dependencies?.["electron-updater"] === "6.8.9", "electron-
 assert(packageLock.packages?.["fivem-studio"]?.dependencies?.["electron-updater"] === "6.8.9", "The workspace lock metadata must pin electron-updater 6.8.9.");
 assert(packageLock.packages?.["node_modules/electron-updater"]?.version === "6.8.9", "The installed electron-updater lock entry has drifted from 6.8.9.");
 
-const expectedPublishConfig = [{ provider: "github", owner: "drgost1", repo: "qb-studio" }];
+const expectedPublishConfig = [{ provider: "github", owner: "drgost1", repo: "fivem-studio" }];
 assert(
   JSON.stringify(desktopPackage.build?.publish) === JSON.stringify(expectedPublishConfig),
   "The packaged updater must use this fork's explicit GitHub provider configuration - never an upstream feed that would replace the Tufan build.",

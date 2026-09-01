@@ -1,6 +1,10 @@
-# FiveM Studio
+<p align="center">
+  <img src="fivem-studio/build/icon.png" width="130" alt="Tufan Studio kitsune logo" />
+</p>
 
-**by [Tufan Studio](https://www.tufanstudio.net)**
+<h1 align="center">FiveM Studio</h1>
+
+<p align="center"><strong>by <a href="https://www.tufanstudio.net">Tufan Studio</a></strong></p>
 
 A Windows workbench for Cfx.re server development. Edit resources, tail the console,
 restart scripts, and see the live game â€” against a server on **this PC** or on a
@@ -40,8 +44,8 @@ Requirements: **Windows**, **Node 24.20.0 + npm 11.19.0**, Git. A FiveM server â
 local (txAdmin + `txData`) or reachable via an SSH alias with key auth.
 
 ```bash
-git clone https://github.com/drgost1/qb-studio.git
-cd qb-studio
+git clone https://github.com/drgost1/fivem-studio.git
+cd fivem-studio
 npm install
 npm run dev
 ```

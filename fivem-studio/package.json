@@ -2,9 +2,9 @@
   "name": "qb-studio",
   "version": "0.0.0-development",
   "description": "FiveM Studio by Tufan Studio - a Windows workbench for Cfx.re server-resource coding, local or over SSH.",
-  "author": "QBCore Framework",
+  "author": "Tufan Studio",
   "license": "MIT",
-  "repository": "https://github.com/qbcore-framework/qb-studio",
+  "repository": "https://github.com/drgost1/fivem-studio",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "dev:vite": "vite",
     "predev:electron": "npm run verify:lua-definitions && npm run prepare:luals && npm run build:runtime",
     "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:5173 electron .",
-    "build:runtime": "npm run bundle -w @qbcore-framework/qb-studio-runtime",
+    "build:runtime": "npm run bundle -w @tufanstudio/fivem-studio-runtime",
     "build:vite": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "verify:resource-templates": "node ../scripts/verify-resource-templates.mjs",
@@ -66,7 +66,7 @@
       {
         "provider": "github",
         "owner": "drgost1",
-        "repo": "qb-studio"
+        "repo": "fivem-studio"
       }
     ],
     "asar": true,
@@ -112,14 +112,14 @@
           ]
         }
       ],
-      "artifactName": "QB-Studio-Setup-${version}-${arch}.${ext}"
+      "artifactName": "FiveM-Studio-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "QB Studio"
+      "shortcutName": "FiveM Studio"
     }
   }
 }

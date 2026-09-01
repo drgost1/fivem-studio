@@ -21,6 +21,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("qb-studio-runtime failed to start:", err);
+  console.error("fivem-studio-runtime failed to start:", err);
   process.exit(1);
 });

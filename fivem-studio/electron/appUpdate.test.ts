@@ -75,7 +75,7 @@ test("packaged updater is manual, stable-only, and publishes availability", asyn
   assert.equal(state.phase, "available");
   assert.equal(state.currentVersion, "1.2.3");
   assert.equal(state.latestVersion, "1.3.0");
-  assert.equal(state.releaseUrl, "https://github.com/qbcore-framework/qb-studio/releases/tag/v1.3.0");
+  assert.equal(state.releaseUrl, "https://github.com/drgost1/fivem-studio/releases/tag/v1.3.0");
   assert.ok(states.some((entry) => entry.phase === "checking"));
 });
 
@@ -116,7 +116,7 @@ test("current releases settle up to date and automatic failures stay quiet", asy
   const visible = await updater.checkForUpdates(true);
   assert.equal(visible.phase, "error");
   assert.match(visible.error ?? "", /reach GitHub/i);
-  assert.equal(visible.releaseUrl, "https://github.com/qbcore-framework/qb-studio/releases/latest");
+  assert.equal(visible.releaseUrl, "https://github.com/drgost1/fivem-studio/releases/latest");
 
   fake.checkForUpdates = async () => { throw new Error("Cannot find latest.yml in the latest release artifacts: HttpError 404"); };
   const missingMetadata = await updater.checkForUpdates(true);

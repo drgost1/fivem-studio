@@ -15,7 +15,7 @@ export interface RuntimeIdentityConfig {
 export function buildRuntimeIdentity(version: string, config: RuntimeIdentityConfig) {
   return {
     contractVersion: "3",
-    mcp: { name: "qb-studio-runtime", version },
+    mcp: { name: "fivem-studio-runtime", version },
     runtime: {
       serverData: {
         workspacePath: config.serverDataWorkspace || null,

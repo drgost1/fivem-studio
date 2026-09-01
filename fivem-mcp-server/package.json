@@ -1,15 +1,15 @@
 {
-  "name": "@qbcore-framework/qb-studio-runtime",
+  "name": "@tufanstudio/fivem-studio-runtime",
   "version": "0.0.0-development",
-  "description": "Private loopback runtime for QB Studio console logs and resource reloads.",
-  "author": "QBCore Framework",
+  "description": "Private loopback runtime for FiveM Studio console logs and resource reloads.",
+  "author": "Tufan Studio",
   "license": "MIT",
-  "repository": "https://github.com/qbcore-framework/qb-studio",
+  "repository": "https://github.com/drgost1/fivem-studio",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "qb-studio-runtime": "dist/index.js"
+    "fivem-studio-runtime": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

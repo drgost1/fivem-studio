@@ -7,7 +7,7 @@
       "@semantic-release/release-notes-generator",
       {
         "writerOpts": {
-          "footerPartial": "{{#if noteGroups}}\n{{#each noteGroups}}\n\n### {{title}}\n\n{{#each notes}}\n* {{#if commit.scope}}**{{commit.scope}}:** {{/if}}{{text}}\n{{/each}}\n{{/each}}\n\n{{/if}}\n---\n\nFree code signing provided by SignPath.io, certificate by SignPath Foundation. See the [QB Studio code signing policy](https://github.com/qbcore-framework/qb-studio/blob/main/CODE_SIGNING_POLICY.md) and [privacy policy](https://github.com/qbcore-framework/qb-studio/blob/main/PRIVACY.md).\n"
+          "footerPartial": "{{#if noteGroups}}\n{{#each noteGroups}}\n\n### {{title}}\n\n{{#each notes}}\n* {{#if commit.scope}}**{{commit.scope}}:** {{/if}}{{text}}\n{{/each}}\n{{/each}}\n\n{{/if}}\n---\n\nFiveM Studio is a Tufan Studio fork of [QB Studio](https://github.com/qbcore-framework/qb-studio). Release installers are unsigned; see the [code signing policy](https://github.com/drgost1/fivem-studio/blob/main/CODE_SIGNING_POLICY.md).\n"
         }
       }
     ],

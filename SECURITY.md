@@ -9,7 +9,7 @@ backport guarantee.
 ## Report a vulnerability
 
 Do not open a public issue for a suspected vulnerability. Use GitHub's private
-[vulnerability reporting form](https://github.com/qbcore-framework/qb-studio/security/advisories/new)
+[vulnerability reporting form](https://github.com/drgost1/fivem-studio/security/advisories/new)
 and include:
 
 - the affected QB Studio version and Windows version;

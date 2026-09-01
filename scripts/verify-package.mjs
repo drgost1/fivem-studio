@@ -130,11 +130,11 @@ function verifyPackagedUpdaterConfig() {
   const yamlValue = (key) => oneMatch(config, new RegExp(`^${key}:\\s*([^\\s#]+)\\s*$`, "gm"), `app-update.yml ${key}`);
   if (
     yamlValue("provider") !== "github" ||
-    yamlValue("owner") !== "qbcore-framework" ||
-    yamlValue("repo") !== "qb-studio" ||
+    yamlValue("owner") !== "drgost1" ||
+    yamlValue("repo") !== "fivem-studio" ||
     yamlValue("updaterCacheDirName") !== "qb-studio-updater"
   ) {
-    throw new Error("The packaged updater is not pinned to the official QB Studio GitHub repository.");
+    throw new Error("The packaged updater is not pinned to the official FiveM Studio GitHub repository.");
   }
 }
 

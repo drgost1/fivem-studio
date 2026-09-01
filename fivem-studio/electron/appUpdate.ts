@@ -1,7 +1,7 @@
 import type { AppUpdater, ProgressInfo, UpdateInfo } from "electron-updater";
 
-const RELEASE_PAGE_PREFIX = "https://github.com/qbcore-framework/qb-studio/releases/tag/v";
-const LATEST_RELEASE_PAGE = "https://github.com/qbcore-framework/qb-studio/releases/latest";
+const RELEASE_PAGE_PREFIX = "https://github.com/drgost1/fivem-studio/releases/tag/v";
+const LATEST_RELEASE_PAGE = "https://github.com/drgost1/fivem-studio/releases/latest";
 const STABLE_VERSION = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z.-]+)?$/;
 
 export type AppUpdatePhase =

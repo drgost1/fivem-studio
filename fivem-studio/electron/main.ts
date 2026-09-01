@@ -40,6 +40,8 @@ import {
   mcpListResourceStatuses,
   setOnDropped,
 } from "./mcpClient";
+import { checkRemoteArtifact, installRemoteArtifact } from "./remoteArtifact";
+import { listWorkspaceRepos, runRepoAction } from "./gitRepos";
 import { fetchRepoInfo, searchGithubRepos, listGithubOrganizationRepos, cloneRepo } from "./githubClient";
 import * as windowEmbed from "./windowEmbed";
 import { setEditorContext, setOnFileWritten, setProjectRevertStore, type EditorContext } from "./projectTools";
@@ -1454,6 +1456,21 @@ function registerIpcHandlers() {
     }),
   );
 
+  ipcMain.handle("remote:artifactCheck", (_e, sshTarget: unknown, artifactPath: unknown, track: unknown) => {
+    if (typeof sshTarget !== "string" || !/^[A-Za-z0-9._@-]{1,255}$/.test(sshTarget)) {
+      throw new Error("Choose an SSH host first.");
+    }
+    return checkRemoteArtifact(sshTarget, artifactPath, track);
+  });
+  ipcMain.handle("remote:artifactInstall", (_e, sshTarget: unknown, artifactPath: unknown, track: unknown) => {
+    if (typeof sshTarget !== "string" || !/^[A-Za-z0-9._@-]{1,255}$/.test(sshTarget)) {
+      throw new Error("Choose an SSH host first.");
+    }
+    return installRemoteArtifact(sshTarget, artifactPath, track);
+  });
+  ipcMain.handle("git:listWorkspaceRepos", () => listWorkspaceRepos());
+  ipcMain.handle("git:repoAction", (_e, repoPath: unknown, action: unknown, message: unknown) =>
+    runRepoAction(repoPath, action, message));
   ipcMain.handle("artifacts:check", (_e, targetValue: unknown, track: unknown) =>
     serverOperation.run("the server artifact check", async () => {
       const target = requireCfxTarget(targetValue);

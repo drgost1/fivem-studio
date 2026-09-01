@@ -12,6 +12,7 @@ import type {
   ProfileInfo,
   RemoteDirectoryEntry,
   RemoteDirectoryListing,
+  RemoteArtifactStatus,
   SetupDiagnostics,
   StudioConfig,
   ThemePack,
@@ -46,11 +47,12 @@ interface SettingsModalProps {
 
 type SettingsDraft = StudioConfig & { agent: AgentSettings };
 
-type SettingsSectionId = "setup" | "remote" | "editor" | "agent" | "general";
+type SettingsSectionId = "client" | "setup" | "remote" | "editor" | "agent" | "general";
 
 /* Setup leads because it is the only section a first run has to finish; the
    readiness checklist used to sit below Discord Rich Presence. */
 const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string }[] = [
+  { id: "client", label: "Setup" },
   { id: "setup", label: "Local host" },
   { id: "remote", label: "Remote host" },
   { id: "editor", label: "Editor" },
@@ -117,6 +119,10 @@ export default function SettingsModal({
   const [rconPreview, setRconPreview] = useState<DevelopmentRconPreview | null>(null);
   const [rconBusy, setRconBusy] = useState(false);
   const [themeBusy, setThemeBusy] = useState<"import" | "reload" | null>(null);
+  const [remoteArtifactStatus, setRemoteArtifactStatus] = useState<RemoteArtifactStatus | null>(null);
+  const [remoteArtifactBusy, setRemoteArtifactBusy] = useState<"checking" | "updating" | null>(null);
+  const [remoteArtifactError, setRemoteArtifactError] = useState<string | null>(null);
+  const [remoteArtifactMessage, setRemoteArtifactMessage] = useState<string | null>(null);
 
   // The console (including its popout) owns this preference. Keep the hidden
   // field current while Settings is open so saving an unrelated setting cannot
@@ -684,6 +690,8 @@ export default function SettingsModal({
                     rconPort: 30120,
                     nodePath: "/usr/bin/node",
                     runtimePath: "/opt/qb-studio/runtime.cjs",
+                    artifactPath: null,
+                    artifactTrack: "recommended" as const,
                   })
                 : null,
             }))}
@@ -923,11 +931,125 @@ export default function SettingsModal({
               Where the bundled runtime is deployed. FiveM Studio uploads it here on connect when it is missing or
               differs from the bundled copy.
             </div>
+
+            <div className="settings-divider">Server artifact on the host</div>
+            <label className="field-label">
+              Artifact directory on the host
+              <input
+                type="text"
+                value={draft.remote.artifactPath ?? ""}
+                placeholder="/home/fivem/fivem1"
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, artifactPath: event.target.value.trim() || null },
+                } : current))}
+              />
+            </label>
+            <div className="field-hint">
+              The folder holding <code>run.sh</code> and <code>alpine/</code> — the Linux FXServer build txAdmin
+              runs for this server. Leave empty if you update artifacts yourself.
+            </div>
+            <div className="field-row artifact-controls">
+              <select
+                value={draft.remote.artifactTrack}
+                onChange={(event) => setDraft((current) => (current.remote ? {
+                  ...current,
+                  remote: { ...current.remote, artifactTrack: event.target.value === "latest" ? "latest" : "recommended" },
+                } : current))}
+                disabled={remoteArtifactBusy !== null}
+              >
+                <option value="recommended">Recommended</option>
+                <option value="latest">Latest (preview)</option>
+              </select>
+              <button
+                className="btn"
+                type="button"
+                disabled={!draft.remote.sshTarget || !draft.remote.artifactPath || remoteArtifactBusy !== null}
+                onClick={() => void (async () => {
+                  if (!draft.remote?.sshTarget || !draft.remote.artifactPath) return;
+                  setRemoteArtifactBusy("checking");
+                  setRemoteArtifactError(null);
+                  setRemoteArtifactMessage(null);
+                  try {
+                    setRemoteArtifactStatus(await window.api.remote.artifactCheck(
+                      draft.remote.sshTarget, draft.remote.artifactPath, draft.remote.artifactTrack));
+                  } catch (error) {
+                    setRemoteArtifactStatus(null);
+                    setRemoteArtifactError(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setRemoteArtifactBusy(null);
+                  }
+                })()}
+              >
+                {remoteArtifactBusy === "checking" ? "Checking…" : "Check"}
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                disabled={!draft.remote.sshTarget || !draft.remote.artifactPath
+                  || remoteArtifactBusy !== null || !remoteArtifactStatus || remoteArtifactStatus.updateAvailable === false}
+                onClick={() => void (async () => {
+                  if (!draft.remote?.sshTarget || !draft.remote.artifactPath) return;
+                  setRemoteArtifactBusy("updating");
+                  setRemoteArtifactError(null);
+                  setRemoteArtifactMessage(null);
+                  try {
+                    const result = await window.api.remote.artifactInstall(
+                      draft.remote.sshTarget, draft.remote.artifactPath, draft.remote.artifactTrack);
+                    setRemoteArtifactStatus(result);
+                    setRemoteArtifactMessage("Installed build " + result.build + " on the host. " + result.note);
+                  } catch (error) {
+                    setRemoteArtifactError(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setRemoteArtifactBusy(null);
+                  }
+                })()}
+              >
+                {remoteArtifactBusy === "updating" ? "Installing…" : "Install update"}
+              </button>
+            </div>
+            {remoteArtifactBusy === "updating" ? (
+              <div className="field-hint">Downloading and staging on the host — the archive never touches this PC…</div>
+            ) : null}
+            {remoteArtifactStatus ? (
+              <div className="artifact-status" role="status">
+                <strong>Cfx.re {remoteArtifactStatus.track} Linux build {remoteArtifactStatus.build}</strong>
+                <span>
+                  {remoteArtifactStatus.installedBuild === null
+                    ? "Installed build unknown (FiveM Studio has not yet managed this artifact folder)."
+                    : remoteArtifactStatus.installedBuild === remoteArtifactStatus.build
+                      ? "This managed build is installed."
+                      : "FiveM Studio last installed build " + remoteArtifactStatus.installedBuild + "."}
+                </span>
+              </div>
+            ) : null}
+            {remoteArtifactError ? <div className="error-text" role="alert">{remoteArtifactError}</div> : null}
+            {remoteArtifactMessage ? <div className="field-hint artifact-success">{remoteArtifactMessage}</div> : null}
+            <div className="field-hint">
+              The download happens on the host itself, from the official Cfx.re artifact feed over HTTPS. The archive
+              is staged next to the current build, verified, then swapped; the previous build stays in
+              <code>.fivem-studio-backup</code>. A new build takes effect on the next server restart from txAdmin.
+            </div>
           </>
         ) : null}
 
         </>)}
         {section === "setup" && (<>
+        <label className="field-label">
+          Run a local FXServer workflow on this PC
+          <select
+            value={draft.localHostEnabled ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({ ...current, localHostEnabled: event.target.value === "on" }))}
+          >
+            <option value="off">{t("common.off")}</option>
+            <option value="on">{t("common.on")}</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Off hides the local server pill and Start button, stops local server checks, and skips the local coding
+          runtime. The editor, the game client on the Setup page, and remote hosts are unaffected.
+        </div>
+        {draft.localHostEnabled ? (<>
         {draft.remote ? (
           <div className="settings-mode-note">
             A remote host is configured, so everything below is inactive. These settings set up an FXServer on
@@ -1071,6 +1193,15 @@ export default function SettingsModal({
 
         <div className="field-hint" style={{ marginBottom: 10 }}>
           The coding runtime is bundled, uses a fresh private token and ephemeral loopback port each launch, and is not configurable for remote servers.
+        </div>
+
+        </>) : null}
+
+        </>)}
+        {section === "client" && (<>
+        <div className="settings-mode-note">
+          Everything on this page lives on <em>this PC</em>: the game client the top bar launches, and the local
+          FXServer artifact folder. It applies to both local and remote workflows.
         </div>
 
         <div className="settings-divider">Local server & client</div>
@@ -1375,6 +1506,20 @@ export default function SettingsModal({
 
         </>)}
         {section === "agent" && (<>
+        <label className="field-label">
+          Agent Chat
+          <select
+            value={draft.agentChatEnabled ? "on" : "off"}
+            onChange={(event) => setDraft((current) => ({ ...current, agentChatEnabled: event.target.value === "on" }))}
+          >
+            <option value="off">{t("common.off")}</option>
+            <option value="on">{t("common.on")}</option>
+          </select>
+        </label>
+        <div className="field-hint">
+          Off removes the Agent Chat panel and its agent bar entirely; the editor takes the space. Connections
+          below stay saved for when you turn it back on.
+        </div>
         <div
           id="settings-agent-chat-section"
           className="settings-divider"

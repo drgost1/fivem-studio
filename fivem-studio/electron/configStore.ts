@@ -68,6 +68,10 @@ export interface StudioConfig {
   notifyOnServerExit: boolean;
   discordPresenceEnabled: boolean;
   agentSpendWarningUsd: number;
+  /** Local FXServer workflow on this PC; off hides local server controls and skips local checks. */
+  localHostEnabled: boolean;
+  /** Agent Chat panel; off removes it (and its agent bar) entirely. */
+  agentChatEnabled: boolean;
   editor: EditorPreferences;
   /** Optional remote host. Null (the default) keeps every local code path unchanged. */
   remote: RemoteHostSettings | null;
@@ -91,6 +95,9 @@ export interface RemoteHostSettings {
   nodePath: string;
   /** Absolute POSIX path the bundled runtime is deployed to. */
   runtimePath: string;
+  /** Folder on the host holding run.sh + alpine/, for artifact updates. Null = unmanaged. */
+  artifactPath: string | null;
+  artifactTrack: "recommended" | "latest";
 }
 
 export interface EditorPreferences {
@@ -157,6 +164,8 @@ const DEFAULTS: StudioConfig = {
   notifyOnServerExit: true,
   discordPresenceEnabled: false,
   agentSpendWarningUsd: 5,
+  localHostEnabled: true,
+  agentChatEnabled: true,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -493,6 +502,7 @@ export function remoteSettingsOrNull(value: unknown): RemoteHostSettings | null 
   if (typeof rconPort !== "number" || !Number.isInteger(rconPort) || rconPort < 1 || rconPort > 65535) return null;
   const txAdminDataDir = posixPath(value.txAdminDataDir);
   const txAdminControlProfile = safeProfile(value.txAdminControlProfile);
+  const artifactPath = posixPath(value.artifactPath);
   // The runtime requires these together or not at all.
   const pairComplete = Boolean(txAdminDataDir) === Boolean(txAdminControlProfile);
   return {
@@ -504,6 +514,8 @@ export function remoteSettingsOrNull(value: unknown): RemoteHostSettings | null 
     rconPort,
     nodePath,
     runtimePath,
+    artifactPath,
+    artifactTrack: value.artifactTrack === "latest" ? "latest" : "recommended",
   };
 }
 
@@ -548,6 +560,8 @@ export function normalizeConfig(value: unknown): StudioConfig {
     notifyOnServerExit: booleanOr(raw.notifyOnServerExit, DEFAULTS.notifyOnServerExit),
     discordPresenceEnabled: booleanOr(raw.discordPresenceEnabled, DEFAULTS.discordPresenceEnabled),
     agentSpendWarningUsd: spendWarningOrDefault(raw.agentSpendWarningUsd),
+    localHostEnabled: booleanOr(raw.localHostEnabled, DEFAULTS.localHostEnabled),
+    agentChatEnabled: booleanOr(raw.agentChatEnabled, DEFAULTS.agentChatEnabled),
     editor: editorPreferences(raw.editor),
     agent: agentSettings(raw),
   };

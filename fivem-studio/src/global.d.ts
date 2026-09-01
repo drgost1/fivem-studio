@@ -21,12 +21,44 @@ export interface StudioConfig {
   notifyOnServerExit: boolean;
   discordPresenceEnabled: boolean;
   agentSpendWarningUsd: number;
+  localHostEnabled: boolean;
+  agentChatEnabled: boolean;
   editor: EditorPreferences;
   agent: AgentSettings;
 }
 
 /** Framework declarations loaded alongside the platform pack. */
 export type LuaFrameworkPack = "qbcore" | "qbox" | "esx" | "none";
+
+export interface RemoteArtifactStatus {
+  track: "recommended" | "latest";
+  build: number;
+  version: string;
+  downloadUrl: string;
+  installedBuild: number | null;
+  updateAvailable: boolean | null;
+}
+
+export interface RemoteArtifactInstallResult extends RemoteArtifactStatus {
+  installedAt: string;
+  note: string;
+}
+
+export interface WorkspaceGitRepo {
+  path: string;
+  name: string;
+  branch: string | null;
+  detached: boolean;
+  dirty: number;
+  ahead: number;
+  behind: number;
+  hasUpstream: boolean;
+}
+
+export interface GitActionResult {
+  ok: boolean;
+  output: string;
+}
 
 /** Remote host coordinates. Holds no secrets: SSH owns authentication via the
  * user's own client configuration, and this object reaches the renderer. */
@@ -39,6 +71,8 @@ export interface RemoteHostSettings {
   rconPort: number;
   nodePath: string;
   runtimePath: string;
+  artifactPath: string | null;
+  artifactTrack: "recommended" | "latest";
 }
 
 export interface RemoteDirectoryEntry {
@@ -677,6 +711,12 @@ declare global {
         listSshHosts(configPath: string | null): Promise<{ configPath: string; hosts: string[] }>;
         detectNode(sshTarget: string): Promise<{ path: string; version: string } | null>;
         listDirectory(sshTarget: string, directory: string | null): Promise<RemoteDirectoryListing>;
+        artifactCheck(sshTarget: string, artifactPath: string, track: "recommended" | "latest"): Promise<RemoteArtifactStatus>;
+        artifactInstall(sshTarget: string, artifactPath: string, track: "recommended" | "latest"): Promise<RemoteArtifactInstallResult>;
+      };
+      git: {
+        listWorkspaceRepos(): Promise<WorkspaceGitRepo[]>;
+        repoAction(repoPath: string, action: "pull" | "push" | "commit", message?: string): Promise<GitActionResult>;
       };
       txdata: {
         listProfiles(txDataPath: string): Promise<ProfileInfo[]>;

@@ -59,10 +59,10 @@ export default function TopBar({
   const clientExecutable = activeTarget === "redm" ? "RedM.exe" : "FiveM.exe";
   const runtimeReady = connected && workspaceMatch?.ok === true;
   const statusLabel = !connected
-    ? "Coding runtime unavailable"
+    ? "MCP runtime unavailable"
     : runtimeReady
-      ? "Coding runtime ready"
-      : "Coding runtime ready · read only";
+      ? (remoteActive ? "MCP connected · remote" : "MCP connected")
+      : "MCP connected · read only";
   const availabilityNote = "The coding runtime does not confirm that FXServer is running.";
   const uptime = serverStartedAt === null
     ? "just observed"
@@ -74,7 +74,7 @@ export default function TopBar({
         return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
       })();
   const statusTitle = !connected
-    ? "FiveM Studio could not reach its bundled coding runtime."
+    ? "FiveM Studio could not reach its MCP coding runtime (local or remote)."
     : `${workspaceMatch?.reason ?? (runtimeIdentity ? `${runtimeIdentity.mcp.name} ${runtimeIdentity.mcp.version}` : "Bundled coding runtime")}. ${availabilityNote}`;
   const serverButtonLabel = serverAction === "starting"
     ? "Starting server"

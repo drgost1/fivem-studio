@@ -110,6 +110,15 @@ const api = {
     detectNode: (sshTarget: string) => ipcRenderer.invoke("remote:detectNode", sshTarget),
     listDirectory: (sshTarget: string, directory: string | null) =>
       ipcRenderer.invoke("remote:listDirectory", sshTarget, directory),
+    artifactCheck: (sshTarget: string, artifactPath: string, track: "recommended" | "latest") =>
+      ipcRenderer.invoke("remote:artifactCheck", sshTarget, artifactPath, track),
+    artifactInstall: (sshTarget: string, artifactPath: string, track: "recommended" | "latest") =>
+      ipcRenderer.invoke("remote:artifactInstall", sshTarget, artifactPath, track),
+  },
+  git: {
+    listWorkspaceRepos: () => ipcRenderer.invoke("git:listWorkspaceRepos"),
+    repoAction: (repoPath: string, action: "pull" | "push" | "commit", message?: string) =>
+      ipcRenderer.invoke("git:repoAction", repoPath, action, message),
   },
   txdata: {
     listProfiles: (txDataPath: string) => ipcRenderer.invoke("txdata:listProfiles", txDataPath),

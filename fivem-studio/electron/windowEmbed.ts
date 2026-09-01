@@ -538,8 +538,19 @@ function ensureLiveWindow(): boolean {
     attached.originalStyle = restored.originalStyle;
     attached.originalOwner = restored.originalOwner;
     attached.missingSince = null;
-    attached.wasVisible = false;
-    attached.lastRect = null;
+    attached.lastClip = null;
+    // The renderer only re-sends the rect when its DOM measurement changes,
+    // and a recreated game window does not change Studio's DOM — so the
+    // overlay must be re-applied here, immediately, from the last known
+    // rect. Losing it left the fresh window unpositioned and unclipped,
+    // sprawling over Studio's other panels.
+    if (attached.wasVisible && attached.lastRect) {
+      applyOverlayRect(attached, attached.lastRect, true);
+      ShowWindow(attached.hwnd, SW_SHOWNOACTIVATE);
+    } else {
+      attached.wasVisible = false;
+      attached.lastRect = null;
+    }
   }
   attached.missingSince = null;
   return true;

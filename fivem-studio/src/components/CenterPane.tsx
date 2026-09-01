@@ -68,6 +68,7 @@ interface CenterPaneProps {
   crashTriage: CrashTriageContext | null;
   onDismissCrashTriage: () => void;
   onSendCrashTriage: (text: string) => void;
+  agentEnabled: boolean;
   onConsoleOutputChange: (output: string) => void;
   onAgentPrompt: (text: string) => void;
   dependencyGraph: ResourceDependencyGraph;
@@ -116,6 +117,7 @@ export default function CenterPane({
   crashTriage,
   onDismissCrashTriage,
   onSendCrashTriage,
+  agentEnabled,
   onConsoleOutputChange,
   onAgentPrompt,
   dependencyGraph,
@@ -297,6 +299,7 @@ export default function CenterPane({
             crashTriage={crashTriage}
             onDismissCrashTriage={onDismissCrashTriage}
             onSendCrashTriage={onSendCrashTriage}
+            agentEnabled={agentEnabled}
             onOutputChange={onConsoleOutputChange}
           />
         </div>
@@ -621,6 +624,7 @@ function ConsoleSection({
   crashTriage,
   onDismissCrashTriage,
   onSendCrashTriage,
+  agentEnabled,
   onOutputChange,
 }: {
   active: boolean;
@@ -632,6 +636,7 @@ function ConsoleSection({
   crashTriage: CrashTriageContext | null;
   onDismissCrashTriage: () => void;
   onSendCrashTriage: (text: string) => void;
+  agentEnabled: boolean;
   onOutputChange: (output: string) => void;
 }) {
   return (
@@ -646,6 +651,7 @@ function ConsoleSection({
         crashTriage={crashTriage}
         onDismissCrashTriage={onDismissCrashTriage}
         onSendCrashTriage={onSendCrashTriage}
+        agentEnabled={agentEnabled}
         onOutputChange={onOutputChange}
         onOpenPopout={(source) => void window.api.console.openPopout(source)}
       />
@@ -663,6 +669,7 @@ export function ConsolePanel({
   crashTriage,
   onDismissCrashTriage,
   onSendCrashTriage,
+  agentEnabled,
   onOutputChange,
   onOpenPopout,
 }: {
@@ -675,6 +682,7 @@ export function ConsolePanel({
   crashTriage: CrashTriageContext | null;
   onDismissCrashTriage: () => void;
   onSendCrashTriage: (text: string) => void;
+  agentEnabled: boolean;
   onOutputChange: (output: string) => void;
   onOpenPopout?: (source: ConsoleOutputSource) => void;
 }) {
@@ -913,12 +921,16 @@ export function ConsolePanel({
 
   const requestAgentFix = useCallback(async (location: ConsoleSourceLocationRequest, diagnosticLine: string) => {
     setSourceError(null);
+    if (!agentEnabled) {
+      setSourceError("Agent Chat is turned off in Settings.");
+      return;
+    }
     try {
       await window.api.console.requestAgentFix(location, diagnosticLine);
     } catch (requestError) {
       setSourceError(t("console.agentFixError", { message: (requestError as Error).message }));
     }
-  }, []);
+  }, [agentEnabled]);
 
   const visibleOutput = useMemo(
     () => filterConsoleOutput(output, severity, textFilter),
@@ -1036,7 +1048,9 @@ export function ConsolePanel({
               : t("console.crashNoReport")}
           </div>
           <div className="console-crash-actions">
-            <button className="btn small primary" type="button" onClick={sendCrashContext}>{t("console.crashSend")}</button>
+            {agentEnabled ? (
+              <button className="btn small primary" type="button" onClick={sendCrashContext}>{t("console.crashSend")}</button>
+            ) : null}
             <button className="btn small" type="button" onClick={onDismissCrashTriage}>{t("console.crashDismiss")}</button>
           </div>
         </section>
@@ -1430,9 +1444,9 @@ function EmbedSurface({ active }: { active: boolean }) {
   // clipped on the stage; "stretch" resizes the game window to the stage.
   const [fitMode, setFitMode] = useState<string>(() => {
     try {
-      return window.localStorage.getItem("qbStudio.viewportFit") ?? "native";
+      return window.localStorage.getItem("qbStudio.viewportFit") ?? "stretch";
     } catch {
-      return "native";
+      return "stretch";
     }
   });
 
@@ -1546,8 +1560,8 @@ function EmbedSurface({ active }: { active: boolean }) {
         <label>
           Fit
           <select value={fitMode} onChange={(event) => setFitMode(event.target.value)}>
-            <option value="native">Native — game keeps its resolution</option>
-            <option value="stretch">Stretch — fill the stage</option>
+            <option value="stretch">Stretch — fit the stage (resizes the game)</option>
+            <option value="native">Native — real resolution, crops if larger</option>
           </select>
         </label>
         <label>

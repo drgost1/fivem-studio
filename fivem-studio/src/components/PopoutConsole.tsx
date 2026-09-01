@@ -79,6 +79,7 @@ export default function PopoutConsole() {
         crashTriage={null}
         onDismissCrashTriage={() => undefined}
         onSendCrashTriage={() => undefined}
+        agentEnabled={false}
         onOutputChange={() => undefined}
       />
     </main>

@@ -6,6 +6,7 @@ import SettingsModal from "./components/SettingsModal";
 import ResourceTree from "./components/ResourceTree";
 import SearchPanel from "./components/SearchPanel";
 import GithubImportPanel from "./components/GithubImportPanel";
+import WorkspaceReposPanel from "./components/WorkspaceReposPanel";
 import CenterPane, { type CenterTab } from "./components/CenterPane";
 import ChatPanel from "./components/ChatPanel";
 import StatusArea, { type StatusItem } from "./components/StatusArea";
@@ -86,6 +87,8 @@ const DEFAULT_CONFIG: StudioConfig = {
   notifyOnServerExit: true,
   discordPresenceEnabled: false,
   agentSpendWarningUsd: 5,
+  localHostEnabled: true,
+  agentChatEnabled: true,
   editor: {
     fontSize: 13,
     wordWrap: false,
@@ -188,6 +191,8 @@ export default function App() {
   const agentTargetScopeRef = useRef(currentAgentTargetScope);
   agentPromptScopeRef.current = currentAgentPromptScope;
   agentTargetScopeRef.current = currentAgentTargetScope;
+  const agentChatEnabledRef = useRef(true);
+  agentChatEnabledRef.current = config.agentChatEnabled;
   const agentPromptSequence = useRef(0);
   const [agentPrompt, setAgentPrompt] = useState<AgentPromptEnvelope | null>(null);
   const [assistantActive, setAssistantActive] = useState(false);
@@ -198,6 +203,7 @@ export default function App() {
     workspaceScope = agentPromptScopeRef.current,
     agentScope = agentTargetScopeRef.current,
   ) => {
+    if (!agentChatEnabledRef.current) return;
     setAgentPrompt({
       id: ++agentPromptSequence.current,
       text,
@@ -480,7 +486,7 @@ export default function App() {
     shouldApply: () => boolean = () => true,
   ) => {
     const isCurrent = () => shouldApply() && expectedEpoch === serverStatusEpoch.current;
-    if (!config.legacyFxServerExePath && !config.enhancedFxServerExePath && !config.redmFxServerExePath) {
+    if (!config.localHostEnabled || (!config.legacyFxServerExePath && !config.enhancedFxServerExePath && !config.redmFxServerExePath)) {
       if (!isCurrent()) return;
       setServerRunning(false);
       setServerPids([]);
@@ -524,7 +530,7 @@ export default function App() {
       if (!isCurrent()) return;
       setServerStatusError((err as Error).message || "Server status is unavailable.");
     }
-  }, [config.activeCfxTarget, config.legacyFxServerExePath, config.enhancedFxServerExePath, config.redmFxServerExePath]);
+  }, [config.activeCfxTarget, config.localHostEnabled, config.legacyFxServerExePath, config.enhancedFxServerExePath, config.redmFxServerExePath]);
 
   // A running observation belongs to one configured executable/workspace. Do
   // not interpret the first stopped result after switching targets as a crash.
@@ -569,6 +575,8 @@ export default function App() {
   // terminal — keep retrying quietly in the background until it comes up.
   useEffect(() => {
     if (!configLoaded || connected) return;
+    // Local host off with no remote host: there is nothing to connect to.
+    if (!config.remote && !config.localHostEnabled) return;
     // A remote host supplies its own workspace, so the local pair is not required.
     if (!config.remote && (!config.txDataPath || !config.selectedProfile)) return;
     let cancelled = false;
@@ -583,7 +591,7 @@ export default function App() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [configLoaded, config.txDataPath, config.selectedProfile, config.remote, connected, connect]);
+  }, [configLoaded, config.txDataPath, config.selectedProfile, config.remote, config.localHostEnabled, connected, connect]);
 
   // If the transport drops (server stopped), flip back to disconnected — which
   // re-arms the retry loop above.
@@ -1485,7 +1493,7 @@ export default function App() {
         serverTarget={serverTarget}
         activeServerPath={activeServerPath}
         serverConfigured={Boolean(config.txDataPath && config.selectedProfile)}
-        remoteActive={Boolean(config.remote)}
+        remoteActive={Boolean(config.remote) || !config.localHostEnabled}
         serverAction={serverAction}
         serverRunning={serverRunning}
         serverPids={serverPids}
@@ -1534,7 +1542,7 @@ export default function App() {
                   aria-selected={sidebarTab === "github"}
                   onClick={() => setSidebarTab("github")}
                 >
-                  GitHub
+                  Git
                 </button>
               </div>
               <div className="pane-body">
@@ -1604,7 +1612,10 @@ export default function App() {
                     onRemove={(path, line) => void toggleBookmark(path, line)}
                   />
                 ) : (
-                  <GithubImportPanel projectRoot={resolved.resourcesPath} onImported={() => setTreeRefreshKey((k) => k + 1)} />
+                  <>
+                    <WorkspaceReposPanel refreshKey={treeRefreshKey} />
+                    <GithubImportPanel projectRoot={resolved.resourcesPath} onImported={() => setTreeRefreshKey((k) => k + 1)} />
+                  </>
                 )}
               </div>
             </div>
@@ -1614,6 +1625,7 @@ export default function App() {
 
           <Panel defaultSize="55" minSize="30">
             <CenterPane
+              agentEnabled={config.agentChatEnabled}
               connected={connected}
               runtimeReadable={runtimeReadable}
               runtimeWritable={runtimeWritable}
@@ -1669,6 +1681,7 @@ export default function App() {
             />
           </Panel>
 
+          {config.agentChatEnabled ? (<>
           <Separator className="resize-handle resize-handle-h" />
 
           <Panel defaultSize="25" minSize="18">
@@ -1688,6 +1701,7 @@ export default function App() {
               onOpenAgentSettings={openAgentSettings}
             />
           </Panel>
+          </>) : null}
         </Group>
       </div>
 

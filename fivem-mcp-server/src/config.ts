@@ -40,6 +40,16 @@ export const config = {
     dataDir: optional("TXADMIN_DATA_DIR"), // path to txData, e.g. C:\txData
     controlProfile: optional("TXADMIN_CONTROL_PROFILE"),
   },
+  // Extended "hands" for coding agents. All OFF by default so a stock
+  // deployment keeps the original six-tool surface; each is the operator's
+  // deliberate opt-in via the runtime env file.
+  capabilities: {
+    files: enabled("MCP_ENABLE_FILES"), // read/write/edit/list/search/check_lua inside the workspace roots
+    git: enabled("MCP_ENABLE_GIT"), // status/diff/log/pull/sync, run as each repo's owner
+    rawRcon: enabled("MCP_ENABLE_RAW_RCON"), // server_command: the full FXServer console
+    shell: enabled("MCP_ENABLE_SHELL"), // run_command: bounded arbitrary execution
+    workspaceRoots: optional("MCP_WORKSPACE_ROOTS"), // path-list jail override for the above
+  },
   mcp: {
     // "http" (default) — agents connect over the network to MCP_PORT.
     // "stdio" — classic local-process MCP client config instead.

@@ -5,6 +5,9 @@ import { RconClient } from "./rcon.js";
 import { registerConsoleTools } from "./tools/console.js";
 import { registerResourceTools } from "./tools/resources.js";
 import { registerIdentityTools } from "./tools/identity.js";
+import { registerFileTools } from "./tools/files.js";
+import { registerGitTools } from "./tools/git.js";
+import { registerRawRconTool, registerShellTool } from "./tools/exec.js";
 
 export const SERVER_NAME = "fivem-studio-runtime";
 export const SERVER_VERSION = "0.0.0-development";
@@ -32,11 +35,20 @@ export function createMcpServer(): McpServer {
   // compare its selected workspace with this runtime before mutating either.
   registerIdentityTools(server);
 
-  // The runtime intentionally exposes only coding-session primitives: read
-  // console logs and reload named resources. There are no player, gameplay,
-  // arbitrary-eval, screenshot, or raw administration tools.
+  // The base surface is coding-session primitives only: read console logs and
+  // reload named resources. No player, gameplay, arbitrary-eval, screenshot,
+  // or raw administration tools.
   registerConsoleTools(server);
   registerResourceTools(server, rcon);
+
+  // Everything below is opt-in through the runtime env file and stays absent
+  // from a stock deployment. These exist so an agent working over one MCP
+  // connection can read, edit, verify and push without a shell round trip per
+  // step; each is jailed to the configured workspace roots.
+  if (config.capabilities.files) registerFileTools(server);
+  if (config.capabilities.git) registerGitTools(server);
+  if (config.capabilities.rawRcon) registerRawRconTool(server, rcon);
+  if (config.capabilities.shell) registerShellTool(server);
 
   return server;
 }

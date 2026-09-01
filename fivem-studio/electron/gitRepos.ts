@@ -39,6 +39,8 @@ const ACTION_TIMEOUT_MS = 180_000;
 
 interface WorkspaceContext {
   sshTarget: string | null;
+  /** The server-data workspace; its enclosing git repo (txData-level) is listed too. */
+  workspace: string;
   root: string;
 }
 
@@ -47,6 +49,7 @@ function workspaceContext(): WorkspaceContext {
   if (config.remote) {
     return {
       sshTarget: config.remote.sshTarget,
+      workspace: config.remote.workspacePath.replace(/\/+$/, ""),
       root: `${config.remote.workspacePath.replace(/\/+$/, "")}/resources`,
     };
   }
@@ -57,7 +60,7 @@ function workspaceContext(): WorkspaceContext {
   if (!resolved.resourcesPath) {
     throw new Error("The selected workspace has no resources folder.");
   }
-  return { sshTarget: null, root: resolved.resourcesPath };
+  return { sshTarget: null, workspace: path.dirname(resolved.resourcesPath), root: resolved.resourcesPath };
 }
 
 /** Parses `git status --porcelain=v2 --branch` output. */
@@ -162,6 +165,15 @@ function relativeName(root: string, repoPath: string): string {
   return value.replace(/\\/g, "/") || repoPath;
 }
 
+function repoDisplayName(root: string, repoPath: string): string {
+  const normalizedRoot = root.replace(/[\\/]+$/, "");
+  if (repoPath === normalizedRoot) return "resources";
+  if (repoPath.startsWith(normalizedRoot + "/") || repoPath.startsWith(normalizedRoot + "\\")) {
+    return relativeName(normalizedRoot, repoPath);
+  }
+  return (repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath) + " (server repo)";
+}
+
 const REPO_MARKER = "===FIVEM-STUDIO-REPO=== ";
 
 export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
@@ -172,6 +184,13 @@ export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
     // line and the porcelain status for each.
     const script = [
       "ROOT=" + shellQuote(context.root),
+      // The whole server tree is often ONE repo rooted above server-data
+      // (txDataN/.git) - walk up from the workspace and list it too.
+      "WSTOP=$(GIT_TERMINAL_PROMPT=0 git -C " + shellQuote(context.workspace) + " rev-parse --show-toplevel 2>/dev/null)",
+      'if [ -n "$WSTOP" ]; then',
+      "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$WSTOP"',
+      '  GIT_TERMINAL_PROMPT=0 git -C "$WSTOP" status --porcelain=v2 --branch 2>&1 | head -300',
+      "fi",
       'find "$ROOT" -mindepth 1 -maxdepth 4 -type d -name .git -prune 2>/dev/null | head -' + String(MAX_REPOS) + " | while read -r gitdir; do",
       '  repo="${gitdir%/.git}"',
       "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$repo"',
@@ -183,25 +202,35 @@ export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
       throw new Error(result.stderr.trim().split("\n").slice(-2).join(" ") || "Could not scan the host for repositories.");
     }
     const chunks = result.stdout.split(REPO_MARKER).slice(1);
+    const seen = new Set<string>();
     for (const chunk of chunks) {
       const newline = chunk.indexOf("\n");
       if (newline === -1) continue;
       const repoPath = chunk.slice(0, newline).trim();
-      if (!repoPath) continue;
-      repos.push({ path: repoPath, name: relativeName(context.root, repoPath), ...parseStatus(chunk.slice(newline + 1)) });
+      if (!repoPath || seen.has(repoPath)) continue;
+      seen.add(repoPath);
+      repos.push({ path: repoPath, name: repoDisplayName(context.root, repoPath), ...parseStatus(chunk.slice(newline + 1)) });
     }
   } else {
     const paths = findLocalRepos(context.root);
+    const top = await runGit(context.workspace, ["rev-parse", "--show-toplevel"]);
+    if (top.code === 0 && top.stdout.trim()) {
+      const topPath = path.resolve(top.stdout.trim());
+      if (!paths.some((candidate) => path.resolve(candidate) === topPath)) paths.unshift(topPath);
+    }
     const statuses = await Promise.all(
       paths.map((repoPath) => runGit(repoPath, ["status", "--porcelain=v2", "--branch"])),
     );
     paths.forEach((repoPath, index) => {
       const status = statuses[index];
       if (status.code !== 0) return; // not readable as a repo right now
-      repos.push({ path: repoPath, name: relativeName(context.root, repoPath), ...parseStatus(status.stdout) });
+      repos.push({ path: repoPath, name: repoDisplayName(context.root, repoPath), ...parseStatus(status.stdout) });
     });
   }
-  repos.sort((a, b) => a.name.localeCompare(b.name));
+  // Enclosing server repo first, then resources repos alphabetically.
+  repos.sort((a, b) =>
+    Number(a.path.startsWith(context.root)) - Number(b.path.startsWith(context.root))
+    || a.name.localeCompare(b.name));
   return { root: context.root, remote: context.sshTarget !== null, repos };
 }
 
@@ -211,14 +240,18 @@ function assertRepoInsideWorkspace(context: WorkspaceContext, repoPath: string):
   }
   if (context.sshTarget) {
     const normalized = repoPath.replace(/\/+$/, "");
-    if (!normalized.startsWith(`${context.root}/`)) throw new Error("That repository is outside the workspace.");
+    const enclosing = context.root === normalized || context.root.startsWith(`${normalized}/`);
+    if (!normalized.startsWith(`${context.root}/`) && !enclosing) {
+      throw new Error("That repository is outside the workspace.");
+    }
     return normalized;
   }
   const resolved = path.resolve(repoPath);
   const rootResolved = path.resolve(context.root);
-  if (!resolved.toLowerCase().startsWith(`${rootResolved.toLowerCase()}${path.sep}`)) {
-    throw new Error("That repository is outside the workspace.");
-  }
+  const inside = resolved.toLowerCase().startsWith(`${rootResolved.toLowerCase()}${path.sep}`);
+  const enclosing = rootResolved.toLowerCase() === resolved.toLowerCase()
+    || rootResolved.toLowerCase().startsWith(`${resolved.toLowerCase()}${path.sep}`);
+  if (!inside && !enclosing) throw new Error("That repository is outside the workspace.");
   return resolved;
 }
 

@@ -73,8 +73,9 @@ export default function WorkspaceReposPanel({ refreshKey }: WorkspaceReposPanelP
         </button>
       </div>
       <div className="field-hint">
-        Git repositories inside <code>resources/</code> — on the remote host when one is connected. Push and pull
-        use the credentials already configured where the repository lives.
+        The server repo enclosing this workspace (txData level) plus any repositories inside
+        <code>resources/</code> — on the remote host when one is connected. Push and pull use the
+        credentials already configured where the repository lives.
       </div>
       {error ? <div className="error-text">{error}</div> : null}
       {listing !== null && listing.repos.length === 0 && !loading ? (

@@ -182,6 +182,23 @@ function repoDisplayName(root: string, repoPath: string): string {
   return repoPath.replace(/^\/home\//, "").replace(/^\//, "");
 }
 
+// The ssh login is root, but each repository's deploy keys and ssh host
+// aliases live with its OWNING user - running git as root cannot resolve
+// them (measured: push failed with an unresolvable github.com-* alias).
+// Run git as the repo owner, with that user's HOME, falling back to a
+// plain invocation when sudo is unavailable.
+const RUNGIT_SH = [
+  "rungit() {",
+  '  rgd="$1"; shift',
+  '  rgo=$(stat -c %U "$rgd" 2>/dev/null || echo root)',
+  '  if [ "$rgo" != "root" ] && command -v sudo >/dev/null 2>&1; then',
+  '    sudo -n -u "$rgo" -H env GIT_TERMINAL_PROMPT=0 git -C "$rgd" "$@"',
+  "  else",
+  '    GIT_TERMINAL_PROMPT=0 git -C "$rgd" "$@"',
+  "  fi",
+  "}",
+].join("\n");
+
 const REPO_MARKER = "===FIVEM-STUDIO-REPO=== ";
 
 export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
@@ -191,23 +208,24 @@ export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
     // One round trip: find every .git under resources, then print a marker
     // line and the porcelain status for each.
     const script = [
+      RUNGIT_SH,
       "ROOT=" + shellQuote(context.root),
       // The whole server tree is often ONE repo rooted above server-data
       // (txDataN/.git) - walk up from the workspace and list it too.
       // Then sweep the host's home trees for every other repository, so
       // the panel answers what repos exist on the host, not only what sits
       // inside resources/. Junk trees are pruned before descent.
-      "WSTOP=$(GIT_TERMINAL_PROMPT=0 git -C " + shellQuote(context.workspace) + " rev-parse --show-toplevel 2>/dev/null)",
+      "WSTOP=$(rungit " + shellQuote(context.workspace) + " rev-parse --show-toplevel 2>/dev/null)",
       'if [ -n "$WSTOP" ]; then',
       "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$WSTOP"',
-      '  GIT_TERMINAL_PROMPT=0 git -C "$WSTOP" status --porcelain=v2 --branch 2>&1 | head -300',
+      '  rungit "$WSTOP" status --porcelain=v2 --branch 2>&1 | head -300',
       "fi",
       '{ find "$ROOT" -mindepth 1 -maxdepth 4 -type d -name .git -prune 2>/dev/null;'
         + ' find /root /home -mindepth 1 -maxdepth 6 \\( -name alpine -o -name proot -o -name cache -o -name node_modules -o -name .local -o -name .npm \\) -prune -o -type d -name .git -print 2>/dev/null; }'
         + ' | head -' + String(MAX_REPOS) + " | while read -r gitdir; do",
       '  repo="${gitdir%/.git}"',
       "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$repo"',
-      '  GIT_TERMINAL_PROMPT=0 git -C "$repo" status --porcelain=v2 --branch 2>&1 | head -300',
+      '  rungit "$repo" status --porcelain=v2 --branch 2>&1 | head -300',
       "done",
     ].join("\n");
     const result = await runSsh(context.sshTarget, ["sh", "-s"], script, 60_000, 512 * 1024);
@@ -280,13 +298,12 @@ export async function runRepoAction(
   if (context.sshTarget) {
     // sh -s consumes all of stdin as the script, so a commit message cannot
     // ride stdin behind it; it is delivered inline through shellQuote instead.
-    const git = 'GIT_TERMINAL_PROMPT=0 git -C "$REPO"';
     const body = action === "pull"
-      ? [`${git} pull --ff-only 2>&1`]
+      ? ['rungit "$REPO" pull --ff-only 2>&1']
       : action === "push"
-        ? [`${git} push 2>&1`]
-        : [`${git} add -A 2>&1`, "printf '%s' " + shellQuote(message) + ` | ${git} commit -F - 2>&1`];
-    const script = ["REPO=" + shellQuote(repoPath), ...body].join("\n");
+        ? ['rungit "$REPO" push 2>&1']
+        : ['rungit "$REPO" add -A 2>&1', "printf '%s' " + shellQuote(message) + ' | rungit "$REPO" commit -F - 2>&1'];
+    const script = [RUNGIT_SH, "REPO=" + shellQuote(repoPath), ...body].join("\n");
     const result = await runSsh(context.sshTarget, ["sh", "-s"], script, ACTION_TIMEOUT_MS, 64 * 1024);
     return { ok: result.code === 0, output: `${result.stdout}\n${result.stderr}`.trim().slice(-4_000) };
   }

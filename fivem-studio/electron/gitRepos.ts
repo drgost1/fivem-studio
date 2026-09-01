@@ -24,6 +24,13 @@ export interface GitActionResult {
   output: string;
 }
 
+export interface WorkspaceReposListing {
+  /** The resources root that was scanned, so an empty result explains itself. */
+  root: string;
+  remote: boolean;
+  repos: WorkspaceGitRepo[];
+}
+
 export type GitRepoAction = "pull" | "push" | "commit";
 
 const MAX_REPOS = 60;
@@ -157,7 +164,7 @@ function relativeName(root: string, repoPath: string): string {
 
 const REPO_MARKER = "===FIVEM-STUDIO-REPO=== ";
 
-export async function listWorkspaceRepos(): Promise<WorkspaceGitRepo[]> {
+export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
   const context = workspaceContext();
   const repos: WorkspaceGitRepo[] = [];
   if (context.sshTarget) {
@@ -195,7 +202,7 @@ export async function listWorkspaceRepos(): Promise<WorkspaceGitRepo[]> {
     });
   }
   repos.sort((a, b) => a.name.localeCompare(b.name));
-  return repos;
+  return { root: context.root, remote: context.sshTarget !== null, repos };
 }
 
 function assertRepoInsideWorkspace(context: WorkspaceContext, repoPath: string): string {

@@ -60,6 +60,12 @@ export interface GitActionResult {
   output: string;
 }
 
+export interface WorkspaceReposListing {
+  root: string;
+  remote: boolean;
+  repos: WorkspaceGitRepo[];
+}
+
 /** Remote host coordinates. Holds no secrets: SSH owns authentication via the
  * user's own client configuration, and this object reaches the renderer. */
 export interface RemoteHostSettings {
@@ -715,7 +721,7 @@ declare global {
         artifactInstall(sshTarget: string, artifactPath: string, track: "recommended" | "latest"): Promise<RemoteArtifactInstallResult>;
       };
       git: {
-        listWorkspaceRepos(): Promise<WorkspaceGitRepo[]>;
+        listWorkspaceRepos(): Promise<WorkspaceReposListing>;
         repoAction(repoPath: string, action: "pull" | "push" | "commit", message?: string): Promise<GitActionResult>;
       };
       txdata: {

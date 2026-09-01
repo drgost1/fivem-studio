@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { GitActionResult, WorkspaceGitRepo } from "../global";
+import type { GitActionResult, WorkspaceGitRepo, WorkspaceReposListing } from "../global";
 
 interface WorkspaceReposPanelProps {
   /** Bumped by the file tree when workspace contents change. */
@@ -9,7 +9,7 @@ interface WorkspaceReposPanelProps {
 /** Git repositories found inside the workspace's resources folder — local or
  * on the remote host — with pull / push / commit per repository. */
 export default function WorkspaceReposPanel({ refreshKey }: WorkspaceReposPanelProps) {
-  const [repos, setRepos] = useState<WorkspaceGitRepo[] | null>(null);
+  const [listing, setListing] = useState<WorkspaceReposListing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -21,9 +21,9 @@ export default function WorkspaceReposPanel({ refreshKey }: WorkspaceReposPanelP
     setLoading(true);
     setError(null);
     try {
-      setRepos(await window.api.git.listWorkspaceRepos());
+      setListing(await window.api.git.listWorkspaceRepos());
     } catch (loadError) {
-      setRepos(null);
+      setListing(null);
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setLoading(false);
@@ -70,11 +70,15 @@ export default function WorkspaceReposPanel({ refreshKey }: WorkspaceReposPanelP
         use the credentials already configured where the repository lives.
       </div>
       {error ? <div className="error-text">{error}</div> : null}
-      {repos !== null && repos.length === 0 && !loading ? (
-        <div className="field-hint">No git repositories found under resources/.</div>
+      {listing !== null && listing.repos.length === 0 && !loading ? (
+        <div className="field-hint">
+          No git repositories under <code>{listing.root}</code>{listing.remote ? " on the remote host" : ""} —
+          these resource folders have no <code>.git</code> (deployed as plain copies). Clone or init them there to
+          manage them from here.
+        </div>
       ) : null}
       <ul className="git-repo-list">
-        {(repos ?? []).map((repo) => {
+        {(listing?.repos ?? []).map((repo) => {
           const busyHere = actionBusy?.startsWith(`${repo.path}:`) ?? false;
           const output = outputs[repo.path];
           return (

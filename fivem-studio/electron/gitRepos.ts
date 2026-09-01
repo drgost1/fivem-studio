@@ -34,6 +34,10 @@ export interface WorkspaceReposListing {
 export type GitRepoAction = "pull" | "push" | "commit";
 
 const MAX_REPOS = 60;
+
+// Actions are only allowed on repositories the last scan actually listed,
+// so the renderer can never point git at an arbitrary directory.
+const knownRepoPaths = new Set<string>();
 const STATUS_TIMEOUT_MS = 20_000;
 const ACTION_TIMEOUT_MS = 180_000;
 
@@ -171,7 +175,11 @@ function repoDisplayName(root: string, repoPath: string): string {
   if (repoPath.startsWith(normalizedRoot + "/") || repoPath.startsWith(normalizedRoot + "\\")) {
     return relativeName(normalizedRoot, repoPath);
   }
-  return (repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath) + " (server repo)";
+  if (normalizedRoot.startsWith(repoPath + "/")) {
+    return (repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath) + " (server repo)";
+  }
+  // Elsewhere on the host: show a compact absolute-ish location.
+  return repoPath.replace(/^\/home\//, "").replace(/^\//, "");
 }
 
 const REPO_MARKER = "===FIVEM-STUDIO-REPO=== ";
@@ -186,12 +194,17 @@ export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
       "ROOT=" + shellQuote(context.root),
       // The whole server tree is often ONE repo rooted above server-data
       // (txDataN/.git) - walk up from the workspace and list it too.
+      // Then sweep the host's home trees for every other repository, so
+      // the panel answers what repos exist on the host, not only what sits
+      // inside resources/. Junk trees are pruned before descent.
       "WSTOP=$(GIT_TERMINAL_PROMPT=0 git -C " + shellQuote(context.workspace) + " rev-parse --show-toplevel 2>/dev/null)",
       'if [ -n "$WSTOP" ]; then',
       "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$WSTOP"',
       '  GIT_TERMINAL_PROMPT=0 git -C "$WSTOP" status --porcelain=v2 --branch 2>&1 | head -300',
       "fi",
-      'find "$ROOT" -mindepth 1 -maxdepth 4 -type d -name .git -prune 2>/dev/null | head -' + String(MAX_REPOS) + " | while read -r gitdir; do",
+      '{ find "$ROOT" -mindepth 1 -maxdepth 4 -type d -name .git -prune 2>/dev/null;'
+        + ' find /root /home -mindepth 1 -maxdepth 6 \\( -name alpine -o -name proot -o -name cache -o -name node_modules -o -name .local -o -name .npm \\) -prune -o -type d -name .git -print 2>/dev/null; }'
+        + ' | head -' + String(MAX_REPOS) + " | while read -r gitdir; do",
       '  repo="${gitdir%/.git}"',
       "  printf '%s%s\\n' " + shellQuote(REPO_MARKER) + ' "$repo"',
       '  GIT_TERMINAL_PROMPT=0 git -C "$repo" status --porcelain=v2 --branch 2>&1 | head -300',
@@ -227,32 +240,25 @@ export async function listWorkspaceRepos(): Promise<WorkspaceReposListing> {
       repos.push({ path: repoPath, name: repoDisplayName(context.root, repoPath), ...parseStatus(status.stdout) });
     });
   }
-  // Enclosing server repo first, then resources repos alphabetically.
-  repos.sort((a, b) =>
-    Number(a.path.startsWith(context.root)) - Number(b.path.startsWith(context.root))
-    || a.name.localeCompare(b.name));
+  // Enclosing server repo first, then resources repos, then the rest of
+  // the host's repositories, each group alphabetical.
+  const tier = (repo: WorkspaceGitRepo): number =>
+    context.root.startsWith(repo.path + "/") ? 0 : repo.path.startsWith(context.root) ? 1 : 2;
+  repos.sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name));
+  knownRepoPaths.clear();
+  for (const repo of repos) knownRepoPaths.add(repo.path);
   return { root: context.root, remote: context.sshTarget !== null, repos };
 }
 
-function assertRepoInsideWorkspace(context: WorkspaceContext, repoPath: string): string {
+function assertKnownRepo(context: WorkspaceContext, repoPath: string): string {
   if (typeof repoPath !== "string" || repoPath.length > 4096 || /[\n\r\0]/.test(repoPath) || repoPath.includes("..")) {
     throw new Error("That repository path is not valid.");
   }
-  if (context.sshTarget) {
-    const normalized = repoPath.replace(/\/+$/, "");
-    const enclosing = context.root === normalized || context.root.startsWith(`${normalized}/`);
-    if (!normalized.startsWith(`${context.root}/`) && !enclosing) {
-      throw new Error("That repository is outside the workspace.");
-    }
-    return normalized;
+  const normalized = context.sshTarget ? repoPath.replace(/\/+$/, "") : path.resolve(repoPath);
+  if (!knownRepoPaths.has(normalized)) {
+    throw new Error("That repository is not in the last scan - press Refresh in the Git panel first.");
   }
-  const resolved = path.resolve(repoPath);
-  const rootResolved = path.resolve(context.root);
-  const inside = resolved.toLowerCase().startsWith(`${rootResolved.toLowerCase()}${path.sep}`);
-  const enclosing = rootResolved.toLowerCase() === resolved.toLowerCase()
-    || rootResolved.toLowerCase().startsWith(`${resolved.toLowerCase()}${path.sep}`);
-  if (!inside && !enclosing) throw new Error("That repository is outside the workspace.");
-  return resolved;
+  return normalized;
 }
 
 export async function runRepoAction(
@@ -269,7 +275,7 @@ export async function runRepoAction(
     throw new Error("Write a commit message first.");
   }
   const context = workspaceContext();
-  const repoPath = assertRepoInsideWorkspace(context, repoPathValue as string);
+  const repoPath = assertKnownRepo(context, repoPathValue as string);
 
   if (context.sshTarget) {
     // sh -s consumes all of stdin as the script, so a commit message cannot

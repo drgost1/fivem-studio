@@ -34,7 +34,7 @@ Lua intelligence, and a working game viewport.
 - **The default MCP surface is eight tools** — no file access, no arbitrary command
   execution, no raw RCON, no player/entity control. That is what a fresh clone and
   a stock deployment expose.
-- Anything beyond those six is an **explicit operator opt-in** via an environment
+- Anything beyond those eight is an **explicit operator opt-in** via an environment
   flag, and stays absent from `tools/list` until you set it. See
   [Optional capabilities](#optional-capabilities-off-unless-you-enable-them) for
   what each flag adds and how paths are jailed.

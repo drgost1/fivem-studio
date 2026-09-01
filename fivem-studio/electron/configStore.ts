@@ -278,7 +278,8 @@ function themePreferenceOrDefault(value: unknown): ThemePreference {
   return DEFAULTS.theme;
 }
 
-const UI_SCALES = new Set([0.8, 0.9, 1, 1.1, 1.25, 1.5]);
+export const UI_SCALE_STEPS: readonly number[] = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
+const UI_SCALES = new Set<number>(UI_SCALE_STEPS);
 const SPEND_WARNING_USD = new Set([0, 1, 2, 5, 10, 20]);
 
 function uiScaleOrDefault(value: unknown): number {

@@ -12,6 +12,7 @@ import {
   saveConfigWithConnectionKeys,
   hasConnectionKey,
   CFX_TARGETS,
+  UI_SCALE_STEPS,
   type CfxTarget,
   type StudioConfig,
   type ThemePreference,
@@ -104,6 +105,21 @@ import { defaultSshConfigPath, listSshHosts } from "./sshConfig";
 // Window icon for dev runs; packaged builds carry the icon in the executable.
 const windowIconPath = path.join(__dirname, "..", "build", "icon.png");
 const windowIcon = fs.existsSync(windowIconPath) ? windowIconPath : undefined;
+
+/** Steps the whole-UI zoom along the same ladder Settings offers and
+ * persists it; 0 resets to 100%. Both windows follow together. */
+function applyUiScaleStep(direction: -1 | 0 | 1): void {
+  const config = loadConfig();
+  const index = UI_SCALE_STEPS.indexOf(config.uiScale);
+  const base = index === -1 ? UI_SCALE_STEPS.indexOf(1) : index;
+  const next = direction === 0
+    ? 1
+    : UI_SCALE_STEPS[Math.min(UI_SCALE_STEPS.length - 1, Math.max(0, base + direction))];
+  if (next === config.uiScale) return;
+  saveConfig({ ...config, uiScale: next });
+  mainWindow?.webContents.setZoomFactor(next);
+  consoleWindow?.webContents.setZoomFactor(next);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let consoleWindow: BrowserWindow | null = null;
@@ -539,9 +555,23 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
-  mainWindow.webContents.on("before-input-event", (_event, input) => {
+  mainWindow.webContents.on("before-input-event", (event, input) => {
     if (input.type === "keyDown" && input.control && input.shift && input.key.toUpperCase() === "I") {
       mainWindow?.webContents.toggleDevTools();
+    }
+    // Whole-UI zoom, browser-style, from anywhere — the Settings dropdown
+    // still exists but must not be the only path to a readable UI.
+    if (input.type === "keyDown" && input.control && !input.alt) {
+      if (input.key === "=" || input.key === "+") {
+        event.preventDefault();
+        applyUiScaleStep(1);
+      } else if (input.key === "-") {
+        event.preventDefault();
+        applyUiScaleStep(-1);
+      } else if (input.key === "0") {
+        event.preventDefault();
+        applyUiScaleStep(0);
+      }
     }
   });
 
@@ -617,6 +647,13 @@ function openConsoleWindow(source: ConsoleOutputSource): void {
     },
   });
   consoleWindow.webContents.setZoomFactor(startupConfig.uiScale);
+  consoleWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && input.control && !input.alt) {
+      if (input.key === "=" || input.key === "+") { event.preventDefault(); applyUiScaleStep(1); }
+      else if (input.key === "-") { event.preventDefault(); applyUiScaleStep(-1); }
+      else if (input.key === "0") { event.preventDefault(); applyUiScaleStep(0); }
+    }
+  });
   consoleWindow.on("page-title-updated", (event) => {
     event.preventDefault();
     consoleWindow?.setTitle("FiveM Studio Console");

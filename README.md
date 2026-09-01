@@ -83,7 +83,7 @@ window back exactly as it was.
 ## MCP: connect Claude Code (or any MCP client)
 
 The runtime (`fivem-mcp-server/`, bundled as `runtime.cjs`) speaks MCP over
-**stdio** or **streamable HTTP**. It exposes exactly six tools:
+**stdio** or **streamable HTTP**. Out of the box it exposes exactly six tools:
 
 | Tool | What it does |
 |---|---|
@@ -91,6 +91,29 @@ The runtime (`fivem-mcp-server/`, bundled as `runtime.cjs`) speaks MCP over
 | `start_resource` / `stop_resource` / `restart_resource` | Lifecycle for one named resource via loopback RCON |
 | `get_console_output` | Recent FXServer console lines from txAdmin's log |
 | `get_runtime_identity` | Which workspace/server this runtime controls (secret-free) |
+
+### Optional capabilities (off unless you enable them)
+
+An agent editing a remote server through plain SSH pays a fresh handshake for
+every file read, edit and git step. These tool groups run the same work *on the
+host*, over the one connection the MCP client already holds — measured on a
+Singapore VPS from Bangladesh, four operations took **4.30 s** as separate `ssh`
+calls and **0.73 s** as MCP tool calls.
+
+Set these in the runtime's env file; each is absent from `tools/list` unless its
+flag is `1`:
+
+| Flag | Tools |
+|---|---|
+| `MCP_ENABLE_FILES=1` | `read_file` (returns sha256), `write_file` (atomic, optional `expected_sha256` conflict check), `edit_file` (exact-substring — no full resend), `list_dir`, `search_files`, `check_lua` (parse before you restart a resource) |
+| `MCP_ENABLE_GIT=1` | `git_status` (fetches first, so ahead/behind is truthful), `git_diff`, `git_log`, `git_pull`, and **`git_sync`** — add + commit + push in one call, so GitHub never drifts from the server |
+| `MCP_ENABLE_RAW_RCON=1` | `server_command` — the full FXServer console (`refresh`, `ensure`, convars) |
+| `MCP_ENABLE_SHELL=1` | `run_command` — bounded arbitrary execution (timeout + output cap + cwd inside the roots) |
+| `MCP_WORKSPACE_ROOTS=/path[:/path]` | Jail for every file/git/shell path. Defaults to the server-data workspace and its parent |
+
+Git calls run as each repository's **owning user** (`sudo -n -u '#uid' -H`),
+because deploy keys and `github.com-*` ssh aliases belong to that user rather
+than to whoever runs the runtime.
 
 ### Recommended: stdio over SSH (for a VPS server)
 

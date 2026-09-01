@@ -467,6 +467,24 @@ function applyOverlayRect(target: AttachedWindow, rect: { x: number; y: number; 
   } else {
     windowClient = rect;
     SetWindowPos(target.hwnd, null, origin.x + rect.x, origin.y + rect.y, rect.width, rect.height, baseFlags);
+    // The client re-asserts its own configured windowed resolution and can
+    // refuse an external resize (measured: applying video settings pins it).
+    // Stretch used to leave the refused, larger window hanging off the
+    // stage's top-left corner, so everything past the stage was amputated on
+    // the right and bottom. Measure what the window actually is now; when
+    // the game kept its own size, center that real size on the stage so the
+    // clip crops evenly on all sides instead.
+    const actual = overlayWindowSize(target.hwnd);
+    if (actual && actual.width > 0 && actual.height > 0
+      && (Math.abs(actual.width - rect.width) > 4 || Math.abs(actual.height - rect.height) > 4)) {
+      windowClient = {
+        x: rect.x + Math.round((rect.width - actual.width) / 2),
+        y: rect.y + Math.round((rect.height - actual.height) / 2),
+        width: actual.width,
+        height: actual.height,
+      };
+      SetWindowPos(target.hwnd, null, origin.x + windowClient.x, origin.y + windowClient.y, 0, 0, baseFlags | SWP_NOSIZE);
+    }
   }
   clipOverlay(target, windowClient, rect);
 }

@@ -1,4 +1,4 @@
-# Building QB Studio
+# Building FiveM Studio
 
 ## Supported toolchain
 

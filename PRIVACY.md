@@ -2,17 +2,17 @@
 
 Last updated: August 30, 2026
 
-This policy describes the privacy behavior of the QB Studio Windows desktop
+This policy describes the privacy behavior of the FiveM Studio Windows desktop
 application distributed from
 [`drgost1/fivem-studio`](https://github.com/drgost1/fivem-studio).
 
 ## Summary
 
-QB Studio does not require a QBCore account and does not send analytics,
+FiveM Studio does not require an account and does not send analytics,
 telemetry, crash reports, project files, or usage data to QBCore Framework.
-QBCore Framework does not operate a QB Studio cloud service or user database.
+Tufan Studio does not operate a FiveM Studio cloud service or user database.
 
-QB Studio is a local development tool. Some features make network requests when
+FiveM Studio is a local development tool. Some features make network requests when
 the user invokes them or configures an external service. Installed release
 builds also check the public GitHub release feed at startup. Downloading an
 application update is always user-initiated, and installing it requires the
@@ -22,7 +22,7 @@ be disabled in Settings, as described below.
 
 ## Data stored on the device
 
-QB Studio stores application settings in the current Windows user's application
+FiveM Studio stores application settings in the current Windows user's application
 data directory. Those settings can include workspace and executable paths,
 the selected server profile and target, artifact update records, and model
 provider configuration.
@@ -34,7 +34,7 @@ sent only to that selected endpoint for authentication. Changing an endpoint
 does not carry its previously saved key to the new host. Connections marked
 keyless never load, store, or send a credential.
 Conversation history is held in application memory for the active session and
-is not persisted by QB Studio. Imported repositories and user-approved file
+is not persisted by FiveM Studio. Imported repositories and user-approved file
 changes are stored in the workspace selected by the user.
 
 After the user selects **Download update**, updater metadata and the downloaded
@@ -46,7 +46,7 @@ rollout cohort; it is unrelated to the user's Windows or GitHub identity.
 
 Uninstalling the application might not remove settings retained in the Windows
 application data directory. Users can delete that local data manually and can
-remove each saved provider key or connection from QB Studio settings.
+remove each saved provider key or connection from FiveM Studio settings.
 
 ## Optional AI and model providers
 
@@ -59,7 +59,7 @@ receive the API key used to authenticate the request, the chosen model name,
 and ordinary connection metadata such as the user's IP address.
 
 That information is handled under the selected provider's terms and privacy
-policy. QB Studio includes presets for these hosted services:
+policy. FiveM Studio includes presets for these hosted services:
 
 - [Google privacy policy](https://policies.google.com/privacy)
 - [Groq privacy policy](https://groq.com/privacy-policy/)
@@ -70,25 +70,25 @@ policy. QB Studio includes presets for these hosted services:
 
 Users can instead configure a compatible service running on numeric loopback,
 such as Ollama or LM Studio, when model traffic must remain on the local
-computer. QB Studio does not control the retention, training, or account
+computer. FiveM Studio does not control the retention, training, or account
 policies of a provider selected by the user.
 
 ## Other network features
 
 - **Discord Rich Presence:** Disabled by default and enableable in Settings.
-  QB Studio connects to the locally running Discord desktop app without a bot,
+  FiveM Studio connects to the locally running Discord desktop app without a bot,
   OAuth login, token, or Discord credential. It supplies only the application
   identity and version, the current app area, the broad active target (FiveM
   Legacy, FiveM Enhanced, or RedM), and—while editing or reviewing—the active
   file's basename and a language label derived from its extension. The basename
-  is visible to people who can view the user's Discord activity. QB Studio also
+  is visible to people who can view the user's Discord activity. FiveM Studio also
   supplies fixed links to `qbcore.org` and its public latest-release page. It
   never supplies full paths, workspace, profile, server or resource names, file
   contents, source selections, console output, Git data, or AI chat contents.
   Discord associates and distributes presence under the user's Discord account
   and the [Discord Privacy Policy](https://discord.com/privacy). Disabling the
-  setting clears QB Studio's activity and closes its local Discord connection.
-- **QB Studio application updates:** On startup, an installed release requests
+  setting clears FiveM Studio's activity and closes its local Discord connection.
+- **FiveM Studio application updates:** On startup, an installed release requests
   public release metadata from the official GitHub repository. The request does
   not include project files, settings, provider keys, or conversation contents.
   It does include the updater's random persistent staging identifier, which
@@ -104,7 +104,7 @@ policies of a provider selected by the user.
   GitHub receives the request and ordinary connection metadata under the
   [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
 - **Cfx.re artifacts:** When the user checks for or installs a server artifact,
-  QB Studio requests metadata and downloads files from official Cfx.re
+  FiveM Studio requests metadata and downloads files from official Cfx.re
   endpoints. The downloaded artifact and a local installation record remain on
   the user's computer.
 - **External documentation and account links:** These open in the user's
@@ -112,7 +112,7 @@ policies of a provider selected by the user.
   receives the browser request under its own privacy policy.
 - **Local runtime control:** Editor, console, resource lifecycle, RCON, txAdmin,
   and embedded-client coordination are restricted to the user's computer and
-  numeric loopback interfaces by QB Studio.
+  numeric loopback interfaces by FiveM Studio.
 
 ## Data sharing and retention
 
@@ -125,6 +125,6 @@ remains until the user changes or deletes it.
 
 Material changes to this policy will be committed publicly to the repository.
 Privacy questions can be submitted through the
-[QB Studio issue tracker](https://github.com/drgost1/fivem-studio/issues).
+[FiveM Studio issue tracker](https://github.com/drgost1/fivem-studio/issues).
 Do not include credentials, private source code, or exploitable security details
 in a public issue.

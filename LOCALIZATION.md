@@ -1,6 +1,6 @@
 # Localization
 
-QB Studio currently ships one locale: English (`en`). The catalog lives in
+FiveM Studio currently ships one locale: English (`en`). The catalog lives in
 `fivem-studio/src/i18n.ts`; there is no locale selector, plural-rule engine, or
 runtime translation dependency yet.
 

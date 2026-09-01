@@ -26,13 +26,18 @@ Lua intelligence, and a working game viewport.
 | **MCP runtime** | The coding runtime is a Model Context Protocol server. The built-in Agent Chat uses it — and so can Claude Code or any MCP client (see below). |
 | **Console + resources** | Read the FXServer console from txAdmin's log, see started/stopped state per resource, restart one resource in seconds. |
 
-### Security posture (inherited from upstream, kept intact)
+### Security posture
 
 - RCON is **loopback-only, always** — remote mode runs the runtime *on* the host so
   the plaintext UDP RCON never crosses a network; SSH carries an authenticated
   tunnel instead.
-- The MCP surface is deliberately small: six tools, no arbitrary command execution,
-  no raw RCON, no player/entity control.
+- **The default MCP surface is six tools** — no file access, no arbitrary command
+  execution, no raw RCON, no player/entity control. That is what a fresh clone and
+  a stock deployment expose.
+- Anything beyond those six is an **explicit operator opt-in** via an environment
+  flag, and stays absent from `tools/list` until you set it. See
+  [Optional capabilities](#optional-capabilities-off-unless-you-enable-them) for
+  what each flag adds and how paths are jailed.
 - Secrets stay out of `argv` and out of the renderer; `rcon_password` is read from
   `server.cfg` *on the host* and never transmitted.
 
@@ -96,8 +101,8 @@ The runtime (`fivem-mcp-server/`, bundled as `runtime.cjs`) speaks MCP over
 
 An agent editing a remote server through plain SSH pays a fresh handshake for
 every file read, edit and git step. These tool groups run the same work *on the
-host*, over the one connection the MCP client already holds — measured on a
-Singapore VPS from Bangladesh, four operations took **4.30 s** as separate `ssh`
+host*, over the one connection the MCP client already holds — measured against a
+remote VPS, four operations took **4.30 s** as separate `ssh`
 calls and **0.73 s** as MCP tool calls.
 
 Set these in the runtime's env file; each is absent from `tools/list` unless its
@@ -124,9 +129,9 @@ On the host, create an env file and a wrapper (once):
 RCON_HOST=127.0.0.1
 RCON_PORT=30120
 RCON_PASSWORD=<from server.cfg>
-SERVER_DATA_WORKSPACE=/home/fivem/txData1/server-data
-SERVER_CONFIG_PATH=/home/fivem/txData1/server-data/server.cfg
-TXADMIN_DATA_DIR=/home/fivem/txData1
+SERVER_DATA_WORKSPACE=/srv/fxserver/txData/server-data
+SERVER_CONFIG_PATH=/srv/fxserver/txData/server-data/server.cfg
+TXADMIN_DATA_DIR=/srv/fxserver/txData
 TXADMIN_CONTROL_PROFILE=default
 ```
 
@@ -152,8 +157,9 @@ Then in the folder where you run Claude Code, add `.mcp.json`:
 }
 ```
 
-Open a Claude Code session in that folder — the six tools appear, driving your
-live server. One entry per server (different env files) scales to a whole fleet.
+Open a Claude Code session in that folder — the tools appear (the base six, plus
+whichever optional groups that env file enables), driving your live server. One
+entry per server (different env files) scales to a whole fleet.
 
 ### Alternative: HTTP + SSH tunnel
 

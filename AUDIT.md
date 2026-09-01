@@ -1,20 +1,29 @@
-# QB Studio audit and improvement plan
+# FiveM Studio audit and improvement plan
 
 ## Product boundary
 
-QB Studio is a single-user, localhost-only coding environment. Its live
-runtime surface is intentionally limited to console reading and named resource
-lifecycle actions. The embedded local-client preview is passive: it does not
-add player or gameplay controls.
+FiveM Studio is a single-user coding environment for a server you control,
+either on the same PC or on a remote host over SSH. Its default runtime surface
+is intentionally limited to console reading and named resource lifecycle
+actions. The embedded local-client preview is passive: it does not add player or
+gameplay controls.
+
+Capabilities beyond that default (workspace file access, git, raw console, shell)
+exist only as explicit operator opt-ins, are absent from `tools/list` unless
+their environment flag is set, and are jailed to configured workspace roots with
+per-call timeouts and output caps. A stock deployment exposes none of them.
 
 ## Fixed in this stabilization pass
 
 - Enforced numeric loopback-only MCP and RCON destinations without DNS
   resolution. Standard Cfx.re wildcard bind directives are normalized to
-  loopback for RCON; explicit LAN/public targets remain rejected. QB Studio's
+  loopback for RCON; explicit LAN/public targets remain rejected. The
   generated local profile binds to `127.0.0.1` and disables advertisement.
-- Removed all player, entity, teleport, spawn, screenshot, arbitrary-eval, and
-  raw-RCON tools from the UI, agent allowlists, and bundled runtime.
+- Removed all player, entity, teleport, spawn, screenshot and arbitrary-eval
+  tools from the UI, agent allowlists, and bundled runtime. Raw console and
+  shell access exist only behind the opt-in flags described above; they are not
+  part of the default surface and there are still no player or gameplay tools at
+  any setting.
 - Added bounded requests/sessions, strict tool schemas, resource-name checks,
   workspace/runtime identity matching, and explicit approval for mutations.
 - Scoped renderer file access to the selected workspace with traversal and
@@ -41,7 +50,7 @@ add player or gameplay controls.
   demand-driven Lua language-server integration.
 - Added an NSIS installer, CI, semantic versioning, coordinated installer,
   `latest.yml`, and blockmap release assets, GitHub build and complete-lockfile
-  SBOM attestations, an MIT license, and QB Studio branding.
+  SBOM attestations, and an MIT license.
 - Added user-controlled application updates: installed releases check the
   official GitHub feed at startup, download only after an explicit user action,
   and install only through **Restart to update**. Unsaved editor changes block
@@ -67,8 +76,10 @@ add player or gameplay controls.
 
 ### P1 — highest-value product improvements
 
-1. Finish the Git workflow needed to replace GitHub Desktop: status, diff,
-   stage, conventional commit, branch, pull, and push with clear confirmations.
+1. Extend the Git workflow toward replacing GitHub Desktop. Status, diff, log,
+   pull, commit and push now exist in the sidebar Git panel and as runtime
+   tools; branch management, staging individual hunks, and conventional-commit
+   assistance remain.
 2. Stream and filter console output instead of requiring manual refresh, with
    backpressure and a fixed memory cap.
 3. Add a diagnostics page for txAdmin attachment, missing license/RCON config,
@@ -90,7 +101,7 @@ add player or gameplay controls.
 - The AI provider may receive prompts and selected project content; a local
   OpenAI-compatible provider is available for developers who require offline
   inference.
-- txAdmin owns its control-profile schema. QB Studio creates a safe
+- txAdmin owns its control-profile schema. FiveM Studio creates a safe
   server-data workspace, then the developer attaches it through txAdmin's
   supported setup/deployer flow.
 - Current installers and application updates are unsigned. GitHub HTTPS

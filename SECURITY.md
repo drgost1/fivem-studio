@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest published QB Studio release. The
+Security fixes are provided for the latest published FiveM Studio release. The
 `main` branch and older preview releases may change without a compatibility or
 backport guarantee.
 
@@ -12,7 +12,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private
 [vulnerability reporting form](https://github.com/drgost1/fivem-studio/security/advisories/new)
 and include:
 
-- the affected QB Studio version and Windows version;
+- the affected FiveM Studio version and Windows version;
 - a concise impact assessment and the security boundary crossed;
 - minimal reproduction steps or a proof of concept;
 - whether credentials, private source, or third-party services are involved;
@@ -28,7 +28,7 @@ If the private reporting form is unavailable, contact a QBCore Framework
 organization owner privately and request a secure reporting channel. Do not
 fall back to a public issue containing exploit details. Repository owners
 should keep private vulnerability reporting enabled and provide a monitored
-security contact before promoting QB Studio beyond preview status.
+security contact before promoting FiveM Studio beyond preview status.
 
 ## Disclosure
 

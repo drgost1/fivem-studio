@@ -772,7 +772,7 @@ export default function SettingsModal({
               <input
                 type="text"
                 value={draft.remote.workspacePath}
-                placeholder="/home/fivem/txData1/server-data"
+                placeholder="/srv/fxserver/txData/server-data"
                 onChange={(event) => setDraft((current) => {
                   if (!current.remote) return current;
                   const workspacePath = event.target.value.trim().replace(/\/+$/, "");

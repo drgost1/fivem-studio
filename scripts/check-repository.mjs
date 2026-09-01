@@ -57,10 +57,12 @@ const semanticRelease = readJson(".releaserc.json");
 const githubReleasePlugin = semanticRelease.plugins?.find(
   (plugin) => Array.isArray(plugin) && plugin[0] === "@semantic-release/github",
 );
+// These must track fivem-studio/package.json's build.win.artifactName; a
+// mismatch publishes a release with no installer attached.
 const expectedReleaseAssets = [
-  { path: "release/QB-Studio-Setup-*.exe", label: "QB Studio Windows installer" },
-  { path: "release/latest.yml", label: "QB Studio update manifest" },
-  { path: "release/QB-Studio-Setup-*.exe.blockmap", label: "QB Studio Windows installer blockmap" },
+  { path: "release/FiveM-Studio-Setup-*.exe", label: "FiveM Studio Windows installer" },
+  { path: "release/latest.yml", label: "FiveM Studio update manifest" },
+  { path: "release/FiveM-Studio-Setup-*.exe.blockmap", label: "FiveM Studio Windows installer blockmap" },
 ];
 assert(
   JSON.stringify(githubReleasePlugin?.[1]?.assets) === JSON.stringify(expectedReleaseAssets),

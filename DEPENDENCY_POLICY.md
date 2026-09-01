@@ -2,7 +2,7 @@
 
 Last reviewed: August 30, 2026
 
-QB Studio uses the reviewed Node.js `24.20.0` and bundled npm `11.19.0`
+FiveM Studio uses the reviewed Node.js `24.20.0` and bundled npm `11.19.0`
 toolchain recorded in `.nvmrc` and `package.json`. The committed
 `package-lock.json` is the source of truth for reproducible installs. A newer
 version is not adopted when
@@ -82,7 +82,7 @@ silently acquiring a different native executable.
 
 ## Bundled Lua definition packs
 
-QB Studio exposes exactly three definition products beneath
+FiveM Studio exposes exactly three definition products beneath
 `fivem-studio/resources/lua-library`: `fivem`, `redm`, and `qbcore`. FiveM
 targets load FiveM plus QBCore; RedM loads only RedM. Shared runtime declarations
 are intentionally duplicated into the two engine packs, so there is no fourth

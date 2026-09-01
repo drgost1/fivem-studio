@@ -10,7 +10,25 @@ release/
 vendor/lua-language-server/
 .smoke-userdata/
 *.log
+
+# Secrets. `.env` alone is not enough: editors and backup habits produce
+# .env.local, .env.backup, .env.2026-01-01.bak and similar, and a single
+# `git add -A` would publish them.
 .env
+.env.*
+*.env
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*_deploy
+*_deploy.pub
+.ssh/
+runtime.env
+runtime*.env
 *.config.local.json
 
 # Local-only prototype material that is not part of this product.
